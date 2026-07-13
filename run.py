@@ -128,6 +128,21 @@ def _wait_health(timeout=40.0):
     return False
 
 
+def _wait_server_down(timeout=25.0):
+    """자동 재시작(업데이트 후)용 — 이전 인스턴스(서버)가 완전히 내려갈 때까지 대기.
+    health 가 끊기면 이전 프로세스가 종료된 것(os._exit) → 포트·단일 인스턴스 뮤텍스가 풀린다.
+    이걸 기다린 뒤 새로 떠야 '포트 사용 중'·'이미 실행 중' 충돌이 안 난다."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            with urlopen(HEALTH, timeout=1) as r:
+                r.read(1)  # 아직 떠 있음
+        except Exception:
+            return True  # 내려감(정상)
+        time.sleep(0.3)
+    return False  # 타임아웃 — 그래도 진행(아래 뮤텍스 재시도가 막아줌)
+
+
 def _keepalive():
     """데몬 서버 스레드가 도는 동안 메인 프로세스를 붙잡아 둔다(브라우저 폴백용)."""
     try:
@@ -279,7 +294,20 @@ def _run_app_window():
 
 
 if __name__ == "__main__":
-    if _is_another_instance_running():
+    # 자동 재시작(업데이트 적용 후 — 사용자 요청 2026-07-13): 이전 인스턴스가 띄운 '재시작 도우미'.
+    # 이전 서버가 완전히 내려간 뒤에야 새로 뜬다(포트·단일 인스턴스 충돌 방지). 열기 방식(web/app)
+    # 인자는 --relaunch 만 걷어내고 그대로 이어받는다. 창이 닫혔다가 새 창(또는 새 탭)으로 다시 열린다.
+    _relaunch = "--relaunch" in sys.argv
+    if _relaunch:
+        sys.argv = [a for a in sys.argv if a != "--relaunch"]
+        _wait_server_down()
+        time.sleep(1.0)  # 포트/뮤텍스 해제 여유(윈도우 소켓 정리)
+        # 이전 인스턴스가 뮤텍스를 놓을 때까지 짧게 재시도 — 보통 즉시 성공(그럼 뮤텍스 보유하고 진행).
+        for _ in range(20):
+            if not _is_another_instance_running():
+                break
+            time.sleep(0.4)
+    elif _is_another_instance_running():
         # 이미 실행 중 — 중복 창/서버를 만들지 않고 기존 것을 브라우저로 열어 보여준 뒤 종료.
         try:
             _open_browser()

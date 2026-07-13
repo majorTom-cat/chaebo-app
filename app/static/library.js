@@ -340,19 +340,20 @@
       ov.querySelector('#upd-quick').addEventListener('click', function () {
         var qb = ov.querySelector('#upd-quick');
         qb.disabled = true; qb.textContent = '업데이트 받는 중…';
-        fetch('/api/apply-update', { method: 'POST' }).then(function (r) { return r.json(); }).then(function (res) {
-          if (res && res.ok) {
+        // 델타 적용 → 자동으로 앱을 껐다 켠다(사용자 요청 2026-07-13). 공용 로직(update.js).
+        window.chaeboUpdate.applyAndRestart(function (stage, data) {
+          if (stage === 'applied') {
             box.innerHTML = '<h3 style="margin:0 0 8px">다 됐어요!</h3>' +
-              '<p style="color:#555;font-size:14px;line-height:1.6;margin:0 0 16px">앱을 <b>껐다 다시 켜면</b> 새 버전(v' + esc(res.version || d.latest) + ')이에요.</p>' +
-              '<div style="display:flex;justify-content:flex-end"><button type="button" id="upd-done" class="btn btn-primary btn-sm">알겠어요</button></div>';
-            box.querySelector('#upd-done').addEventListener('click', function () { ov.remove(); });
-          } else {
+              '<p style="color:#555;font-size:14px;line-height:1.6;margin:0">새 버전(v' +
+              esc((data && data.version) || d.latest) + ')을 적용하려고 <b>앱을 자동으로 껐다 켜요.</b>' +
+              '<br>잠시 뒤 새 창(또는 새 탭)으로 다시 열려요.</p>';
+          } else if (stage === 'restarting') {
+            box.innerHTML = '<h3 style="margin:0 0 8px">다시 시작하는 중…</h3>' +
+              '<p style="color:#555;font-size:14px;line-height:1.6;margin:0">앱을 껐다 켜고 있어요. 잠시만 기다려 주세요.</p>';
+          } else if (stage === 'apply-failed') {
             qb.disabled = false; qb.textContent = '빠른 업데이트';
             alert('빠른 업데이트에 실패했어요 — "직접 받기"로 설치해 주세요.');
           }
-        }).catch(function () {
-          qb.disabled = false; qb.textContent = '빠른 업데이트';
-          alert('빠른 업데이트에 실패했어요 — "직접 받기"로 설치해 주세요.');
         });
       });
       ov.addEventListener('click', function (e) { if (e.target === ov) ov.remove(); });

@@ -9,6 +9,7 @@ import mimetypes
 import os
 import re
 import shutil
+import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -971,6 +972,47 @@ async def apply_update():
     except Exception as e:  # noqa: BLE001 — 실패해도 기존 설치는 그대로(안전)
         print(f"[update] 빠른 업데이트 실패: {e}", flush=True)
         return {"ok": False}
+
+
+@app.post("/api/restart")
+def restart_app():
+    """앱 자동 재시작(업데이트 적용 후 — 사용자 요청 2026-07-13) = '자동으로 껐다 켜기'.
+    현재 서버가 완전히 내려간 뒤 새 앱을 띄우는 '재시작 도우미'(run.py --relaunch)를 분리 프로세스로
+    먼저 실행하고, 잠깐 뒤 이 프로세스를 종료한다. 도우미는 health 가 끊길 때까지 기다렸다가 같은
+    포트로 새로 뜬다(포트·단일 인스턴스 충돌 방지). 앱 창 모드면 창이 닫혔다가 새 창으로, 웹 모드면
+    새 탭으로 다시 열린다. 새 파이썬 코드(델타 교체본)가 그때 로드된다."""
+    import subprocess
+
+    run_py = config.BASE_DIR / "run.py"
+    if not run_py.is_file():
+        raise HTTPException(400, "재시작 스크립트를 찾지 못했어요")
+
+    # 현재 열기 방식(web/app)을 그대로 이어받는다 — 실행 인자로 온 것만 전달(없으면 저장값 사용).
+    _MODE_ARGS = {"web", "--web", "browser", "--browser", "브라우저",
+                  "app", "--app", "window", "--window", "앱"}
+    cmd = [sys.executable, str(run_py), "--relaunch"]
+    cmd += [a for a in sys.argv[1:] if a.lower() in _MODE_ARGS]
+
+    flags = 0
+    if os.name == "nt":
+        # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP — 부모(현재 앱)가 죽어도 살아남게 분리.
+        flags = 0x00000008 | 0x00000200
+    try:
+        subprocess.Popen(cmd, cwd=str(config.BASE_DIR), close_fds=True, creationflags=flags)
+    except Exception as e:  # noqa: BLE001
+        print(f"[restart] 재시작 도우미 실행 실패: {e}", flush=True)
+        raise HTTPException(500, "재시작을 시작하지 못했어요")
+
+    # 응답을 먼저 흘려보내고(프런트가 '다시 시작 중' 표시할 시간) + 도우미가 기동할 여유를 준 뒤 종료.
+    import threading
+    import time as _time
+
+    def _bye():
+        _time.sleep(0.8)
+        os._exit(0)  # 트레이 '종료'와 동일 — 데몬 서버 스레드까지 즉시 정리(포트·뮤텍스 해제)
+
+    threading.Thread(target=_bye, daemon=True).start()
+    return {"ok": True}
 
 
 def run():
