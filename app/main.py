@@ -77,7 +77,13 @@ async def get_app_settings():
     limits = await db.get_limits()
     sync = await db.get_setting("sync_ms")
     drift = await db.get_setting("sync_drift_ms_per_min")
+    sync_ver = await db.get_setting("sync_formula_version")
     st = await system.status()
+    sync_val = int(sync) if sync is not None else 0
+    drift_val = float(drift) if drift is not None else 0.0
+    # 저장된 보정값이 '옛 공식 세대'에 맞춰진 것이면 stale — 프런트가 0 으로 리셋하고 재보정을 안내한다.
+    # (값이 0/0 이면 리셋할 게 없으니 stale 아님. 스탬프가 현재와 같으면 이 공식으로 맞춘 값이라 유효.)
+    sync_stale = (sync_val != 0 or drift_val != 0) and sync_ver != config.SYNC_FORMULA_VERSION
     return {
         "device": st["device"],
         "nvidia": st["nvidia"],
@@ -86,10 +92,11 @@ async def get_app_settings():
         "data_dir": str(config.DATA_DIR),
         "max_duration_min": limits["max_duration_min"],
         "max_file_mb": limits["max_file_mb"],
-        "sync_ms": int(sync) if sync is not None else 0,  # 소리-화면 싱크(기기 속성 — 전역)
+        "sync_ms": sync_val,  # 소리-화면 싱크(기기 속성 — 전역)
+        "sync_stale": sync_stale,  # True 면 옛 공식 보정 → 프런트가 0 리셋·재보정 안내(사용자 요청 2026-07-13)
         # 곡이 진행될수록 실기기 출력이 선형으로 밀리는 걸 상쇄(ms/분). 측정 근거: 앱 표시시계는
         # 드리프트 0, 밀림은 하드웨어 출력경로 → 고정 offset 으론 못 잡아 '위치 비례' 보정 추가(2026-07-13).
-        "sync_drift_ms_per_min": float(drift) if drift is not None else 0.0,
+        "sync_drift_ms_per_min": drift_val,
         "version": f"chaebo v{config.APP_VERSION} (로컬 전용)",
     }
 
@@ -121,6 +128,10 @@ async def put_app_settings(body: SettingsIn):
         if not (-120 <= body.sync_drift_ms_per_min <= 120):
             raise HTTPException(422, "밀림 보정은 분당 -120~120ms 사이로 정해주세요")
         await db.set_setting("sync_drift_ms_per_min", body.sync_drift_ms_per_min)
+    # 싱크 보정을 쓸 때마다 '지금 공식 세대'를 함께 도장 — 다음 세대에서 이 값이 stale 인지 판정하는 근거.
+    # (0 으로 리셋해도 스탬프가 현재가 되어 재알림이 멈춘다 — 프런트의 stale 리셋이 여기로 영구화된다.)
+    if body.sync_ms is not None or body.sync_drift_ms_per_min is not None:
+        await db.set_setting("sync_formula_version", config.SYNC_FORMULA_VERSION)
     limits = await db.get_limits()
     sync = await db.get_setting("sync_ms")
     drift = await db.get_setting("sync_drift_ms_per_min")

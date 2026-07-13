@@ -379,7 +379,11 @@
 
   /* ---- 싱크 자동 측정(탭 캘리브레이션) ---- */
   fetch('/api/settings').then(function (r) { return r.json(); }).then(function (s) {
-    document.getElementById('sync-current').textContent = (s.sync_ms || 0) + 'ms';
+    // 옛 공식 세대 보정값이면(sync_stale) 그 값은 이 버전 공식에 안 맞으니 0(재보정 필요)으로 정직 표기.
+    // 실제 리셋 영구화는 연습 화면(transport.js)에서 이뤄진다 — 여기선 값이 이미 0으로 보여도 무해.
+    document.getElementById('sync-current').textContent = s.sync_stale
+      ? '0ms (새 버전 — 아래에서 다시 맞춰 주세요)'
+      : (s.sync_ms || 0) + 'ms';
   });
 
   // 리듬게임식: 준비 4박(낮은 음) + 측정 8박(높은 음), 0.75초 간격 — 예측 가능한 박

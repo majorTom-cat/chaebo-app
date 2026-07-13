@@ -275,6 +275,23 @@
       el('sync-value').textContent = syncMs + 'ms';
       var av = el('align-value'); if (av) av.textContent = syncMs + 'ms';
     }
+    // 옛 공식 보정값을 리셋했을 때 한 번 뜨는 안내(사용자 지적: 싱크 구현 바뀌면 세팅 초기화돼야).
+    function notifySyncReset() {
+      try {
+        var t = document.createElement('div');
+        t.style.cssText = 'position:fixed;left:50%;top:16px;transform:translateX(-50%);z-index:1600;'
+          + 'max-width:92vw;background:#20242e;color:#e8eaf0;border:1px solid #3a4152;border-radius:10px;'
+          + 'padding:12px 16px;font-size:13px;line-height:1.6;box-shadow:0 8px 30px rgba(0,0,0,.4);';
+        t.innerHTML = '새 버전에서 <b>소리-화면 맞추기</b> 방식이 바뀌어, 예전 보정값을 <b>0으로 초기화</b>했어요.'
+          + '<br>소리와 화면이 안 맞으면 아래 싱크 버튼(또는 설정 → 소리-화면 맞추기)으로 다시 맞춰 주세요. '
+          + '<span style="text-decoration:underline;cursor:pointer" id="sync-reset-ok">알겠어요</span>';
+        document.body.appendChild(t);
+        var close = function () { if (t.parentNode) t.parentNode.removeChild(t); };
+        var okb = t.querySelector('#sync-reset-ok');
+        if (okb) okb.addEventListener('click', close);
+        setTimeout(close, 12000);
+      } catch (e) { /* 안내 실패는 무시 — 리셋 자체는 이미 됨 */ }
+    }
     function saveSync() {
       fetch('/api/settings', {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
@@ -364,8 +381,18 @@
     if (el('drift-value')) el('drift-value').addEventListener('click', function () { driftPerMin = 0; saveDrift(); });
 
     fetch('/api/settings').then(function (r) { return r.json(); }).then(function (s) {
-      if (s && s.sync_ms != null) { syncMs = s.sync_ms; showSync(); onSyncChange(syncMs); }
-      if (s && s.sync_drift_ms_per_min != null) { driftPerMin = s.sync_drift_ms_per_min; showDrift(); }
+      if (!s) return;
+      if (s.sync_stale) {
+        // 새 공식 세대 — 옛 보정값은 이 공식에 맞지 않아 stale(사용자 지적 2026-07-13: 싱크 구현이
+        // 바뀌면 세팅도 초기화돼야). 0 으로 리셋하고 재보정을 한 번 안내한다. saveSync/saveDrift 가
+        // 0+현재 스탬프로 영구화 → 다음 로드부터 stale 아님(재알림 없음).
+        syncMs = 0; driftPerMin = 0; showSync(); showDrift(); onSyncChange(0);
+        saveSync(); saveDrift();
+        notifySyncReset();
+        return;
+      }
+      if (s.sync_ms != null) { syncMs = s.sync_ms; showSync(); onSyncChange(syncMs); }
+      if (s.sync_drift_ms_per_min != null) { driftPerMin = s.sync_drift_ms_per_min; showDrift(); }
     });
 
     /* ---- 소리-화면 맞추기(캘리브레이션) — 딱딱 소리 + 점을 커서와 같은 시계로 몰아 정렬.
