@@ -82,6 +82,11 @@
           .then(function (ab) { return ctx.decodeAudioData(ab); })
           .then(function (buf) {
             return SignalsmithStretch(ctx).then(function (node) {
+              // 6스템이 동시에 도는 실시간 STFT 부하 절감(벤더의 가벼운 프리셋) — 약한 PC/6스템에서
+              // 기본 프리셋은 CPU 를 못 따라가 언더런 → 소리가 깨지고(글리치) 재생 위치가 밀린다(사용자
+              // 실측 2026-07-13, 조사로 원인 확정: 1배속·피치0에도 6노드가 full FFT). 프리셋은 port
+              // 메시지라 아래 addBuffers 보다 먼저 처리됨(순서 보장). 미지원 환경이면 조용히 기본값 유지.
+              try { node.configure({ preset: 'cheaper' }); } catch (e) { /* 기본값 */ }
               var ch0 = buf.getChannelData(0);
               var ch1 = buf.numberOfChannels > 1 ? buf.getChannelData(1) : ch0;
               // getChannelData 는 AudioBuffer 소유 메모리의 뷰 — 사본을 떠서 그 사본을 transfer
