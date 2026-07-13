@@ -976,6 +976,10 @@ async def apply_update():
             # 교체(제자리 덮어쓰기): app/ 트리 + run.py. 파이썬 파일은 잠기지 않아 재시작 때 반영.
             shutil.copytree(src / "app", config.BASE_DIR / "app", dirs_exist_ok=True)
             shutil.copy2(src / "run.py", config.BASE_DIR / "run.py")
+            # 새 .py 를 옛 바이트코드(.pyc)가 가리지 않게 — 델타 교체 후 __pycache__ 제거(재시작 시 새로 컴파일).
+            # (드문 케이스지만, 옛 캐시가 남으면 '업데이트했는데 옛 버전'으로 보여 무한 업데이트 루프의 한 원인.)
+            for pc in (config.BASE_DIR / "app").rglob("__pycache__"):
+                shutil.rmtree(pc, ignore_errors=True)
         return info.get("version")
 
     try:
