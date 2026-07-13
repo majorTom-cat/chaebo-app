@@ -265,6 +265,26 @@
     </div>
   </section>
 
+  <!-- 진단(사용자 요청 2026-07-14) — 문제가 생기면 오류를 복사해 보낼 수 있게. 실기기 런타임 버그는
+       개발 PC(헤드리스)에서 재현이 안 돼 이 로그가 유일한 단서. -->
+  <section class="settings-section">
+    <h2>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a10 10 0 100 20 10 10 0 000-20z"/><line x1="12" y1="8" x2="12" y2="13"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+      문제 진단
+    </h2>
+    <p class="settings-desc">앱이 이상하게 동작하면(멈춤·꺼짐 등) 아래 <strong>진단 로그 보기</strong>를 눌러 나온 내용을 <strong>복사</strong>해서 개발자에게 보내주세요. 지금 실제로 실행 중인 버전도 여기서 확인할 수 있어요.</p>
+    <div class="status-box" style="margin-bottom: var(--sp-3);">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9 12l2 2 4-4"/></svg>
+      <span>지금 실행 중인 버전: <strong id="diag-version">확인 중…</strong></span>
+    </div>
+    <div class="path-row">
+      <button type="button" class="btn btn-outline" id="diag-show-btn">진단 로그 보기</button>
+      <button type="button" class="btn btn-outline btn-sm" id="diag-copy-btn" hidden>전체 복사</button>
+      <span class="save-note" id="diag-copied">복사됐어요</span>
+    </div>
+    <pre id="diag-log" hidden style="margin-top: var(--sp-3); max-height: 320px; overflow: auto; background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-sm); padding: 12px; font-size: 12px; line-height: 1.5; white-space: pre-wrap; word-break: break-all; user-select: text; -webkit-user-select: text;"></pre>
+  </section>
+
 </main>
 
 <script src="/static/update.js"></script>
@@ -604,6 +624,48 @@
             (lastUrl ? ' — <a class="info-link" href="' + esc(lastUrl) + '" target="_blank" rel="noopener">직접 받기</a>' : '') + '.';
         }
       });
+    });
+  })();
+
+  /* ---- 문제 진단(사용자 요청 2026-07-14) — 실행 버전 + 로그를 화면에 띄워 복사하게. 실기기 런타임
+     버그(최소화 크래시·업데이트 멈춤)는 개발 PC(헤드리스)서 재현 불가 → 이 로그가 유일 단서. ---- */
+  (function diagSection() {
+    var vEl = document.getElementById('diag-version');
+    var showBtn = document.getElementById('diag-show-btn');
+    var copyBtn = document.getElementById('diag-copy-btn');
+    var pre = document.getElementById('diag-log');
+    var copied = document.getElementById('diag-copied');
+    if (!showBtn) return;
+    var loaded = '';
+
+    fetch('/api/diag-log').then(function (r) { return r.json(); }).then(function (d) {
+      if (d && d.version) vEl.textContent = 'v' + d.version;
+    }).catch(function () { vEl.textContent = '(확인 실패)'; });
+
+    showBtn.addEventListener('click', function () {
+      showBtn.disabled = true; showBtn.textContent = '불러오는 중…';
+      fetch('/api/diag-log').then(function (r) { return r.json(); }).then(function (d) {
+        showBtn.disabled = false; showBtn.textContent = '진단 로그 다시 보기';
+        if (d && d.version) vEl.textContent = 'v' + d.version;
+        loaded = '=== chaebo v' + ((d && d.version) || '?') + ' 진단 로그 ===\n' + ((d && d.log) || '(없음)');
+        pre.textContent = loaded;
+        pre.hidden = false;
+        copyBtn.hidden = false;
+      }).catch(function () {
+        showBtn.disabled = false; showBtn.textContent = '진단 로그 보기';
+        pre.textContent = '(로그를 불러오지 못했어요)'; pre.hidden = false;
+      });
+    });
+
+    copyBtn.addEventListener('click', function () {
+      var done = function () { copied.classList.add('show'); setTimeout(function () { copied.classList.remove('show'); }, 1500); };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(loaded).then(done, function () { fb(); });
+      } else { fb(); }
+      function fb() {
+        var ta = document.createElement('textarea'); ta.value = loaded; document.body.appendChild(ta);
+        ta.select(); try { document.execCommand('copy'); done(); } catch (e) {} document.body.removeChild(ta);
+      }
     });
   })();
 })();

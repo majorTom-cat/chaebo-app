@@ -713,6 +713,23 @@ def health():
     return {"status": "ok"}
 
 
+@app.get("/api/diag-log")
+def diag_log():
+    """진단용(사용자 요청 2026-07-14: 오류를 복사해 보낼 수 있게). 실행 중 버전 + chaebo-log.txt 끝부분을
+    돌려준다. 실기기 런타임 버그(최소화 크래시·업데이트 멈춤 등)는 개발 PC(헤드리스)에서 재현이 안 돼
+    이 로그가 유일한 단서다. 외부 전송 없음(로컬 조회) — 사용자가 직접 복사해 붙여넣는다."""
+    text = ""
+    try:
+        lp = config.BASE_DIR / "chaebo-log.txt"
+        if lp.exists():
+            text = lp.read_text(encoding="utf-8", errors="replace")[-8000:]  # 마지막 8KB
+        else:
+            text = "(로그 파일이 아직 없어요 — 앱 창으로 실행할 때만 생겨요)"
+    except Exception as e:  # noqa: BLE001
+        text = f"(로그를 읽지 못했어요: {e})"
+    return {"version": config.APP_VERSION, "log": text}
+
+
 @app.get("/api/system")
 async def system_info():
     # 정직 표기용 종합 상태: device(가속 켜졌나)·nvidia(하드웨어 있나)·can_enable_gpu.
