@@ -227,6 +227,12 @@
   // getOutputTimestamp = 지금 스피커로 나가는 샘플의 ctx 시각(브라우저 측정값). 없으면 base+output 로 폴백.
   SyncPlayer.prototype._heardCtxTime = function () {
     var ctx = this.ctx;
+    // ★프레임당 1회만 계산(사용자 실증 2026-07-13: 진행바가 파형보다 느림). 한 프레임에 진행바·파형·
+    // 타브 커서·코드가 각각 이 함수를 부르는데, 매 호출이 getOutputTimestamp 를 새로 읽고 EMA 를 한 번씩
+    // 더 밟아 '나중에 불린 소비자'가 앞서갔다 → 소비자마다 값이 갈림. 같은 프레임(~8ms)이면 첫 계산값을
+    // 그대로 반환해 모든 소비자가 동일 시각을 쓰게 한다(표시 시계 = 프레임 내 단일 값).
+    var nowP = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+    if (this._heardAt != null && (nowP - this._heardAt) < 8 && this._heardEma != null) return this._heardEma;
     // '지금 실제로 스피커로 나가는' ctx 위치. 핵심: 블루투스 등은 시계가 시간이 지날수록 드리프트해
     // (고정 지연이 아니라 누적) — 고정 outputLatency 로는 못 잡는다. getOutputTimestamp 로 실제 출력
     // 위치를 읽고 그 이후 경과(월클럭)만큼 투영해 드리프트까지 추종한다(리서치: Adenot·WebAudio 스펙).
@@ -247,6 +253,7 @@
     // 큰 점프(시크·재생 시작)는 즉시 반영, 작은 요동만 평활(느린 드리프트 추종은 유지).
     if (this._heardEma == null || Math.abs(raw - this._heardEma) > 0.4) this._heardEma = raw;
     else this._heardEma += (raw - this._heardEma) * 0.15;
+    this._heardAt = nowP;   // 이 프레임의 계산 시각 — 같은 프레임 재호출은 위에서 캐시 반환
     return this._heardEma;
   };
   // 화면 커서가 가리켜야 할 '들리는' 곡 위치 = 들리는 ctx시각의 곡위치 + 스트레치 look-ahead(_latency).
