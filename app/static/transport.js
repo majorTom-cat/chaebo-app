@@ -40,6 +40,7 @@
     var speed = el('speed');
     var meta = null;      // 분석 메타(bpm·meter·slots) — 메트로놈·카운트인의 전제
     var syncMs = 0;
+    var driftPerMin = 0;  // '점점 밀림' 보정(ms/분) — 곡 위치에 비례. 고정 syncMs 로 못 잡는 선형 드리프트용
 
     /* ---- 표시 시계(단일 소스) — 화면의 모든 위치 표시가 이 함수 하나만 읽는다:
        진행바·시간·믹서 playhead·타브 커서·코드·가사. (과거 실패: 이 공식이 shell·tab·transport
@@ -51,7 +52,11 @@
       // 재생 중 = '실제 들리는' 위치: getOutputTimestamp 로 하드웨어 출력지연(스피커·BT)을 자동 보정
       // + 스트레치 look-ahead(worklet). 남는 잔차(BT 추가지연 등)만 사용자 싱크(tap-to-sync)로 뺀다.
       var heard = player.heardTime ? player.heardTime() : player.currentTime();
-      return heard - syncMs / 1000;
+      // '점점 밀림' 선형 보정: 곡이 진행될수록(currentTime↑) 커지는 보정. 측정(2026-07-13)으로 앱
+      // 표시시계는 드리프트 0 확인 — 밀림은 실기기 출력경로라 고정 offset 으론 못 잡아 위치 비례 항 추가.
+      // driftPerMin>0 = 진행할수록 화면을 앞당김(화면이 소리보다 뒤처질 때). 정지 중엔 0(위 early-return).
+      var drift = driftPerMin ? driftPerMin * (player.currentTime() / 60) / 1000 : 0;
+      return heard - syncMs / 1000 + drift;
     }
 
     /* ---- 재생/일시정지 + 카운트인 ---- */
@@ -313,8 +318,54 @@
     function resetSync() { syncMs = 0; saveSync(); }
     if (el('btn-sync-reset')) el('btn-sync-reset').addEventListener('click', resetSync);
     el('sync-value').addEventListener('click', resetSync);
+
+    /* ---- '점점 밀림' 보정(전역) — 곡이 진행될수록 화면-소리가 선형으로 벌어지는 걸 상쇄.
+       측정 근거(2026-07-13): 앱 표시시계는 드리프트 0, 밀림은 실기기 출력경로(WebView2/WASAPI 리샘플)라
+       고정 싱크 하나론 못 잡음 → 위치 비례(ms/분) 보정을 사람이 한 번 맞추면 곡 내내 유지. onSyncChange
+       로 커서 즉시 다시 그림(정지 중엔 표시시계가 논리위치라 무영향). ---- */
+    var DRIFT_MAX = 120;
+    function showDrift() {
+      var dv = el('drift-value');
+      if (dv) dv.textContent = (driftPerMin > 0 ? '+' : '') + (Math.round(driftPerMin * 10) / 10) + ' ms/분';
+    }
+    function saveDrift() {
+      fetch('/api/settings', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sync_drift_ms_per_min: driftPerMin }),
+      });
+      showDrift();
+      onSyncChange(syncMs); // 커서 다시 그리기(값은 syncMs 재사용 훅 — 표시시계가 driftPerMin 도 읽음)
+    }
+    function stepDrift(d) {
+      driftPerMin = Math.max(-DRIFT_MAX, Math.min(DRIFT_MAX, Math.round((driftPerMin + d) * 10) / 10));
+      showDrift();
+      onSyncChange(syncMs);
+    }
+    function wireDriftButton(id, d) {
+      var btn = el(id);
+      if (!btn) return;
+      var delay = null, rep = null;
+      function stop() { clearTimeout(delay); clearInterval(rep); delay = rep = null; saveDrift(); }
+      btn.addEventListener('pointerdown', function (e) {
+        e.preventDefault();
+        stepDrift(d);
+        delay = setTimeout(function () { rep = setInterval(function () { stepDrift(d); }, 120); }, 400);
+        function up() {
+          window.removeEventListener('pointerup', up);
+          window.removeEventListener('pointercancel', up);
+          stop();
+        }
+        window.addEventListener('pointerup', up);
+        window.addEventListener('pointercancel', up);
+      });
+    }
+    wireDriftButton('btn-drift-minus', -1);
+    wireDriftButton('btn-drift-plus', 1);
+    if (el('drift-value')) el('drift-value').addEventListener('click', function () { driftPerMin = 0; saveDrift(); });
+
     fetch('/api/settings').then(function (r) { return r.json(); }).then(function (s) {
       if (s && s.sync_ms != null) { syncMs = s.sync_ms; showSync(); onSyncChange(syncMs); }
+      if (s && s.sync_drift_ms_per_min != null) { driftPerMin = s.sync_drift_ms_per_min; showDrift(); }
     });
 
     /* ---- 소리-화면 맞추기(캘리브레이션) — 딱딱 소리 + 점을 커서와 같은 시계로 몰아 정렬.
@@ -328,6 +379,7 @@
     if (alignModal) {
       var ALIGN_PERIOD = 1.0;
       var alignRAF = null, alignTimer = null, alignOscs = [], alignScheduled = 0;
+      var calibLast = null;   // 2점 자동보정: 직전 맞춤 {p(곡위치s), X(그 위치의 유효 보정 ms)}
       var marker = el('sync-align-marker');
       var alignHeardCtx = function () {
         var ctx = player.ctx; if (!ctx) return 0;
@@ -359,7 +411,10 @@
       };
       var alignFrame = function () {
         var hc = alignHeardCtx();
-        var dt = hc - syncMs / 1000;              // 커서(displayTime)와 같은 규약
+        // 커서(displayTime)와 같은 규약. displayTime 은 heard - [syncMs - driftPerMin·(pos/60)]/1000 이므로
+        // 지금 위치의 '유효 보정' = syncMs - driftPerMin·(pos/60). 막대도 이걸 반영해 커서와 일치시킨다.
+        var effCorr = syncMs - driftPerMin * (player.currentTime() / 60);  // ms
+        var dt = hc - effCorr / 1000;
         var frac = dt / ALIGN_PERIOD;
         var phase = frac - Math.round(frac);      // -0.5..+0.5, beat 에서 0(=가운데 타겟)
         if (marker) {
@@ -370,7 +425,9 @@
         if (mEl) {
           var ctx = player.ctx;
           var hl = ctx ? (ctx.currentTime - hc) * 1000 : 0;   // 지금 추종 중인 실제 지연
-          mEl.textContent = '자동 측정된 소리 지연 ' + Math.max(0, hl).toFixed(0) + 'ms · 내 조정 ' + syncMs + 'ms';
+          mEl.textContent = '자동 측정된 소리 지연 ' + Math.max(0, hl).toFixed(0) + 'ms · 내 조정 ' + syncMs + 'ms'
+            + (driftPerMin ? ' · 밀림 ' + (Math.round(driftPerMin * 10) / 10) + 'ms/분(자동)' : '')
+            + (calibLast ? ' · 한 번 더 맞추면 밀림 자동계산' : '');
         }
         alignRAF = requestAnimationFrame(alignFrame);
       };
@@ -393,14 +450,34 @@
         alignRAF = requestAnimationFrame(alignFrame);
         return true;
       };
-      var closeAlign = function () { stopAlign(); alignModal.hidden = true; saveSync(); };
+      /* 2점 자동 보정: 서로 다른 곡 위치에서 두 번 맞추면 '점점 밀림'(선형 드리프트) 속도를 자동 계산.
+         한 번만 맞추면 예전처럼 고정 보정. 측정 근거: 밀림은 실기기 출력경로라 고정 offset 으론 못 잡음 —
+         두 점의 유효보정 차이가 곧 드리프트 기울기다. 곡을 재생하며 맞춰야 위치가 벌어져 계산이 된다. */
+      function captureCalibPoint() {
+        var p = player.currentTime();
+        var X = syncMs - driftPerMin * (p / 60);   // 지금 위치의 유효 보정(ms) — 방금 귀로 맞춘 값
+        if (calibLast && Math.abs(p - calibLast.p) >= 15) {
+          var b = (X - calibLast.X) / (p - calibLast.p);        // ms/초 (유효보정의 기울기)
+          // corr(p)=syncMs - driftPerMin·(p/60) = a + b·p  →  driftPerMin = -60·b, syncMs = a
+          driftPerMin = Math.max(-DRIFT_MAX, Math.min(DRIFT_MAX, Math.round(-60 * b * 10) / 10));
+          syncMs = Math.max(-SYNC_MAX, Math.min(SYNC_MAX, Math.round(calibLast.X - b * calibLast.p)));
+          showDrift(); saveDrift();
+        }
+        showSync(); saveSync();
+        calibLast = { p: p, X: X };   // 다음 맞춤의 기준점(원래 X — 새 파라미터로도 이 점을 지남)
+      }
+      var closeAlign = function () { stopAlign(); alignModal.hidden = true; captureCalibPoint(); };
       el('btn-sync-align').addEventListener('click', function () {
         alignModal.hidden = false; showSync();
         if (!startAlign()) alignModal.hidden = true;
       });
       el('align-minus').addEventListener('click', function () { stepSync(-5); }); // 소리가 늦으면(막대가 먼저) 앞당김
       el('align-plus').addEventListener('click', function () { stepSync(5); });    // 소리가 빠르면 늦춤
-      el('align-reset').addEventListener('click', function () { syncMs = 0; showSync(); onSyncChange(syncMs); });
+      // 처음부터 다시: 고정 보정·밀림·2점 기준점 전부 초기화
+      el('align-reset').addEventListener('click', function () {
+        syncMs = 0; driftPerMin = 0; calibLast = null;
+        showSync(); showDrift(); onSyncChange(syncMs);
+      });
       el('align-done').addEventListener('click', closeAlign);
       alignModal.addEventListener('click', function (e) { if (e.target === alignModal) closeAlign(); });
     }

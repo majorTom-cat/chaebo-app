@@ -75,6 +75,7 @@ async def settings_page(request: Request):
 async def get_app_settings():
     limits = await db.get_limits()
     sync = await db.get_setting("sync_ms")
+    drift = await db.get_setting("sync_drift_ms_per_min")
     st = await system.status()
     return {
         "device": st["device"],
@@ -85,6 +86,9 @@ async def get_app_settings():
         "max_duration_min": limits["max_duration_min"],
         "max_file_mb": limits["max_file_mb"],
         "sync_ms": int(sync) if sync is not None else 0,  # 소리-화면 싱크(기기 속성 — 전역)
+        # 곡이 진행될수록 실기기 출력이 선형으로 밀리는 걸 상쇄(ms/분). 측정 근거: 앱 표시시계는
+        # 드리프트 0, 밀림은 하드웨어 출력경로 → 고정 offset 으론 못 잡아 '위치 비례' 보정 추가(2026-07-13).
+        "sync_drift_ms_per_min": float(drift) if drift is not None else 0.0,
         "version": f"chaebo v{config.APP_VERSION} (로컬 전용)",
     }
 
@@ -93,6 +97,7 @@ class SettingsIn(BaseModel):
     max_duration_min: int | None = None
     max_file_mb: int | None = None
     sync_ms: int | None = None
+    sync_drift_ms_per_min: float | None = None
 
 
 @app.put("/api/settings")
@@ -106,12 +111,20 @@ async def put_app_settings(body: SettingsIn):
             raise HTTPException(422, "파일 크기 한도는 1~2000MB 사이로 정해주세요")
         await db.set_setting("max_file_mb", body.max_file_mb)
     if body.sync_ms is not None:
-        if not (-300 <= body.sync_ms <= 300):
-            raise HTTPException(422, "싱크 보정은 -300~300ms 사이로 정해주세요")
+        # 블루투스 실지연이 300 초과 사례 있음(transport.js SYNC_MAX=1000 과 일치) — 예전 ±300 검증은
+        # 클라 값을 조용히 안 저장하던 버그. ±1000 으로 일치.
+        if not (-1000 <= body.sync_ms <= 1000):
+            raise HTTPException(422, "싱크 보정은 -1000~1000ms 사이로 정해주세요")
         await db.set_setting("sync_ms", body.sync_ms)
+    if body.sync_drift_ms_per_min is not None:
+        if not (-120 <= body.sync_drift_ms_per_min <= 120):
+            raise HTTPException(422, "밀림 보정은 분당 -120~120ms 사이로 정해주세요")
+        await db.set_setting("sync_drift_ms_per_min", body.sync_drift_ms_per_min)
     limits = await db.get_limits()
     sync = await db.get_setting("sync_ms")
+    drift = await db.get_setting("sync_drift_ms_per_min")
     limits["sync_ms"] = int(sync) if sync is not None else 0
+    limits["sync_drift_ms_per_min"] = float(drift) if drift is not None else 0.0
     return limits
 
 

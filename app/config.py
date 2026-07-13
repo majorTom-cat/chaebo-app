@@ -39,7 +39,7 @@ ALLOWED_EXTS = {".mp3", ".wav", ".flac", ".m4a"}
 STEMS = ["vocals", "drums", "bass", "guitar", "piano", "other"]
 
 # 런타임 표시·업데이트 비교용 버전(설치기 버전은 chaebo.iss/readme 별도 — 릴리스마다 함께 올린다).
-APP_VERSION = "0.6.11"
+APP_VERSION = "0.6.13"
 # 업데이트 확인(사용자 요청 2026-07-13) — 앱이 이 '공개' URL 의 version.json 을 읽어 최신 버전을 안내한다.
 # 비공개 리포라 릴리스 API 직독 불가 → 관리자가 공개 gist/파일 하나만 두고 raw URL 을 여기(또는 환경변수
 # CHAEBO_UPDATE_URL)에 넣는다. 형식: {"version":"0.6.9","url":"받는 곳","notes":"요약"}. 비우면 기능 꺼짐.

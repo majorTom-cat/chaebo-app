@@ -51,7 +51,14 @@
   SyncPlayer.prototype._ensureCtx = function () {
     if (!this.ctx) {
       var Ctx = window.AudioContext || window.webkitAudioContext;
-      this.ctx = new Ctx();
+      // latencyHint:'playback' = 더 큰 오디오 버퍼. 연습 앱은 저지연보다 '안 끊김'이 우선 —
+      // 약한 PC 에서 6개 스트레치 워크릿(+분석 병행)이 CPU 를 못 따라가면 언더런(글리치)으로
+      // 샘플이 누락돼 소리가 화면보다 점점 밀릴 수 있다(측정 불가한 실기기 현상). 큰 버퍼로 그 여지를
+      // 줄인다. 늘어난 출력지연은 getOutputTimestamp 가 자동 상쇄(heardTime) — 싱크엔 영향 없음.
+      // 미지원 브라우저는 옵션 무시(정상 생성). (리터럴 1x 스트레치 우회는 오디오 2벌=+수백MB 라
+      // 약한 노트북에 역효과 — 대신 이 저위험 완화 선택, 2026-07-13.)
+      try { this.ctx = new Ctx({ latencyHint: 'playback' }); }
+      catch (e) { this.ctx = new Ctx(); }
       this.masterGain = this.ctx.createGain();
       this.masterGain.connect(this.ctx.destination);
     }
