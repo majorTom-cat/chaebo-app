@@ -340,7 +340,7 @@
        측정 근거(2026-07-13): 앱 표시시계는 드리프트 0, 밀림은 실기기 출력경로(WebView2/WASAPI 리샘플)라
        고정 싱크 하나론 못 잡음 → 위치 비례(ms/분) 보정을 사람이 한 번 맞추면 곡 내내 유지. onSyncChange
        로 커서 즉시 다시 그림(정지 중엔 표시시계가 논리위치라 무영향). ---- */
-    var DRIFT_MAX = 120;
+    var DRIFT_MAX = 500;  // 블루투스 큰 드리프트(분당 수백 ms) 사례 — ±120 은 표현조차 못 했음(사용자 실측 2026-07-13)
     function showDrift() {
       var dv = el('drift-value');
       if (dv) dv.textContent = (driftPerMin > 0 ? '+' : '') + (Math.round(driftPerMin * 10) / 10) + ' ms/분';
@@ -376,8 +376,9 @@
         window.addEventListener('pointercancel', up);
       });
     }
-    wireDriftButton('btn-drift-minus', -1);
-    wireDriftButton('btn-drift-plus', 1);
+    // 단계 5 ms/분(예전 1 은 큰 드리프트에 체감이 안 됐음 — 사용자 지적). 정밀값은 2점 자동보정이 산출.
+    wireDriftButton('btn-drift-minus', -5);
+    wireDriftButton('btn-drift-plus', 5);
     if (el('drift-value')) el('drift-value').addEventListener('click', function () { driftPerMin = 0; saveDrift(); });
 
     fetch('/api/settings').then(function (r) { return r.json(); }).then(function (s) {

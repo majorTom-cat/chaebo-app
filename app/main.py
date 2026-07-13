@@ -125,8 +125,9 @@ async def put_app_settings(body: SettingsIn):
             raise HTTPException(422, "싱크 보정은 -1000~1000ms 사이로 정해주세요")
         await db.set_setting("sync_ms", body.sync_ms)
     if body.sync_drift_ms_per_min is not None:
-        if not (-120 <= body.sync_drift_ms_per_min <= 120):
-            raise HTTPException(422, "밀림 보정은 분당 -120~120ms 사이로 정해주세요")
+        # 블루투스 큰 드리프트 사례(분당 수백 ms) — ±120 은 표현조차 못 했음(사용자 실측 2026-07-13). ±500 으로.
+        if not (-500 <= body.sync_drift_ms_per_min <= 500):
+            raise HTTPException(422, "밀림 보정은 분당 -500~500ms 사이로 정해주세요")
         await db.set_setting("sync_drift_ms_per_min", body.sync_drift_ms_per_min)
     # 싱크 보정을 쓸 때마다 '지금 공식 세대'를 함께 도장 — 다음 세대에서 이 값이 stale 인지 판정하는 근거.
     # (0 으로 리셋해도 스탬프가 현재가 되어 재알림이 멈춘다 — 프런트의 stale 리셋이 여기로 영구화된다.)
