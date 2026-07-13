@@ -1,0 +1,36 @@
+﻿# chaebo 런타임 의존성 — 전 항목 docs/licenses.md 감사표 ✅ 확인 후에만 추가 (하드 규칙 5)
+#
+# 주의: torch·torchaudio 는 CPU 전용 휠 인덱스가 따로 있어 run.bat 이 이 파일보다 먼저 설치한다:
+#   pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
+# (이 파일만 설치하면 분리·채보가 동작하지 않음 — run.bat 사용이 정본 경로)
+#
+# 클린 venv 실증(2026-07-11): 아래 집합으로 서버+분리+채보+가사+구간 전 경로 완주 확인.
+fastapi
+uvicorn[standard]
+jinja2
+pydantic
+aiosqlite
+python-multipart   # 파일 업로드(FastAPI Form) — MIT
+yt-dlp             # 유튜브 수집 — Unlicense (licenses.md #3)
+pywebview          # chaebo 전용 앱 창(윈도우 내장 WebView2 사용) — BSD-3 (licenses.md #6)
+numpy              # peak 계산 — BSD
+soundfile          # wav 읽기 — BSD
+pyyaml             # 분리 설정 장치 튜닝 — MIT
+# basic-pitch(음정→노트, Apache-2.0)는 tensorflow 를 하드 의존(~1.1GB)으로 끌어온다. 실측: onnx
+# 모델+onnxruntime 으로 동일 결과(tf 차단해도 동작) → tensorflow 미설치. run.bat 이 --no-deps 로
+# basic-pitch 코드만 설치하고, 그 런타임 의존은 아래에 둔다(licenses.md #16a).
+mir-eval           # basic-pitch 의존 — MIT
+pretty-midi        # basic-pitch 의존 — MIT
+resampy            # basic-pitch 의존 — ISC
+onnxruntime        # basic-pitch onnx 백엔드 — MIT (licenses.md #16b)
+torchcrepe         # 채보 2차 검출(CREPE) — MIT (licenses.md 부록)
+librosa            # 템포·비트·구간 경계 — ISC (licenses.md 부록)
+scipy              # librosa 의존·구간 세그먼테이션 — BSD
+scikit-learn       # 구간 클러스터링(KMeans) — BSD
+faster-whisper     # 가사 받아쓰기 — MIT (licenses.md rev6)
+demucs             # htdemucs 모델 '정의'만 MSST 가 로드 — MIT. diffq 는 app/compat 스텁으로 대체
+openunmix          # MSST demucs4ht 가 wiener 필터로 임포트(필수) — MIT (licenses.md 부록). 누락시 분리 엔진오류
+ml_collections     # MSST 설정 로더 — Apache-2.0
+omegaconf          # MSST 설정 로더 — BSD
+tqdm               # MSST 진행률 출력(서버가 파싱) — MPL-2.0/MIT
+matplotlib         # MSST utils 최상단 임포트(스펙트로그램 — 미사용이지만 필수 임포트) — PSF/BSD 계열

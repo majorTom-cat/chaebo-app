@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>인쇄 — {{ song.title }} — chaebo</title>
+<style>
+/* 인쇄 전용 — 흰 종이 위 검정 악보(기본 팔레트), 일반 문서 흐름이라 페이지 분할이 자연스럽다 */
+body { margin: 0; background: #fff; font-family: sans-serif; }
+.print-hint { font-size: 13px; color: #555; background: #f4f1e8; border-bottom: 1px solid #ddd;
+  padding: 10px 16px; display: flex; align-items: center; gap: 12px; }
+.print-hint button { font-size: 13px; padding: 5px 12px; cursor: pointer; }
+#alphaTab { width: 190mm; margin: 0 auto; }
+@page { margin: 10mm; }
+@media print { .print-hint { display: none; } }
+</style>
+</head>
+<body>
+<p class="print-hint">
+  <span>인쇄 창에서 대상을 「PDF로 저장」으로 고르면 파일로 저장돼요.</span>
+  <button type="button" onclick="window.print()">다시 인쇄 창 열기</button>
+  <button type="button" onclick="window.close()">닫기</button>
+</p>
+<div id="alphaTab"></div>
+<script src="/static/vendor/alphatab/alphaTab.min.js"></script>
+<script>
+fetch('/api/songs/{{ song.id }}/tab').then(function (r) { return r.json(); }).then(function (t) {
+  if (t.status !== 'ready' || !t.tex) {
+    document.body.insertAdjacentHTML('beforeend', '<p style="padding:24px">아직 악보가 없어요 — 타브 화면에서 먼저 분석해 주세요.</p>');
+    return;
+  }
+  var api = new alphaTab.AlphaTabApi(document.getElementById('alphaTab'), {
+    // 지연 렌더링 끔 — 보이는 부분만 그리면 인쇄에서 아래 페이지가 백지가 된다(실증 2026-07-09)
+    core: { fontDirectory: '/static/vendor/alphatab/font/', enableLazyLoading: false },
+    player: { enablePlayer: false, enableCursor: false, scrollMode: 'off' },
+    notation: { elements: { effectDynamics: false } },
+    display: { layoutMode: 'Page' },
+  });
+  // 가사(받아쓰기) — 단어를 '마디 안 실제 시각 위치'에(화면 타브 뷰와 같은 비트 앵커 보간)
+  function placeLyrics() {
+    var ly = t.lyrics;
+    if (!ly || ly.status !== 'ready' || !ly.segments || !ly.segments.length) return;
+    var lookup = api.boundsLookup || (api.renderer && api.renderer.boundsLookup);
+    if (!lookup) return;
+    var bs = t.bar_slots || 16;
+    var uSlot = 60 / t.bpm / (bs === 48 && t.meter !== '12/8' ? 12 : 4);
+    function slotTime(g) {
+      if (t.slots && t.slots.length > 1) {
+        var i = Math.max(0, Math.min(t.slots.length - 2, Math.floor(g)));
+        return t.slots[i] + (t.slots[i + 1] - t.slots[i]) * (g - i);
+      }
+      return (t.offset || 0) + g * uSlot;
+    }
+    function timeSlotF(tt) {
+      if (t.slots && t.slots.length > 1) {
+        var s = t.slots, lo = 0, hi = s.length - 1;
+        while (lo < hi) { var mid = (lo + hi + 1) >> 1; if (s[mid] <= tt) lo = mid; else hi = mid - 1; }
+        var i = Math.min(lo, s.length - 2);
+        var span = s[i + 1] - s[i] || 1;
+        return i + (tt - s[i]) / span;
+      }
+      return (tt - (t.offset || 0)) / uSlot;
+    }
+    var tabBot = {};
+    (lookup.staffSystems || []).forEach(function (sys) {
+      var mb = sys.bars && sys.bars[0];
+      if (!mb || !mb.bars || mb.bars.length < 2) return;
+      var tb = mb.bars[mb.bars.length - 1].realBounds;
+      tabBot[Math.round(mb.bars[0].realBounds.y)] = tb.y + tb.h;
+    });
+    var TICKS_BAR = t.meter === '12/8' ? 5760 : 3840;
+    var TICKS_SLOT = t.meter === '12/8' ? 120 : (bs === 48 ? 80 : 240);
+    var barBox = {};
+    var pbeats = [];
+    api.score.tracks[0].staves[0].bars.forEach(function (bar) {
+      bar.voices[0].beats.forEach(function (beat) {
+        var bb = lookup.findBeat(beat);
+        if (!bb) return;
+        var bi = Math.floor(beat.absolutePlaybackStart / TICKS_BAR);
+        if (bb.barBounds && !barBox[bi]) barBox[bi] = bb.barBounds.realBounds;
+        var slot = Math.round(beat.absolutePlaybackStart / TICKS_SLOT);
+        pbeats.push({
+          sec: slotTime(slot),
+          onX: bb.onNotesX != null ? bb.onNotesX : bb.realBounds.x + bb.realBounds.w / 2,
+          barIdx: bi,
+          rowY: bb.barBounds ? bb.barBounds.realBounds.y : 0,
+        });
+      });
+    });
+    pbeats.sort(function (a, b) { return a.sec - b.sec; });
+    var host = document.getElementById('alphaTab');
+    host.style.position = 'relative';
+    function place(word, tt) {
+      var bi = Math.max(0, Math.floor(timeSlotF(tt) / bs));
+      var r = barBox[bi];
+      if (!r) return;
+      var i = -1;
+      for (var k = 0; k < pbeats.length; k++) {
+        if (pbeats[k].sec <= tt) i = k; else break;
+      }
+      var x;
+      if (i < 0) {
+        x = r.x + 3;
+      } else {
+        var cur = pbeats[i], next = pbeats[i + 1];
+        if (next && next.sec > cur.sec) {
+          var frac = Math.min(1, (tt - cur.sec) / (next.sec - cur.sec));
+          var curBB = barBox[cur.barIdx];
+          var endX = (next.rowY === cur.rowY) ? next.onX : (curBB ? curBB.x + curBB.w : cur.onX);
+          x = cur.onX + (endX - cur.onX) * frac;
+        } else x = cur.onX;
+      }
+      x = Math.max(r.x + 2, Math.min(x, r.x + r.w - 6));
+      var bot = tabBot[Math.round(r.y)];
+      var d = document.createElement('div');
+      d.textContent = word;
+      d.style.cssText = 'position:absolute;font-size:9px;color:#444;white-space:nowrap;' +
+        'left:' + x + 'px;top:' + ((bot != null ? bot : r.y + r.h) + 12) + 'px;';
+      host.appendChild(d);
+    }
+    ly.segments.forEach(function (seg) {
+      if (seg.words && seg.words.length && !seg.manual) {
+        seg.words.forEach(function (w) { place(w.w, w.s + 0.01); });
+        return;
+      }
+      var words = String(seg.text || '').split(/\s+/).filter(Boolean);
+      var span = Math.max(0.2, seg.e - seg.s);
+      words.forEach(function (word, k) { place(word, seg.s + span * (k + 0.15) / words.length); });
+    });
+  }
+  api.renderFinished.on(function () {
+    setTimeout(function () {
+      placeLyrics();
+      window.__printReady = true;
+      window.print(); // 렌더 완료 후 인쇄 창 자동 오픈
+    }, 600);
+  });
+  api.tex(t.tex);
+});
+</script>
+</body>
+</html>

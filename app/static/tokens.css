@@ -1,0 +1,70 @@
+/* chaebo (채보) — design tokens. 정본. 구현은 이 파일의 값을 그대로 참조할 것 (재정의 금지). */
+
+:root {
+  /* 색 — 연습실 다크 테마 */
+  --bg: #0f1115;
+  --surface: #181b21;
+  --surface-2: #1f232b;
+  --border: #262a33;
+  --text: #e8eaf0;
+  --muted: #9aa3b2;
+
+  --accent: #f0a848;
+  --accent-hover: #f7bc6a;
+  --danger: #e05d5d;
+  --ok: #57b98a;
+
+  /* 스템 채널 컬러 (6개) — 라이브러리 dot·연습화면 채널 스트립에서 동일하게 사용 */
+  --stem-bass: #ef6461;
+  --stem-drums: #f2a83b;
+  --stem-vocals: #45c4a8;
+  --stem-guitar: #5d9de0;
+  --stem-piano: #d668b8;
+  --stem-other: #a06de0;
+
+  /* 반경 */
+  --r-sm: 8px;
+  --r-md: 12px;
+
+  /* 여백 스케일 */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-6: 24px;
+  --sp-8: 32px;
+
+  /* 타이포 */
+  --font-sans: 'Pretendard', 'Noto Sans KR', system-ui, sans-serif;
+
+  /* 레이아웃 */
+  --topbar-h: 56px;
+  --content-max: 1080px;
+  --breakpoint-mobile: 720px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: inherit;
+}
+
+button,
+input,
+textarea,
+select {
+  font-family: inherit;
+  color: inherit;
+}

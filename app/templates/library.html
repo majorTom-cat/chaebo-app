@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>내 라이브러리 — chaebo</title>
+<link rel="stylesheet" href="/static/tokens.css">
+<link rel="stylesheet" href="/static/ui.css">
+<style>
+/* 공통 컴포넌트(상단바·버튼·배지 등)는 /static/ui.css — 여기는 이 화면 고유만 */
+
+/* ---- 01-library page-specific (시안 그대로) ---- */
+.page-header { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-4); margin-bottom: var(--sp-6); }
+.page-header h1 { font-size: 22px; margin: 0; }
+
+.search-box { position: relative; margin-bottom: var(--sp-6); }
+.search-box svg { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); width: 16px; height: 16px; color: var(--muted); pointer-events: none; }
+.search-input { width: 100%; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-sm); padding: 10px 12px 10px 36px; font-size: 14px; }
+.search-input::placeholder { color: var(--muted); }
+.search-input:focus { outline: none; border-color: var(--accent); }
+
+.song-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: var(--sp-4); }
+@media (max-width: 720px) {
+  .song-grid { grid-template-columns: 1fr; }
+}
+
+/* 위 여백 확대 — 우상단 ✎/× 버튼이 곡 시간과 겹치던 것(사용자 실증 2026-07-10) */
+.song-card { position: relative; display: block; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md); padding: var(--sp-6) var(--sp-4) var(--sp-4); text-decoration: none; color: var(--text); }
+a.song-card:hover { border-color: var(--accent); }
+/* 곡 삭제(REQ-LIB-002) — 시안 01엔 자리가 없어 REQ 근거로 추가(카드 우상단, 은은하게) */
+/* ✎/× 는 마우스 오버에만 노출(사용자 지시 2026-07-10) — 평소엔 완전히 숨김 */
+.song-card-delete { position: absolute; top: 6px; right: 6px; width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; border: none; border-radius: 50%; background: transparent; color: var(--muted); font-size: 14px; line-height: 1; cursor: pointer; opacity: 0; pointer-events: none; z-index: 2; }
+.song-card:hover .song-card-delete, .song-card:focus-within .song-card-delete { opacity: 1; pointer-events: auto; }
+.song-card-delete:hover { background: rgba(224, 93, 93, 0.15); color: var(--danger); }
+/* 제목·설명 수정 (사용자 요청 2026-07-10) */
+.song-card-edit { position: absolute; top: 6px; right: 32px; width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; border: none; border-radius: 50%; background: transparent; color: var(--muted); font-size: 12px; line-height: 1; cursor: pointer; opacity: 0; pointer-events: none; z-index: 2; }
+.song-card:hover .song-card-edit, .song-card:focus-within .song-card-edit { opacity: 1; pointer-events: auto; }
+.song-card-edit:hover { background: var(--surface-2); color: var(--accent); }
+@media (max-width: 720px) { /* 터치 화면엔 호버가 없다 — 항상 반투명 노출 */
+  .song-card-delete, .song-card-edit { opacity: 0.5; pointer-events: auto; }
+}
+.song-desc { font-size: 12px; color: var(--muted); margin: -6px 0 var(--sp-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+textarea.text-input { resize: vertical; font-family: inherit; line-height: 1.5; }
+.song-card-top { display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-2); margin-bottom: var(--sp-3); }
+.song-title { font-size: 15px; font-weight: 600; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.song-duration { font-size: 12px; color: var(--muted); flex-shrink: 0; }
+
+/* 키·BPM 캡션 — ready 카드에서만(감지 완료 후) REQ-KEY-001 */
+.song-meta { font-size: 12px; color: var(--muted); margin: 0 0 var(--sp-3); }
+
+.stem-dots { display: flex; gap: 6px; margin-bottom: var(--sp-3); }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.stem-dots-ready .dot:nth-child(1) { background: var(--stem-bass); }
+.stem-dots-ready .dot:nth-child(2) { background: var(--stem-drums); }
+.stem-dots-ready .dot:nth-child(3) { background: var(--stem-vocals); }
+.stem-dots-ready .dot:nth-child(4) { background: var(--stem-guitar); }
+.stem-dots-ready .dot:nth-child(5) { background: var(--stem-piano); }
+.stem-dots-ready .dot:nth-child(6) { background: var(--stem-other); }
+.stem-dots-pending .dot { background: var(--border); }
+
+.song-status { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; }
+.song-status svg { width: 14px; height: 14px; }
+.status-ok { color: var(--ok); }
+
+.progress-row { display: flex; align-items: center; gap: var(--sp-2); margin-bottom: var(--sp-2); }
+.progress-bar { flex: 1; height: 6px; background: var(--surface-2); border-radius: 999px; overflow: hidden; }
+.progress-fill { height: 100%; background: var(--accent); border-radius: 999px; }
+.progress-pct { font-size: 12px; color: var(--muted); flex-shrink: 0; width: 32px; text-align: right; }
+.song-stage { font-size: 12px; color: var(--muted); margin: 0 0 var(--sp-2); }
+
+.song-card-danger { border-color: rgba(224, 93, 93, 0.4); background: rgba(224, 93, 93, 0.06); }
+.song-error { display: flex; align-items: flex-start; gap: 6px; font-size: 12px; color: var(--danger); margin: 0 0 var(--sp-3); line-height: 1.5; }
+.song-error svg { width: 14px; height: 14px; flex-shrink: 0; margin-top: 1px; }
+.song-error-text { max-height: 4.5em; overflow-y: auto; word-break: break-word; white-space: pre-wrap; }
+.song-error-actions { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
+
+.empty-state { display: none; flex-direction: column; align-items: center; text-align: center; gap: var(--sp-2); padding: var(--sp-8) var(--sp-4); border: 1px dashed var(--border); border-radius: var(--r-md); color: var(--muted); }
+.empty-state svg { width: 40px; height: 40px; color: var(--muted); margin-bottom: var(--sp-2); }
+.empty-title { font-size: 16px; font-weight: 600; color: var(--text); margin: 0; }
+.empty-desc { font-size: 13px; margin: 0 0 var(--sp-4); }
+body.is-empty .song-grid { display: none; }
+body.is-empty .empty-state { display: flex; }
+
+.footer-hint { margin-top: var(--sp-8); text-align: center; font-size: 13px; color: var(--muted); }
+
+/* ---- 02-add 모달 (시안 그대로) ---- */
+.backdrop { filter: blur(1px); opacity: 0.5; pointer-events: none; user-select: none; }
+
+.modal-overlay {
+  position: fixed; inset: 0; top: var(--topbar-h);
+  background: rgba(6, 7, 10, 0.6);
+  display: flex; align-items: flex-start; justify-content: center;
+  padding: var(--sp-8) var(--sp-4);
+  z-index: 200;
+  overflow-y: auto;
+}
+.modal-overlay[hidden] { display: none; }
+.modal {
+  width: 100%; max-width: 440px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md);
+  padding: var(--sp-6);
+  box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+}
+.modal-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--sp-4); }
+.modal-header h2 { font-size: 18px; margin: 0; }
+
+.tab-switcher { display: flex; gap: var(--sp-1); background: var(--surface-2); border-radius: var(--r-sm); padding: 4px; margin-bottom: var(--sp-4); }
+.tab-btn { flex: 1; background: transparent; border: none; border-radius: calc(var(--r-sm) - 2px); padding: 8px 10px; font-size: 13px; font-weight: 600; color: var(--muted); cursor: pointer; }
+.tab-btn.active { background: var(--surface); color: var(--text); }
+
+.field-label { display: block; font-size: 13px; font-weight: 600; margin-bottom: var(--sp-2); }
+.text-input { width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-sm); padding: 10px 12px; font-size: 14px; margin-bottom: var(--sp-2); }
+.text-input::placeholder { color: var(--muted); }
+.text-input:focus { outline: none; border-color: var(--accent); }
+
+.field-error { display: flex; align-items: flex-start; gap: 6px; font-size: 12px; color: var(--danger); margin: 0 0 var(--sp-4); line-height: 1.5; }
+.field-error svg { width: 14px; height: 14px; flex-shrink: 0; margin-top: 1px; }
+.field-error[hidden] { display: none; }
+
+.notice { font-size: 12px; color: var(--muted); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-sm); padding: var(--sp-3); margin: 0 0 var(--sp-3); line-height: 1.5; }
+.limit-note { font-size: 12px; color: var(--muted); margin: 0 0 var(--sp-4); }
+
+.drop-zone { display: flex; flex-direction: column; align-items: center; text-align: center; gap: var(--sp-2); border: 1px dashed var(--border); border-radius: var(--r-sm); padding: var(--sp-6) var(--sp-4); margin-bottom: var(--sp-3); cursor: pointer; position: relative; }
+.drop-zone:hover { border-color: var(--accent); }
+.drop-zone svg { width: 28px; height: 28px; color: var(--muted); }
+.drop-zone p { margin: 0; font-size: 13px; color: var(--text); line-height: 1.6; }
+.drop-zone .muted { color: var(--muted); font-size: 12px; }
+.drop-zone-input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="wordmark" href="/">
+      chaebo <span class="wordmark-sub">채보</span>
+    </a>
+    <div class="topbar-right">
+      <span class="status-badge" title="처리 장치 상태 — 설정에서 확인">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3"/></svg>
+        <span id="device-label">CPU 모드</span>
+      </span>
+      <a class="icon-btn" href="/settings" aria-label="설정">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></svg>
+      </a>
+    </div>
+  </div>
+</header>
+
+<main class="page" id="page-main">
+
+  <div class="page-header">
+    <h1>내 라이브러리</h1>
+    <button type="button" class="btn btn-primary" id="btn-open-add">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      곡 추가
+    </button>
+  </div>
+
+  <div class="search-box">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+    <input class="search-input" type="search" placeholder="곡 제목 검색" id="search">
+  </div>
+
+  <div class="song-grid" id="song-grid"></div>
+
+  <div class="empty-state">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+    <p class="empty-title">아직 곡이 없어요 — 첫 곡을 추가해보세요</p>
+    <button type="button" class="btn btn-primary" id="btn-open-add-empty">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      곡 추가
+    </button>
+  </div>
+
+  <p class="footer-hint">분리는 한 번만 — 완료된 곡은 언제든 바로 연습할 수 있어요</p>
+
+</main>
+
+<!-- 곡 추가 모달 (시안 02-add — 기본 닫힘, 곡 추가 버튼으로 열림) -->
+<div class="modal-overlay" id="add-modal" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <div class="modal-header">
+      <h2 id="modal-title">곡 추가</h2>
+      <button type="button" class="icon-btn" id="btn-close-add" aria-label="닫기">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>
+      </button>
+    </div>
+
+    <div class="tab-switcher" role="tablist">
+      <button type="button" class="tab-btn active" data-tab="youtube" role="tab" aria-selected="true">유튜브 링크</button>
+      <button type="button" class="tab-btn" data-tab="file" role="tab" aria-selected="false">파일 업로드</button>
+    </div>
+
+    <div class="tab-panel" id="panel-youtube" data-panel="youtube">
+      <label class="field-label" for="yt-url">유튜브 링크</label>
+      <input class="text-input" type="url" id="yt-url" placeholder="https://youtube.com/watch?v=…">
+      <p class="field-error" id="yt-error" hidden>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l10 18H2L12 3z"/><line x1="12" y1="9" x2="12" y2="14"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        <span id="yt-error-text"></span>
+      </p>
+      <p class="notice">개인 연습용 — 다운로드한 곡을 공유하거나 재배포하지 마세요</p>
+      <p class="limit-note">최대 20분 · 200MB</p>
+      <button type="button" class="btn btn-primary btn-block" id="btn-add-url">가져오기</button>
+    </div>
+
+    <div class="tab-panel" id="panel-file" data-panel="file" hidden>
+      <div class="drop-zone" id="drop-zone">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3"/><path d="M7 8l5-5 5 5"/><path d="M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"/></svg>
+        <p>여기에 파일을 끌어다 놓거나 클릭해서 선택<br><span class="muted">mp3 · wav · flac · m4a</span></p>
+        <input class="drop-zone-input" type="file" accept=".mp3,.wav,.flac,.m4a" aria-label="파일 선택" id="file-input">
+      </div>
+      <p class="field-error" id="file-error" hidden>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l10 18H2L12 3z"/><line x1="12" y1="9" x2="12" y2="14"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        <span id="file-error-text"></span>
+      </p>
+      <p class="notice">개인 연습용 — 다운로드한 곡을 공유하거나 재배포하지 마세요</p>
+      <p class="limit-note">최대 20분 · 200MB</p>
+      <button type="button" class="btn btn-primary btn-block" id="btn-add-file">추가하기</button>
+    </div>
+  </div>
+</div>
+
+<!-- 제목·설명 수정 (사용자 요청 2026-07-10) -->
+<div class="modal-overlay" id="edit-modal" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="edit-modal-title">
+    <div class="modal-header">
+      <h2 id="edit-modal-title">곡 정보 고치기</h2>
+      <button type="button" class="icon-btn" id="btn-close-edit" aria-label="닫기">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>
+      </button>
+    </div>
+    <label class="field-label" for="edit-title">제목</label>
+    <input class="text-input" type="text" id="edit-title" maxlength="200">
+    <label class="field-label" for="edit-artist" style="margin-top: 12px;">아티스트</label>
+    <input class="text-input" type="text" id="edit-artist" maxlength="200" placeholder="유튜브에서 추정해요 — 틀리면 직접 고쳐주세요">
+    <label class="field-label" for="edit-desc" style="margin-top: 12px;">설명 (메모)</label>
+    <textarea class="text-input" id="edit-desc" rows="3" maxlength="500" placeholder="예: 합주용 · 2절 베이스라인부터 연습"></textarea>
+    <button type="button" class="btn btn-primary btn-block" id="btn-save-edit" style="margin-top: 16px;">저장</button>
+  </div>
+</div>
+
+<script src="/static/library.js"></script>
+</body>
+</html>

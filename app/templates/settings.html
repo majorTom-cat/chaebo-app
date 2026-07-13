@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>설정 — chaebo</title>
+<link rel="stylesheet" href="/static/tokens.css">
+<link rel="stylesheet" href="/static/ui.css">
+<style>
+/* 공통 컴포넌트(상단바·버튼·배지 등)는 /static/ui.css — 여기는 이 화면 고유만 */
+
+/* ---- 04-settings page-specific (시안 그대로) ---- */
+.page h1 { font-size: 22px; margin: 0 0 var(--sp-6); }
+.settings-section { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md); padding: var(--sp-6); margin-bottom: var(--sp-4); }
+.settings-section h2 { font-size: 15px; margin: 0 0 var(--sp-1); display: flex; align-items: center; gap: var(--sp-2); }
+.settings-section h2 svg { width: 18px; height: 18px; color: var(--muted); flex-shrink: 0; }
+.settings-desc { font-size: 13px; color: var(--muted); margin: 0 0 var(--sp-4); line-height: 1.6; max-width: 560px; }
+.status-box { display: flex; align-items: center; gap: var(--sp-3); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-sm); padding: var(--sp-3) var(--sp-4); font-size: 13px; }
+.status-box svg { width: 18px; height: 18px; color: var(--muted); flex-shrink: 0; }
+.status-box .status-detail { color: var(--muted); font-size: 12px; }
+.radio-group { display: flex; flex-direction: column; gap: var(--sp-3); }
+.radio-option { display: flex; align-items: flex-start; gap: var(--sp-3); border: 1px solid var(--border); border-radius: var(--r-sm); padding: var(--sp-3) var(--sp-4); cursor: pointer; }
+.radio-option:hover { border-color: var(--muted); }
+.radio-option input { margin-top: 3px; accent-color: var(--accent); flex-shrink: 0; }
+.radio-option-body strong { display: block; font-size: 14px; margin-bottom: 2px; }
+.radio-option-body span { font-size: 12px; color: var(--muted); line-height: 1.5; }
+.radio-option.is-disabled { opacity: 0.6; cursor: not-allowed; }
+.path-row { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; }
+.path-display { flex: 1; min-width: 200px; display: flex; align-items: center; gap: var(--sp-2); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-sm); padding: 10px 12px; font-size: 13px; font-family: monospace; overflow-x: auto; white-space: nowrap; }
+.path-display svg { width: 16px; height: 16px; color: var(--muted); flex-shrink: 0; }
+.limit-grid { display: flex; gap: var(--sp-6); flex-wrap: wrap; }
+.limit-field { display: flex; flex-direction: column; gap: var(--sp-2); }
+.limit-field label { font-size: 13px; font-weight: 600; }
+.limit-field .field-hint { font-size: 12px; color: var(--muted); }
+.number-input-row { display: flex; align-items: center; gap: var(--sp-2); }
+.number-input { width: 96px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-sm); padding: 8px 10px; font-size: 14px; }
+.number-input:focus { outline: none; border-color: var(--accent); }
+.number-input-unit { font-size: 13px; color: var(--muted); }
+.save-note { font-size: 12px; color: var(--ok); margin-left: var(--sp-2); opacity: 0; transition: opacity .2s; }
+.save-note.show { opacity: 1; }
+.info-list { display: flex; flex-direction: column; gap: var(--sp-2); font-size: 13px; }
+.info-row { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); }
+.info-link { color: var(--accent); text-decoration: none; font-size: 13px; }
+.info-link:hover { text-decoration: underline; }
+.version-text { color: var(--muted); font-size: 12px; }
+@media (max-width: 720px) {
+  .settings-section { padding: var(--sp-4); }
+  .limit-grid { flex-direction: column; gap: var(--sp-4); }
+  .path-row { flex-direction: column; align-items: stretch; }
+}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="wordmark" href="/">
+      chaebo <span class="wordmark-sub">채보</span>
+    </a>
+    <div class="topbar-right">
+      <span class="status-badge" title="처리 장치 상태 — 설정에서 확인">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3"/></svg>
+        <span id="device-label">CPU 모드</span>
+      </span>
+      <span class="icon-btn" aria-label="설정" aria-current="page">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></svg>
+      </span>
+    </div>
+  </div>
+</header>
+
+<main class="page">
+  <h1>설정</h1>
+
+  <section class="settings-section">
+    <h2>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3"/></svg>
+      처리 장치
+    </h2>
+    <p class="settings-desc">곡을 악기별로 나눌 때 사용하는 하드웨어예요. 그래픽카드(GPU)가 있으면 훨씬 빨라요.</p>
+    <div class="status-box">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l10 18H2L12 3z"/><line x1="12" y1="9" x2="12" y2="14"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+      <span id="device-status">
+        확인 중…
+      </span>
+    </div>
+    <div id="gpu-enable-box" hidden style="margin-top: var(--sp-3);">
+      <button type="button" class="btn btn-primary btn-sm" id="gpu-enable-btn">GPU 가속 켜기</button>
+      <div id="gpu-progress" hidden style="margin-top: var(--sp-3);">
+        <div class="progress-bar" style="height:10px;border-radius:999px;background:var(--surface-2);overflow:hidden;">
+          <div class="progress-fill" id="gpu-fill" style="height:100%;width:5%;background:var(--accent);border-radius:999px;transition:width .4s;"></div>
+        </div>
+        <p class="status-detail" id="gpu-msg" style="margin-top:6px;">시작하는 중…</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="settings-section">
+    <h2>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M8 21h8M12 18v3"/></svg>
+      열기 방식
+    </h2>
+    <p class="settings-desc">chaebo 를 어떻게 열지 정해요. 바탕화면 아이콘을 누르면 여기서 고른 방식으로 열려요.</p>
+    <div class="radio-group">
+      <label class="radio-option">
+        <input type="radio" name="open-mode" value="app">
+        <span class="radio-option-body"><strong>앱 창으로</strong><span>chaebo 전용 창으로 열려요(웹브라우저 필요 없음)</span></span>
+      </label>
+      <label class="radio-option">
+        <input type="radio" name="open-mode" value="web">
+        <span class="radio-option-body"><strong>웹브라우저로</strong><span>크롬·엣지 같은 평소 브라우저 탭으로 열려요</span></span>
+      </label>
+    </div>
+    <p class="status-detail" id="open-mode-note" style="margin-top:6px;">다음에 chaebo 를 열 때부터 적용돼요.</p>
+  </section>
+
+  <section class="settings-section">
+    <h2>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+      분리 모델 <span class="badge badge-muted">예정</span>
+    </h2>
+    <!-- REQ-SEP-004(P2) — 모델 선택은 아직 미구현: 시안의 radio 를 비활성으로(가짜 동작 금지) -->
+    <p class="settings-desc">품질과 속도 중 어느 쪽을 우선할지 고르는 기능은 준비 중이에요. 지금은 기본(6악기 분리)으로 동작해요.</p>
+    <div class="radio-group">
+      <label class="radio-option is-disabled">
+        <input type="radio" name="model-priority" value="quality" checked disabled>
+        <span class="radio-option-body">
+          <strong>기본 (6악기 분리 — 품질 우선)</strong>
+          <span>가장 정확하게 나누지만 시간이 더 걸려요</span>
+        </span>
+      </label>
+      <label class="radio-option is-disabled">
+        <input type="radio" name="model-priority" value="speed" disabled>
+        <span class="radio-option-body">
+          <strong>빠름 (4악기 분리 — 속도 우선)</strong>
+          <span>더 빠르게 나누지만 품질이 살짝 낮아질 수 있어요</span>
+        </span>
+      </label>
+    </div>
+    <p class="settings-desc" style="margin: var(--sp-3) 0 0;">보컬 리드/코러스 나누기는 연습 화면에서 곡별로 실행해요 (예정)</p>
+  </section>
+
+  <section class="settings-section">
+    <h2>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/></svg>
+      저장 위치
+    </h2>
+    <p class="settings-desc">다운로드한 곡과 분리 결과가 저장되는 폴더예요. 용량이 크니(곡당 수백 MB) 여유 있는 드라이브를 지정하세요.</p>
+    <div class="path-row">
+      <div class="path-display">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/></svg>
+        <span id="data-dir">…</span>
+      </div>
+      <!-- 위치 변경은 설치판 첫 실행 마법사(Phase 3)에서 — 여기선 예정 처리(가짜 동작 금지) -->
+      <span class="btn btn-outline is-disabled" style="opacity:.6;cursor:not-allowed">변경 <span class="badge badge-muted" style="margin-left:4px">예정</span></span>
+    </div>
+  </section>
+
+  <section class="settings-section">
+    <h2>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9 12l2 2 4-4"/></svg>
+      한도
+    </h2>
+    <p class="settings-desc">너무 길거나 큰 파일은 처리 시간이 오래 걸려서 기본 한도를 두었어요. 필요하면 늘릴 수 있어요.</p>
+    <div class="limit-grid">
+      <div class="limit-field">
+        <label for="limit-duration">곡 길이 한도</label>
+        <div class="number-input-row">
+          <input type="number" id="limit-duration" class="number-input" value="20" min="1" max="180">
+          <span class="number-input-unit">분</span>
+          <span class="save-note" id="save-note-duration">저장됐어요</span>
+        </div>
+        <span class="field-hint">기본 20분</span>
+      </div>
+      <div class="limit-field">
+        <label for="limit-size">파일 크기 한도</label>
+        <div class="number-input-row">
+          <input type="number" id="limit-size" class="number-input" value="200" min="1" max="2000">
+          <span class="number-input-unit">MB</span>
+          <span class="save-note" id="save-note-size">저장됐어요</span>
+        </div>
+        <span class="field-hint">기본 200MB</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 소리-화면 싱크(기기 속성 — 전역). 자동 측정 = 리듬게임식 탭 캘리브레이션:
+       같은 오디오 경로로 클릭을 틀고 사용자가 들리는 대로 탭 → 기기 지연을 통계로 산출 -->
+  <section class="settings-section">
+    <h2>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
+      소리-화면 맞추기
+    </h2>
+    <p class="settings-desc">진행바가 소리보다 빠르거나 늦게 느껴지면 여기서 맞춰요. 자동 측정은 리듬게임처럼 <strong>줄어드는 원이 가운데에 닿는 순간 "삑"</strong>이 나요 — 준비 4박 뒤 8번, 들리는 순간마다 <strong>스페이스 키</strong>(또는 원 클릭)를 눌러주세요.</p>
+    <div class="path-row">
+      <div class="status-box" style="flex:1">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
+        <span>현재 보정: <strong id="sync-current">0ms</strong> <span class="status-detail">(연습·타브 화면의 싱크 ± 버튼과 같은 값)</span></span>
+      </div>
+      <button type="button" class="btn btn-outline" id="btn-calibrate">자동 측정 시작</button>
+    </div>
+    <div id="cal-panel" hidden style="margin-top: var(--sp-3); border: 1px solid var(--accent); border-radius: var(--r-md); background: var(--surface); padding: var(--sp-4); text-align: center;">
+      <!-- 리듬게임식(사용자 실증 2026-07-11: 첫 삑이 예측 불가 → 탭 실패): 줄어드는 원이
+           과녁에 닿는 순간 = 삑 — 다음 박을 눈으로 예측할 수 있다 -->
+      <div class="cal-stage" id="cal-stage">
+        <div class="cal-ring" id="cal-ring"></div>
+        <div class="cal-target" id="cal-target">삑</div>
+      </div>
+      <p id="cal-msg" style="margin: var(--sp-3) 0 0; font-size: 13px;">준비…</p>
+      <strong id="cal-progress" style="font-size: 14px;">0 / 8</strong>
+    </div>
+  </section>
+  <style>
+  .cal-stage { position: relative; width: 160px; height: 160px; margin: 0 auto; cursor: pointer; }
+  .cal-target { position: absolute; left: 50%; top: 50%; width: 64px; height: 64px; margin: -32px 0 0 -32px;
+    border: 3px solid var(--accent); border-radius: 50%; display: flex; align-items: center;
+    justify-content: center; font-size: 14px; font-weight: 700; color: var(--accent); }
+  .cal-target.hit { background: rgba(240, 168, 72, 0.35); }
+  .cal-ring { position: absolute; left: 50%; top: 50%; width: 64px; height: 64px; margin: -32px 0 0 -32px;
+    border: 2px solid var(--text); border-radius: 50%; opacity: 0; }
+  </style>
+
+  <section class="settings-section">
+    <h2>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><line x1="12" y1="11" x2="12" y2="16"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+      정보
+    </h2>
+    <p class="settings-desc">개인 연습용 로컬 도구예요. 외부로 데이터를 보내지 않아요.</p>
+    <div class="info-list">
+      <div class="info-row">
+        <span>분리 모델 라이선스 고지</span>
+        <a class="info-link" href="/licenses">모델 라이선스 보기</a>
+      </div>
+      <div class="info-row">
+        <span>버전</span>
+        <span class="version-text" id="version-text">…</span>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<script>
+(function () {
+  'use strict';
+  fetch('/api/settings').then(function (r) { return r.json(); }).then(function (s) {
+    document.getElementById('device-label').textContent = s.device === 'gpu' ? 'GPU 모드' : 'CPU 모드';
+    var st = document.getElementById('device-status');
+    if (s.device === 'gpu') {
+      st.innerHTML = 'GPU 가속 사용 중 — 분리가 빨라요';
+    } else if (s.can_enable_gpu) {
+      // NVIDIA 그래픽카드가 있는데 지금은 CPU torch — 정직하게 켤 수 있음을 안내
+      st.innerHTML = 'NVIDIA 그래픽카드가 있어요 — 지금은 <b>CPU 모드</b>예요. 아래 버튼으로 GPU 가속을 켜면 분리가 빨라져요.';
+      document.getElementById('gpu-enable-box').hidden = false;
+    } else {
+      // NVIDIA 가 없음 — '없다'가 아니라 '이 그래픽카드로는 가속이 안 된다'를 정직하게
+      st.innerHTML = 'CPU 모드로 동작해요 <span class="status-detail">(곡당 몇 분 정도 걸려요)</span><br>'
+        + '<span class="status-detail">이 분리 AI 의 GPU 가속은 <b>NVIDIA 그래픽카드</b>에서만 돼요 — Intel·AMD 그래픽은 CPU 로 정확히 처리해요.</span>';
+    }
+    document.getElementById('data-dir').textContent = s.data_dir;
+    document.getElementById('limit-duration').value = s.max_duration_min;
+    document.getElementById('limit-size').value = s.max_file_mb;
+    document.getElementById('version-text').textContent = s.version;
+    // 열기 방식 라디오 반영
+    var mode = s.open_mode === 'web' ? 'web' : 'app';
+    var r = document.querySelector('input[name="open-mode"][value="' + mode + '"]');
+    if (r) r.checked = true;
+  });
+
+  // 열기 방식 전환 — 파일에 저장(run.py 가 다음 실행 때 읽음). 설치 후에도 방식을 바꿀 수 있게.
+  Array.prototype.forEach.call(document.querySelectorAll('input[name="open-mode"]'), function (radio) {
+    radio.addEventListener('change', function () {
+      if (!radio.checked) return;
+      var note = document.getElementById('open-mode-note');
+      fetch('/api/open-mode', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: radio.value })
+      }).then(function (r) { return r.json(); }).then(function (res) {
+        note.textContent = res.ok
+          ? (radio.value === 'web' ? '저장했어요 — 다음에 열 때 웹브라우저로 열려요.' : '저장했어요 — 다음에 열 때 앱 창으로 열려요.')
+          : '저장하지 못했어요. 다시 시도해 주세요.';
+      });
+    });
+  });
+
+  // GPU 가속 켜기 — CUDA torch(~2.5GB) 설치 후 진행률 폴링. 완료되면 안내.
+  var gpuBtn = document.getElementById('gpu-enable-btn');
+  if (gpuBtn) {
+    gpuBtn.addEventListener('click', function () {
+      if (!confirm('GPU 가속을 켜려면 GPU용 라이브러리(약 2.5GB)를 한 번 내려받아요.\n인터넷이 필요하고 몇 분 걸려요. 계속할까요?')) return;
+      gpuBtn.disabled = true;
+      document.getElementById('gpu-progress').hidden = false;
+      fetch('/api/gpu/enable', { method: 'POST' }).then(function (r) { return r.json(); }).then(function (res) {
+        if (!res.ok) {
+          document.getElementById('gpu-msg').textContent = res.message || '지금은 켤 수 없어요';
+          gpuBtn.disabled = false;
+          return;
+        }
+        pollGpu();
+      });
+    });
+  }
+  function pollGpu() {
+    fetch('/api/gpu/progress').then(function (r) { return r.json(); }).then(function (p) {
+      document.getElementById('gpu-fill').style.width = Math.max(5, p.pct || 0) + '%';
+      document.getElementById('gpu-msg').textContent = p.message || '';
+      if (p.done) {
+        if (p.ok) { document.getElementById('gpu-fill').style.width = '100%'; }
+        else { gpuBtn.disabled = false; }
+        return;
+      }
+      setTimeout(pollGpu, 1500);
+    });
+  }
+
+  // 다른 화면 갔다 와도 진행 중인 설치에 다시 붙는다(진행바가 초기화되던 문제 교정).
+  // 설치는 서버에서 계속 도니, 화면만 상태를 다시 읽어 이어서 표시한다.
+  fetch('/api/gpu/progress').then(function (r) { return r.json(); }).then(function (p) {
+    if (p.running || (p.done && p.pct > 0)) {
+      document.getElementById('gpu-enable-box').hidden = false;
+      document.getElementById('gpu-progress').hidden = false;
+      document.getElementById('gpu-fill').style.width = Math.max(5, p.pct || 0) + '%';
+      document.getElementById('gpu-msg').textContent = p.message || '';
+      if (p.running) { if (gpuBtn) gpuBtn.disabled = true; pollGpu(); }
+      else if (gpuBtn) { gpuBtn.disabled = !!p.ok; }  // 실패면 다시 시도 가능
+    }
+  });
+
+  function saveLimit(field, key, noteId) {
+    var v = parseInt(document.getElementById(field).value, 10);
+    if (!v || v < 1) return;
+    var body = {};
+    body[key] = v;
+    fetch('/api/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }).then(function (r) {
+      if (!r.ok) return r.json().then(function (e) { alert(e.detail || '저장하지 못했어요'); });
+      var note = document.getElementById(noteId);
+      note.classList.add('show');
+      setTimeout(function () { note.classList.remove('show'); }, 1500);
+    });
+  }
+  document.getElementById('limit-duration').addEventListener('change', function () {
+    saveLimit('limit-duration', 'max_duration_min', 'save-note-duration');
+  });
+  document.getElementById('limit-size').addEventListener('change', function () {
+    saveLimit('limit-size', 'max_file_mb', 'save-note-size');
+  });
+
+  /* ---- 싱크 자동 측정(탭 캘리브레이션) ---- */
+  fetch('/api/settings').then(function (r) { return r.json(); }).then(function (s) {
+    document.getElementById('sync-current').textContent = (s.sync_ms || 0) + 'ms';
+  });
+
+  // 리듬게임식: 준비 4박(낮은 음) + 측정 8박(높은 음), 0.75초 간격 — 예측 가능한 박
+  var CAL_N = 8, CAL_PRE = 4, CAL_ITV = 0.75, CAL_LEAD = 1.0;
+
+  function makeClickBlob() {
+    var sr = 44100;
+    var total = Math.ceil((CAL_LEAD + (CAL_PRE + CAL_N) * CAL_ITV + 0.4) * sr);
+    var pcm = new Int16Array(total);
+    for (var k = 0; k < CAL_PRE + CAL_N; k++) {
+      var s0 = Math.round((CAL_LEAD + k * CAL_ITV) * sr);
+      var freq = k < CAL_PRE ? 600 : 1000;   // 준비박은 낮은 음 — 귀로도 구분
+      var amp = k < CAL_PRE ? 18000 : 28000;
+      for (var i = 0; i < 0.03 * sr && s0 + i < total; i++) {
+        pcm[s0 + i] = Math.round(Math.sin(2 * Math.PI * freq * i / sr) * Math.exp(-i / (0.006 * sr)) * amp);
+      }
+    }
+    var buf = new ArrayBuffer(44 + pcm.length * 2);
+    var v = new DataView(buf);
+    function wstr(o, s2) { for (var j = 0; j < s2.length; j++) v.setUint8(o + j, s2.charCodeAt(j)); }
+    wstr(0, 'RIFF'); v.setUint32(4, 36 + pcm.length * 2, true); wstr(8, 'WAVEfmt ');
+    v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+    v.setUint32(24, sr, true); v.setUint32(28, sr * 2, true); v.setUint16(32, 2, true);
+    v.setUint16(34, 16, true); wstr(36, 'data'); v.setUint32(40, pcm.length * 2, true);
+    new Int16Array(buf, 44).set(pcm);
+    return new Blob([buf], { type: 'audio/wav' });
+  }
+
+  // 측정 세션은 한 번에 하나 — 재진입 가드 + 리스너 1회 등록(클릭마다 누적되던 누수 교정, 2026-07-11)
+  var calSession = null; // {tap} — 진행 중일 때만
+  var calBtn = document.getElementById('btn-calibrate');
+  document.getElementById('cal-stage').addEventListener('pointerdown', function () {
+    if (calSession) calSession.tap(); // 현재 세션으로만 전달 — 등록은 이 한 번뿐
+  });
+
+  calBtn.addEventListener('click', function () {
+    if (calSession) return; // 측정 중 재클릭 무시(이중 재생·측정값 오염 방지)
+    var panel = document.getElementById('cal-panel');
+    var msg = document.getElementById('cal-msg');
+    var prog = document.getElementById('cal-progress');
+    var ring = document.getElementById('cal-ring');
+    var target = document.getElementById('cal-target');
+    panel.hidden = false;
+    msg.textContent = '준비 박 4번(낮은 음) 뒤 "삑" 8번 — 원이 닿는 순간 스페이스(또는 원 클릭)!';
+    prog.textContent = '0 / ' + CAL_N;
+    calBtn.disabled = true;
+    calBtn.textContent = '측정 중…';
+
+    var crossings = [];   // 측정박(높은 음)만 — 배터리 계약 유지
+    var taps = [];
+    window.__cal = { crossings: crossings, taps: taps }; // 검증 배터리용
+    var el = new Audio(URL.createObjectURL(makeClickBlob()));
+
+    function finish() { // 성공·탭 부족·재생 실패 전 경로 공통 복구
+      calSession = null;
+      calBtn.disabled = false;
+      calBtn.textContent = '자동 측정 시작';
+      document.removeEventListener('keydown', onKey);
+    }
+
+    function tap() {
+      // 준비 박 동안의 탭은 카운트하지 않는다(사용자 실증 버그 2026-07-11) —
+      // 측정 첫 박 0.35초 전부터만 유효(성급한 탭 여유)
+      if (el.currentTime < CAL_LEAD + CAL_PRE * CAL_ITV - 0.35) return;
+      taps.push(performance.now());
+      prog.textContent = Math.min(taps.length, CAL_N) + ' / ' + CAL_N;
+    }
+    function onKey(e) {
+      if (e.code !== 'Space') return;
+      e.preventDefault();
+      tap();
+    }
+    document.addEventListener('keydown', onKey);
+    calSession = { tap: tap };
+
+    var raf;
+    var beatCount = 0; // 전체 박(준비 포함) — 시각 링·과녁 점멸용
+    function watch() {
+      var ct = el.currentTime;
+      var total = CAL_PRE + CAL_N;
+      // 측정박 crossing 기록(높은 음만)
+      var k = crossings.length;
+      if (k < CAL_N && ct >= CAL_LEAD + (CAL_PRE + k) * CAL_ITV) crossings.push(performance.now());
+      // 리듬게임 링: 다음 박까지 남은 비율만큼 크게 — 닿는 순간이 삑
+      var idx = Math.floor((ct - CAL_LEAD) / CAL_ITV) + 1; // 다음 박 번호(0=첫 박)
+      if (idx >= 0 && idx < total) {
+        var remain = (CAL_LEAD + idx * CAL_ITV - ct) / CAL_ITV; // 1 → 0
+        ring.style.opacity = String(0.25 + 0.75 * (1 - remain));
+        ring.style.transform = 'scale(' + (1 + 1.6 * remain) + ')';
+        msg.textContent = idx < CAL_PRE
+          ? '준비… ' + (CAL_PRE - idx)
+          : '탭! 원이 닿는 순간 스페이스(또는 원 클릭)';
+      } else {
+        ring.style.opacity = '0';
+      }
+      // 박 순간 과녁 점멸
+      var passed = Math.max(0, Math.min(total, Math.floor((ct - CAL_LEAD) / CAL_ITV + 1e-6) + (ct >= CAL_LEAD ? 1 : 0)));
+      if (passed > beatCount) {
+        beatCount = passed;
+        target.classList.add('hit');
+        setTimeout(function () { target.classList.remove('hit'); }, 120);
+      }
+      raf = requestAnimationFrame(watch);
+    }
+
+    el.addEventListener('ended', function () {
+      cancelAnimationFrame(raf);
+      finish(); // 성공·탭 부족 양 경로 공통 — 버튼·세션·키 리스너 복구
+      // 탭↔클릭 짝짓기(가장 가까운 것, 400ms 이내) 후 중앙값
+      var diffs = [];
+      taps.forEach(function (tp) {
+        var best = null;
+        crossings.forEach(function (cr) {
+          var d = tp - cr;
+          if (Math.abs(d) < 400 && (best == null || Math.abs(d) < Math.abs(best))) best = d;
+        });
+        if (best != null) diffs.push(best);
+      });
+      if (diffs.length < 5) {
+        msg.textContent = '탭이 부족했어요 — 다시 시작을 눌러 측정해주세요 (삑마다 스페이스)';
+        return;
+      }
+      diffs.sort(function (a, b) { return a - b; });
+      var med = Math.round(diffs[Math.floor(diffs.length / 2)] / 10) * 10;
+      med = Math.max(-1000, Math.min(1000, med)); // ±1000 — transport 와 동기(4곳 중 마지막)
+      fetch('/api/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sync_ms: med }),
+      }).then(function () {
+        document.getElementById('sync-current').textContent = med + 'ms';
+        msg.textContent = '측정 완료 — 보정 ' + med + 'ms 를 저장했어요. 연습 화면에서 확인해보세요.';
+        prog.textContent = '✓';
+      });
+    });
+    var playP = el.play();
+    if (playP && playP.catch) {
+      playP.catch(function () {
+        cancelAnimationFrame(raf);
+        finish(); // 재생 실패에도 버튼 복구 누락 없게
+        msg.textContent = '소리를 시작하지 못했어요 — 페이지를 한 번 클릭한 뒤 다시 시도해 주세요';
+      });
+    }
+    watch();
+  });
+})();
+</script>
+</body>
+</html>

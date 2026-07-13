@@ -1,0 +1,131 @@
+<!-- 공용 재생 박스(믹서·타브·코드 악보 공통 — 사용자 지시 2026-07-10 "따로 놀지 않게").
+     마크업은 이 파일 1벌 + 동작은 /static/transport.js 1벌 — 고치면 세 화면에 함께 반영된다.
+     페이지 고유 요소는 여기 넣지 말 것(뷰별 섹션에). -->
+<section class="transport" aria-label="재생 컨트롤">
+  <button type="button" class="play-btn" id="play-btn" aria-label="재생" aria-pressed="false">
+    <svg id="icon-play" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="6 4 20 12 6 20 6 4"/></svg>
+    <svg id="icon-pause" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" style="display:none"><line x1="8" y1="4" x2="8" y2="20"/><line x1="16" y1="4" x2="16" y2="20"/></svg>
+  </button>
+  <div class="time-display"><span id="time-now">0:00</span> / <span id="time-total">—:—</span></div>
+  <div class="seek-control">
+    <input type="range" id="seekbar" min="0" max="1000" value="0" step="1" aria-label="재생 위치 이동">
+  </div>
+
+  <!-- 배속 0.25~2.0 — 연습 도구 기준(Amazing Slow Downer 25~200%) -->
+  <div class="speed-control">
+    <label class="control-label" for="speed">배속</label>
+    <input type="range" id="speed" min="0.25" max="2.0" step="0.05" value="1.0">
+    <span class="speed-badge" id="speed-badge">1.0x</span>
+  </div>
+  <div class="speed-presets" role="group" aria-label="배속 프리셋">
+    <button type="button" class="btn btn-outline btn-sm speed-preset" data-speed="0.25">25%</button>
+    <button type="button" class="btn btn-outline btn-sm speed-preset" data-speed="0.5">50%</button>
+    <button type="button" class="btn btn-outline btn-sm speed-preset" data-speed="0.75">75%</button>
+    <button type="button" class="btn btn-outline btn-sm speed-preset" data-speed="1.0">100%</button>
+    <button type="button" class="btn btn-outline btn-sm speed-preset" data-speed="1.5">150%</button>
+  </div>
+
+  <!-- 전체 음량(마스터) — Songsterr 관례: 개별 스템 믹스에 곱해지는 단일 슬라이더 -->
+  <div class="speed-control" role="group" aria-label="전체 음량">
+    <label class="control-label" for="master-vol">음량</label>
+    <input type="range" id="master-vol" min="0" max="100" step="1" value="100" style="width:90px">
+    <span class="badge badge-muted" id="master-badge">100%</span>
+  </div>
+
+  <!-- 메트로놈 — 곡의 실측 박에 자동 동기. 토글·음량·간격 한 묶음 -->
+  <div class="metro-group" role="group" aria-label="메트로놈">
+    <label class="countin-toggle" title="곡 박자에 맞춘 클릭 — 타브 분석이 있어야 쓸 수 있어요">
+      <input type="checkbox" id="metro-check">
+      <span class="toggle-track"><span class="toggle-thumb"></span></span>
+      <span class="control-label">메트로놈</span>
+    </label>
+    <input type="range" id="metro-vol" min="0" max="100" step="1" value="60" style="width:70px" aria-label="메트로놈 음량">
+    <select id="metro-div" class="metro-div-select" aria-label="메트로놈 클릭 간격" title="클릭 간격 — 박 사이를 얼마나 잘게 칠지">
+      <option value="beat">박자만</option>
+      <option value="e8">8분음표</option>
+      <option value="e16">16분음표</option>
+      <option value="tu">셋잇단</option>
+    </select>
+  </div>
+
+  <!-- 키(피치) — 재생만 변함(속도 불변), 악보 표기는 원 키 유지 -->
+  <div class="key-stepper">
+    <span class="control-label">키(피치)</span>
+    <div class="key-stepper-controls">
+      <button type="button" class="stepper-btn" id="key-minus" aria-label="반음 내리기">−</button>
+      <span class="stepper-value" id="key-value">0</span>
+      <button type="button" class="stepper-btn" id="key-plus" aria-label="반음 올리기">+</button>
+    </div>
+    <span class="stepper-caption" id="key-caption">반음 단위 · 속도 불변 · 악보는 원 키</span>
+  </div>
+
+  <label class="countin-toggle">
+    <input type="checkbox" id="countin-check">
+    <span class="toggle-track"><span class="toggle-thumb"></span></span>
+    <span class="control-label">카운트인</span>
+  </label>
+
+  <div class="loop-control">
+    <button type="button" class="btn btn-outline btn-sm" id="btn-loop-a">A 지점</button>
+    <button type="button" class="btn btn-outline btn-sm" id="btn-loop-b">B 지점</button>
+    <button type="button" class="btn btn-outline btn-sm" id="btn-loop-clear">반복 해제</button>
+    <span class="loop-indicator" id="loop-indicator" hidden>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 014-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 01-4 4H3"/></svg>
+      A-B 구간 반복 중
+    </span>
+  </div>
+
+  <!-- 소리-화면 싱크 보정(전역 저장, ±1000ms) — 스템끼리의 어긋남과는 별개(그건 자동 보정) -->
+  <div class="loop-control" role="group" aria-label="소리-화면 싱크 보정">
+    <span class="control-label" title="화면(진행바·커서)이 소리보다 앞서가면 +, 소리가 먼저면 − · 길게 누르면 계속 움직여요 · 설정에서 자동 측정도 가능해요">싱크 보정</span>
+    <button type="button" class="btn btn-outline btn-sm" id="btn-sync-minus" title="길게 누르면 계속 내려가요">−</button>
+    <span class="badge badge-muted" id="sync-value" title="누르면 0으로 되돌려요" style="cursor: pointer;">0ms</span>
+    <button type="button" class="btn btn-outline btn-sm" id="btn-sync-plus" title="길게 누르면 계속 올라가요">＋</button>
+    <button type="button" class="btn btn-outline btn-sm" id="btn-sync-reset" title="보정을 0으로">0으로</button>
+    <button type="button" class="btn btn-outline btn-sm" id="btn-sync-align" title="딱딱 소리와 화면 점이 동시에 오게 맞춰요">소리-화면 맞추기</button>
+  </div>
+</section>
+
+<!-- 소리-화면 맞추기(캘리브레이션): 딱딱 소리 + 화면 점을 커서와 같은 시계로 몰아, 동시에 오도록
+     −/＋로 맞춘다. 헤드폰·블루투스마다 실제 지연이 달라 자동 보정 위 잔차를 사람 귀로 잡는 도구. -->
+<div class="sync-align-overlay" id="sync-align-modal" hidden>
+  <div class="sync-align-box" role="dialog" aria-modal="true" aria-label="소리-화면 맞추기">
+    <h3 style="margin:0 0 6px">소리-화면 맞추기</h3>
+    <p class="sync-align-help">움직이는 <b>막대</b>가 가운데 선을 <b>지날 때</b> ‘딱’ 소리가 나야 맞아요.<br>소리가 막대보다 늦으면 ◀, 빠르면 ▶ 로 맞춰 주세요. (자동 저장)</p>
+    <p class="sync-align-help" id="align-measured" style="font-size:12px;margin:0 0 8px;"></p>
+    <div class="sync-align-track">
+      <div class="sync-align-target"></div>
+      <div class="sync-align-marker" id="sync-align-marker"></div>
+    </div>
+    <div class="sync-align-row">
+      <button type="button" class="btn btn-outline" id="align-minus" title="점이 소리보다 늦게 뜨면 누르세요">◀ 점이 늦어요</button>
+      <span class="badge badge-muted" id="align-value" style="min-width:64px">0ms</span>
+      <button type="button" class="btn btn-outline" id="align-plus" title="점이 소리보다 먼저 뜨면 누르세요">점이 빨라요 ▶</button>
+    </div>
+    <div class="sync-align-actions">
+      <button type="button" class="btn btn-ghost btn-sm" id="align-reset">0으로</button>
+      <button type="button" class="btn btn-primary" id="align-done">다 맞췄어요</button>
+    </div>
+  </div>
+</div>
+<style>
+  .sync-align-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.55);
+    display: flex; align-items: center; justify-content: center; z-index: 1200; }
+  .sync-align-overlay[hidden] { display: none; }
+  .sync-align-box { background: #fff; color: #222; padding: 22px 24px; border-radius: 14px;
+    width: min(92vw, 420px); text-align: center; box-shadow: 0 12px 40px rgba(0,0,0,.35); }
+  .sync-align-help { color: #555; font-size: 13px; line-height: 1.5; margin: 0 0 6px; }
+  .sync-align-track { position: relative; height: 64px; margin: 4px 0 6px;
+    background: #f1f1f4; border-radius: 10px; overflow: hidden; }
+  .sync-align-target { position: absolute; left: 50%; top: 8%; width: 3px; height: 84%;
+    margin-left: -1.5px; background: #f0a848; border-radius: 2px; }
+  .sync-align-marker { position: absolute; top: 14%; height: 72%; width: 10px; margin-left: -5px;
+    border-radius: 5px; background: #333; left: 0%; will-change: left; }
+  .sync-align-marker.hit { background: #2ec16b; }
+  .sync-align-row { display: flex; align-items: center; justify-content: center; gap: 12px; margin: 6px 0 14px; }
+  .sync-align-actions { display: flex; justify-content: flex-end; gap: 8px; }
+  @media (prefers-color-scheme: dark) {
+    .sync-align-box { background: #23232b; color: #eee; }
+    .sync-align-help { color: #aaa; }
+  }
+</style>

@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>코드 악보 — {{ song.title }} — chaebo</title>
+<style>
+/* 코드 악보(사용자 요청 2026-07-10) — 종이 스타일 마디 격자, 줄당 4마디(코드 차트 관례), 인쇄 친화 */
+body { margin: 0; background: #f5f2ea; color: #241f16; font-family: Pretendard, sans-serif; }
+.hint { font-size: 13px; color: #555; background: #ece7da; border-bottom: 1px solid #d8d2c2;
+  padding: 10px 16px; display: flex; align-items: center; gap: 12px; }
+.hint button { font-size: 13px; padding: 5px 12px; cursor: pointer; }
+.sheet { max-width: 760px; margin: 0 auto; padding: 32px 24px 60px; }
+h1 { font-size: 22px; margin: 0 0 4px; text-align: center; }
+.meta { text-align: center; font-size: 13px; color: #6b6250; margin: 0 0 6px; }
+.draft-note { text-align: center; font-size: 11px; color: #a3946e; margin: 0 0 24px; }
+.grid { display: grid; grid-template-columns: repeat(4, 1fr); border-left: 2px solid #241f16; }
+.bar { position: relative; border-right: 2px solid #241f16; border-bottom: 1px solid #c9c2b0;
+  min-height: 56px; display: flex; flex-direction: column; }
+.bar-chords { flex: 1; display: flex; align-items: stretch; min-height: 0; }
+.bar-lyric { font-size: 10.5px; color: #6b6250; padding: 0 6px 4px; text-align: center;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.grid .bar:nth-child(-n+4) { border-top: 1px solid #c9c2b0; }
+.bar-num { position: absolute; top: 3px; left: 5px; font-size: 9px; color: #a3946e; font-variant-numeric: tabular-nums; z-index: 1; }
+/* 마디 안 코드 칸 — 위치 비례 실분할(경계 = 점선) */
+.cseg { flex: 1; display: flex; align-items: center; justify-content: center; min-width: 0; border-left: 1px dashed #c9c2b0; overflow: hidden; }
+.cseg:first-child { border-left: none; }
+.chord { font-size: 19px; font-weight: 800; }
+.chord.duo { font-size: 15px; }
+.chord.multi { font-size: 12px; } /* 한 마디 3~4코드 — 셀 안에 들어가게 */
+.chord.same { color: #b6ac93; font-weight: 600; } /* 앞 칸과 같은 코드 — 변화가 눈에 띄게 */
+.chord.empty { color: #cfc8b4; font-size: 13px; font-weight: 500; }
+@page { margin: 12mm; }
+@media print { .hint { display: none; } body { background: #fff; } }
+</style>
+</head>
+<body>
+<p class="hint">
+  <span>자동으로 딴 코드 초안이에요 — 인쇄 창에서 「PDF로 저장」을 고르면 파일로 저장돼요.</span>
+  <button type="button" onclick="window.print()">인쇄 / PDF 저장</button>
+  <button type="button" onclick="window.close()">닫기</button>
+</p>
+<div class="sheet">
+  <h1>{{ song.title }}</h1>
+  <p class="meta" id="meta"></p>
+  <p class="draft-note">자동 채보 초안 — 코드는 추정이에요. 타브 화면에서 음을 고치면 코드도 다시 계산돼요.</p>
+  <div class="grid" id="grid"></div>
+</div>
+<script>
+fetch('/api/songs/{{ song.id }}/tab').then(function (r) { return r.json(); }).then(function (t) {
+  if (t.status !== 'ready' || !t.notes || !t.notes.length) {
+    document.getElementById('grid').outerHTML = '<p style="text-align:center">아직 코드가 없어요 — 타브 화면에서 먼저 분석해 주세요.</p>';
+    return;
+  }
+  var bs = t.bar_slots || 16;
+  var lastGi = 0;
+  t.notes.forEach(function (n) { lastGi = Math.max(lastGi, n.gi + n.glen); });
+  var bars = Math.ceil(lastGi / bs);
+  var byBar = {}; // 마디 -> [{pos,label}] — 셀은 위치 비례 칸으로 실분할
+  (t.chords || []).forEach(function (c) { (byBar[c.bar] = byBar[c.bar] || []).push(c); });
+  Object.keys(byBar).forEach(function (b) {
+    byBar[b].sort(function (a, c2) { return (a.pos || 0) - (c2.pos || 0); });
+  });
+  // 가사(받아쓰기) — 소절 시각 → 마디 (동적 그리드 우선)
+  var lyricByBar = {};
+  (function () {
+    var ly = t.lyrics;
+    if (!ly || ly.status !== 'ready' || !ly.segments) return;
+    function timeToBar(tt) {
+      var slots = t.slots;
+      if (slots && slots.length > 1) {
+        if (tt < slots[0]) return 0;
+        var lo = 0, hi = slots.length - 1;
+        while (lo < hi) { var mid = (lo + hi + 1) >> 1; if (slots[mid] <= tt) lo = mid; else hi = mid - 1; }
+        return Math.floor(lo / bs);
+      }
+      var slotDur = 60 / t.bpm / (bs === 48 && t.meter !== '12/8' ? 12 : 4);
+      return Math.max(0, Math.floor((tt - (t.offset || 0)) / slotDur / bs));
+    }
+    ly.segments.forEach(function (seg) {
+      if (seg.words && seg.words.length && !seg.manual) {
+        // 단어 실시각 배치 — 그 단어를 부르는 마디에(사용자 지시: 박자에 맞게)
+        seg.words.forEach(function (w) {
+          var b = Math.max(0, timeToBar(w.s + 0.01));
+          lyricByBar[b] = (lyricByBar[b] ? lyricByBar[b] + ' ' : '') + w.w;
+        });
+        return;
+      }
+      var b0 = Math.max(0, timeToBar(seg.s + 0.01));
+      var b1 = Math.max(b0, timeToBar(Math.max(seg.s + 0.01, seg.e - 0.05)));
+      var words = String(seg.text || '').split(/\s+/).filter(Boolean);
+      var n = b1 - b0 + 1;
+      for (var b = b0; b <= b1; b++) {
+        var part = words.slice(Math.round((b - b0) * words.length / n),
+          Math.round((b - b0 + 1) * words.length / n)).join(' ');
+        if (part) lyricByBar[b] = (lyricByBar[b] ? lyricByBar[b] + ' ' : '') + part;
+      }
+    });
+  })();
+  var kd = '';
+  if (t.key_json && t.key_json.label) {
+    kd = t.key_json.display || t.key_json.label;
+    var mn = t.key_json.minor || (t.key_json.mode === 'minor' ? t.key_json.label : '');
+    if (mn) kd += ' (' + mn + ')'; // 메이저 곡도 상대 단조 병기(사용자 지시)
+  }
+  var bpm = t.meter === '12/8' ? Math.round(t.bpm / 3) : Math.round(t.bpm);
+  document.getElementById('meta').textContent =
+    (kd ? '키 ' + kd + ' · ' : '') + 'BPM ' + bpm + ' · ' + (t.meter || '4/4');
+  var html = '';
+  var prev = null;
+  for (var b = 0; b < bars; b++) {
+    var entries = byBar[b] || [];
+    var segs = '';
+    if (!entries.length) { // 코드 없음: 앞 코드 지속(%) 또는 쉼(·)
+      segs = '<span class="cseg"><span class="chord empty">' + (prev ? '%' : '·') + '</span></span>';
+    } else {
+      var sizeCls = entries.length >= 3 ? ' multi' : (entries.length === 2 ? ' duo' : '');
+      for (var i = 0; i < entries.length; i++) {
+        var c = entries[i];
+        var next = i + 1 < entries.length ? (entries[i + 1].pos || 0) : bs;
+        var cls = 'chord' + sizeCls + (c.label === prev ? ' same' : '');
+        prev = c.label;
+        segs += '<span class="cseg" style="flex:' + Math.max(1, next - (c.pos || 0)) + '">' +
+          '<span class="' + cls + '">' + c.label + '</span></span>';
+      }
+    }
+    var lyr = lyricByBar[b] ? '<span class="bar-lyric">' + lyricByBar[b] + '</span>' : '';
+    html += '<div class="bar"><span class="bar-num">' + (b + 1) + '</span>' +
+      '<span class="bar-chords">' + segs + '</span>' + lyr + '</div>';
+  }
+  document.getElementById('grid').innerHTML = html;
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>연습 — {{ song.title }} — chaebo</title>
+<link rel="stylesheet" href="/static/tokens.css">
+<link rel="stylesheet" href="/static/ui.css">
+<style>
+/* ===== 연습 화면(믹서·타브·코드 악보) — 한 문서 안의 뷰 3개.
+   상단바·서브바·재생 박스·전환기는 문서에 1개뿐 — 탭 전환은 섹션 표시 전환(리로드 없음).
+   공통 컴포넌트는 /static/ui.css — 여기는 각 뷰 고유 스타일만. ===== */
+/* 재조판 DOM 교체 중 브라우저 자동 스크롤 보정(앵커링) 차단(방어) — 실범인은 alphaTab scrollToY(tab.js 해결) */
+html { overflow-anchor: none; }
+/* 세 뷰 공통 가로폭 — 여백 축소로 조판 폭 확보(사용자 지시 2026-07-07, 3뷰 통일 2026-07-10) */
+.page { padding-left: var(--sp-4); padding-right: var(--sp-4); }
+[hidden] { display: none !important; }
+
+/* 전환기 줄 + 전체 가사 모달 */
+.switcher-row { display: flex; align-items: center; gap: var(--sp-3); margin: 0 0 var(--sp-4); }
+.lyr-overlay { position: fixed; inset: 0; background: rgba(10, 12, 16, 0.7); backdrop-filter: blur(2px); z-index: 300; display: flex; align-items: center; justify-content: center; padding: var(--sp-8); }
+.lyr-overlay[hidden] { display: none !important; }
+.lyr-modal { width: 680px; max-width: 100%; max-height: 78vh; display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; box-shadow: 0 28px 80px rgba(0,0,0,0.65); overflow: hidden; }
+.lyr-head { padding: var(--sp-6) var(--sp-8) var(--sp-4); }
+.lyr-head-row { display: flex; align-items: center; gap: var(--sp-3); }
+.lyr-head h2 { font-size: 18px; font-weight: 700; margin: 0; }
+.lyr-head .badge { margin-left: 2px; }
+.lyr-head .icon-btn { margin-left: auto; }
+.lyr-sub { margin: 6px 0 0; font-size: 12px; color: var(--muted); line-height: 1.6; }
+.lyr-list { flex: 1; overflow-y: auto; padding: var(--sp-2) var(--sp-8) var(--sp-4); display: flex; flex-direction: column; }
+.lyr-row { display: flex; align-items: center; gap: var(--sp-4); padding: 3px 0; border-radius: var(--r-sm); }
+.lyr-time { flex-shrink: 0; min-width: 44px; font-size: 11px; font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; text-align: center; background: var(--surface-2); border: 1px solid var(--border); border-radius: 999px; padding: 3px 8px; cursor: pointer; transition: color .12s, border-color .12s; }
+.lyr-time:hover { color: var(--accent); border-color: var(--accent); }
+.lyr-row input { flex: 1; background: transparent; border: 1px solid transparent; border-radius: var(--r-sm); color: var(--text); font-size: 14px; line-height: 1.5; padding: 7px 12px; transition: background .12s, border-color .12s; }
+.lyr-row input:hover { background: var(--surface-2); }
+.lyr-row input:focus { background: var(--surface-2); border-color: var(--accent); outline: none; }
+.lyr-row input.manual { color: #7fc478; }
+.lyr-foot { display: flex; align-items: center; gap: var(--sp-3); padding: var(--sp-4) var(--sp-8) var(--sp-6); border-top: 1px solid var(--border); }
+.lyr-foot .control-label { margin-right: auto; }
+.lyr-foot .btn { min-width: 76px; justify-content: center; }
+
+/* 서브바: 아티스트 병기 + 키 직접 입력 팝오버(코드 편집기와 같은 문법) */
+.practice-artist { font-size: 13px; font-weight: 400; color: var(--muted); margin-left: 6px; }
+button.meta-badge { cursor: pointer; }
+button.meta-badge:hover { border-color: var(--accent); }
+.key-editor { position: absolute; right: 0; top: calc(100% + 6px); width: 250px; background: var(--surface); color: var(--text); border: 1px solid var(--accent); border-radius: var(--r-md); padding: var(--sp-4); box-shadow: 0 16px 40px rgba(0,0,0,0.5); z-index: 30; text-align: left; }
+.key-editor .row .btn { white-space: nowrap; padding-left: 8px; padding-right: 8px; }
+.key-editor h3 { font-size: 13px; margin: 0 0 var(--sp-2); }
+.key-editor input { width: 100%; box-sizing: border-box; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-sm); color: var(--text); font-size: 14px; padding: 7px 10px; margin: 0 0 var(--sp-3); }
+.key-editor .row { display: flex; gap: 6px; }
+.key-editor .row .btn { flex: 1; justify-content: center; }
+.key-editor .hint-text { font-size: 10px; color: var(--muted); margin: 6px 0 0; }
+
+/* ---- 뷰 1: 믹서 — 코드 스트립 (REQ-CHORD-002) ---- */
+.chord-strip-label { font-size: 11px; color: var(--muted); text-align: right; padding-right: var(--sp-2); }
+.chord-strip-cell { display: flex; height: 20px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-sm); overflow: hidden; }
+.chord-seg { flex: none; min-width: 0; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; color: var(--muted); border-right: 1px solid var(--border); overflow: hidden; }
+.chord-seg:last-child { border-right: none; }
+.chord-seg-current { background: rgba(240, 168, 72, 0.2); color: var(--accent); }
+
+/* 곡 구간 띠 — 같은 색 = 같은 유형(반복 구간). 클릭=구간 반복, 더블클릭=이름 */
+.sect-strip-cell { display: flex; height: 20px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-sm); overflow: hidden; }
+.sect-seg { flex: none; min-width: 0; display: flex; align-items: center; justify-content: center; gap: 3px; font-size: 10px; font-weight: 700; border-right: 1px solid var(--border); overflow: hidden; white-space: nowrap; cursor: pointer; color: var(--text); }
+.sect-seg:last-child { border-right: none; }
+.sect-seg:hover { filter: brightness(1.25); }
+.sect-seg .no-vocal { opacity: 0.6; font-weight: 400; }
+.sect-seg.manual { text-decoration: underline dotted; } /* 직접 이름 붙인 구간 */
+@media (max-width: 720px) {
+  .chord-strip-label { text-align: left; padding: 0 0 0 var(--sp-3); }
+}
+
+.speed-warning { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #e0b95d; background: rgba(240, 168, 72, 0.1); border: 1px solid rgba(240, 168, 72, 0.3); border-radius: var(--r-sm); padding: var(--sp-2) var(--sp-3); margin: 0 0 var(--sp-6); }
+.speed-warning svg { width: 14px; height: 14px; flex-shrink: 0; }
+
+/* 현재 가사 줄 — 재생 위치 소절(진하게) + 다음 소절(옅게) */
+.now-lyric { display: flex; align-items: baseline; justify-content: center; gap: var(--sp-4); margin: 0 0 var(--sp-3); min-height: 22px; overflow: hidden; }
+.now-lyric-cur { font-size: 15px; font-weight: 700; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.now-lyric-next { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.stem-deck { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md); padding: var(--sp-4) var(--sp-6); margin-bottom: var(--sp-3); }
+.stem-deck-inner { position: relative; }
+.stem-deck-grid { display: grid; grid-template-columns: 260px 1fr; column-gap: var(--sp-4); row-gap: var(--sp-2); align-items: center; }
+
+.deck-spacer { height: 28px; }
+.deck-zoom { display: flex; align-items: center; gap: 6px; }
+.zoom-badge { min-width: 30px; text-align: center; font-size: 12px; font-weight: 700; color: var(--muted); font-variant-numeric: tabular-nums; }
+.deck-ruler-cell { position: relative; height: 28px; cursor: pointer; }
+.ruler-svg { width: 100%; height: 100%; display: block; }
+.ruler-svg .tick-major { stroke: var(--muted); stroke-width: 1; }
+.ruler-svg .tick-minor { stroke: var(--border); stroke-width: 1; }
+.ruler-svg .tick-label { font-size: 9.5px; fill: var(--muted); font-variant-numeric: tabular-nums; }
+
+.deck-overlay { position: absolute; top: 0; right: 0; bottom: 0; left: calc(260px + var(--sp-4)); pointer-events: none; z-index: 3; }
+.loop-region { position: absolute; top: 0; bottom: 0; background: rgba(240, 168, 72, 0.14); border-left: 2px solid var(--accent); border-right: 2px solid var(--accent); }
+.loop-handle { position: absolute; top: 2px; width: 12px; height: 16px; border-radius: 4px; background: var(--accent); box-shadow: 0 1px 3px rgba(0,0,0,0.5); pointer-events: auto; cursor: ew-resize; }
+.loop-handle-start { left: 0; transform: translateX(-50%); }
+.loop-handle-end { right: 0; transform: translateX(50%); }
+.deck-playhead-line { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--text); opacity: 0.7; }
+
+.stem-controls { border-left: 3px solid var(--stem-color, var(--border)); padding: 4px 0 4px var(--sp-3); display: flex; flex-direction: column; gap: 4px; }
+.stem-controls-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; row-gap: 4px; }
+.stem-chip { width: 9px; height: 9px; border-radius: 50%; background: var(--stem-color); flex-shrink: 0; }
+.stem-name { width: 40px; flex-shrink: 0; font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stem-toggle { display: inline-flex; align-items: center; justify-content: center; height: 24px; padding: 0 10px; border-radius: 999px; border: 1px solid var(--border); background: transparent; color: var(--muted); font-size: 11px; font-weight: 700; line-height: 1; white-space: nowrap; cursor: pointer; flex-shrink: 0; }
+.stem-toggle:hover { border-color: var(--muted); }
+.stem-toggle.active { background: var(--stem-color); border-color: var(--stem-color); color: #0f1115; }
+.stem-volume { flex: 1; min-width: 44px; accent-color: var(--stem-color); }
+
+/* lane 높이 96px — 48px 납작(사용자 피드백) → 76 → "더 키워도" 96 (2026-07-08) */
+.stem-lane-cell { position: relative; height: 96px; background: var(--surface-2); border-radius: var(--r-sm); overflow: hidden; cursor: pointer; }
+.mini-wave { width: 100%; height: 100%; display: block; }
+.mini-wave .bar { fill: var(--stem-color); opacity: 0.55; }
+
+.stem-quality-note-row { grid-column: 1 / -1; font-size: 12px; color: var(--muted); margin: 0 0 2px; padding-left: var(--sp-2); }
+
+.loop-chip-row { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; margin: var(--sp-3) 0 0; }
+.loop-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--text); background: var(--surface-2); border: 1px solid var(--border); border-radius: 999px; padding: 5px 6px 5px 12px; cursor: pointer; }
+.loop-chip.active { background: rgba(240, 168, 72, 0.14); border-color: var(--accent); color: var(--accent); }
+.loop-chip-remove { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 50%; border: none; background: transparent; color: inherit; cursor: pointer; font-size: 13px; line-height: 1; padding: 0; }
+.loop-chip-remove:hover { background: rgba(255,255,255,0.12); }
+.loop-chip-add svg { width: 14px; height: 14px; }
+.deck-hint { margin: 0 0 var(--sp-6); font-size: 11px; color: var(--muted); text-align: center; }
+
+/* 스피드 트레이너 (REQ-PLAY-011) */
+.trainer-row { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; margin: var(--sp-3) 0 0; }
+.trainer-panel { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; color: var(--muted); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-sm); padding: 6px 10px; }
+.trainer-panel label { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.trainer-panel input[type="number"] { width: 52px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-sm); color: var(--text); font-size: 12px; padding: 3px 6px; }
+.trainer-panel #tr-status { color: var(--accent); font-weight: 600; }
+#btn-trainer.active { border-color: var(--accent); color: var(--accent); }
+
+@media (max-width: 720px) {
+  .stem-deck-grid { grid-template-columns: 1fr; row-gap: var(--sp-3); }
+  .deck-spacer { display: none; }
+  .deck-spacer.deck-zoom { display: flex; } /* 줌 컨트롤은 모바일에서도 유지 */
+  .deck-overlay { left: 0; top: 0; bottom: auto; height: 28px; }
+  .stem-controls { border-left: 3px solid var(--stem-color, var(--border)); padding-left: var(--sp-3); }
+  .stem-lane-cell { height: 64px; }
+  .stem-quality-note-row { padding-left: var(--sp-3); }
+}
+
+.bottom-bar { display: flex; align-items: center; gap: 6px; justify-content: center; font-size: 12px; color: var(--muted); padding: var(--sp-4) 0 var(--sp-8); }
+.bottom-bar svg { width: 14px; height: 14px; flex-shrink: 0; }
+
+/* ---- 뷰 2: 타브 — 박자 세기 라벨(1 e n a) ---- */
+.count-label { position: absolute; transform: translateX(-50%); font-size: 10px; font-variant-numeric: tabular-nums; pointer-events: none; white-space: nowrap; }
+.count-label.count-attack { font-weight: 800; color: #241f16; }
+.count-label.count-quiet { font-weight: 500; color: #c4bba7; }
+.count-label.count-onbeat { font-size: 11.5px; }
+.at-overlay.hide-counts .count-label { display: none; }
+/* 가사 줄(받아쓰기 초안) — 카운트 행 아래, 마디 폭 안에서 말줄임 */
+.lyric-label { position: absolute; font-size: 10px; color: #6b6250; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; pointer-events: none; }
+.lyric-label.manual { color: #2e6b2a; }
+.at-overlay.hide-lyrics .lyric-label { display: none; }
+
+.autodraft-banner { display: flex; align-items: center; gap: var(--sp-2); font-size: 13px; color: #e0b95d; background: rgba(240, 168, 72, 0.1); border: 1px solid rgba(240, 168, 72, 0.3); border-radius: var(--r-sm); padding: var(--sp-3) var(--sp-4); margin: 0 0 var(--sp-2); line-height: 1.5; }
+.autodraft-banner svg { width: 18px; height: 18px; flex-shrink: 0; }
+
+/* 흐름 타브(시간 비례 뷰) — 자체 렌더: 칸=고정 폭이라 간격 균일·커서 등속 */
+.flow-wrap { position: relative; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md); padding: var(--sp-3); margin-bottom: var(--sp-3); }
+.flow-scroll { overflow-x: auto; overflow-y: hidden; border-radius: var(--r-sm); background: #f5f2ea; }
+.flow-inner { position: relative; height: 150px; }
+.flow-bar-line { position: absolute; top: 20px; bottom: 6px; width: 1px; background: rgba(92, 86, 66, 0.45); }
+.flow-chord { position: absolute; top: 2px; font-size: 12.5px; font-weight: 800; color: #241f16; }
+.flow-chord.fc-same { color: #a89c7d; font-weight: 600; } /* 앞 마디와 같은 코드 — 변화가 눈에 띄게 */
+.flow-bar-num { position: absolute; top: 20px; font-size: 10px; color: #a3946e; font-variant-numeric: tabular-nums; }
+.flow-count { position: absolute; top: 34px; transform: translateX(-50%); font-size: 11px; font-variant-numeric: tabular-nums; }
+.flow-count.fc-attack { font-weight: 800; color: #241f16; }
+.flow-count.fc-quiet { font-weight: 500; color: #b6ab90; }
+.flow-count.fc-onbeat { font-size: 12.5px; }
+.flow-string { position: absolute; left: 0; right: 0; height: 1px; background: #b9ae95; }
+.flow-fret { position: absolute; transform: translate(-50%, -55%); font-size: 12px; font-weight: 700; color: #241f16; background: #f5f2ea; padding: 0 2px; line-height: 1.2; border-radius: 3px; }
+.flow-fret.fc-low { color: var(--lowconf, #e2793f); }
+.flow-sustain { position: absolute; height: 3px; border-radius: 2px; background: rgba(36, 31, 22, 0.25); transform: translateY(-50%); }
+.flow-playhead { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--accent); box-shadow: 0 0 8px rgba(240, 168, 72, 0.7); z-index: 3; }
+.flow-caption { margin: var(--sp-2) 0 0; font-size: 11px; color: var(--muted); text-align: center; }
+
+/* 실제 alphaTab 렌더 영역 */
+:root { --lowconf: #e2793f; }
+.tab-score-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md); padding: var(--sp-3); margin-bottom: var(--sp-3); }
+.at-paper { position: relative; background: #f5f2ea; border-radius: var(--r-sm); overflow-x: auto; overflow-y: hidden; padding: var(--sp-3) 6px; }
+#alphaTab { width: 100%; min-width: 640px; } /* 데스크톱은 한 화면 폭 맞춤(사용자 확정) — 모바일만 가로 스크롤 */
+.at-overlay { position: absolute; top: var(--sp-3); left: 6px; right: 6px; bottom: var(--sp-3); pointer-events: none; z-index: 5; /* alphaTab 렌더 위에 — 없으면 조판 텍스트가 점 클릭을 가로챔. 오프셋은 .at-paper 패딩과 반드시 일치 */ }
+.lowconf-dot { position: absolute; width: 9px; height: 9px; border-radius: 50%; background: var(--lowconf); box-shadow: 0 0 0 3px rgba(226, 121, 63, 0.25); transform: translate(-50%, -130%); pointer-events: auto; cursor: pointer; }
+/* 편집 모드: 확신 높은 음표에도 점(회색) — 모든 음표 수정·삭제 가능(사용자 지시 2026-07-08) */
+.lowconf-dot.edit-dot { background: #8a91a0; box-shadow: 0 0 0 3px rgba(138, 145, 160, 0.2); }
+/* 직접 추가·수정·확인한 음(conf 1.0) — 자동 초안과 시각 구분(사용자 요청 2026-07-09) */
+.lowconf-dot.human-dot { background: #4d8a44; box-shadow: 0 0 0 3px rgba(77, 138, 68, 0.25); }
+/* 가장 최근에 추가·수정한 음 — 빨간 점: 주황(확신 낮음)과 확실히 구분되게 크게·흰 테두리·펄스 */
+.lowconf-dot.recent-dot {
+  background: #e02b1d; width: 15px; height: 15px; border: 2px solid #fff;
+  box-shadow: 0 0 0 3px rgba(224, 43, 29, 0.45); z-index: 6;
+  animation: recent-pulse 0.9s ease-out 3;
+}
+@keyframes recent-pulse {
+  0% { box-shadow: 0 0 0 3px rgba(224, 43, 29, 0.45); }
+  50% { box-shadow: 0 0 0 9px rgba(224, 43, 29, 0.18); }
+  100% { box-shadow: 0 0 0 3px rgba(224, 43, 29, 0.45); }
+}
+/* 마지막으로 수정한 마디 테두리 — 재조판 후 위치 식별(사용자 요청 2026-07-09) */
+.recent-bar { position: absolute; border: 2px solid rgba(217, 72, 59, 0.5); border-radius: 8px; pointer-events: none; }
+/* 무엇을 했는지 라벨 — 테두리 좌상단(사용자 요청: 어디가 어떻게 수정됐는지) */
+.recent-bar-tag { position: absolute; font-size: 11px; font-weight: 600; color: #fff; background: rgba(196, 60, 48, 0.9); padding: 1px 8px; border-radius: 999px; pointer-events: none; white-space: nowrap; }
+/* 편집 모드: 빈 칸 고스트(+) — 클릭하면 그 자리에 음표 추가(사용자 요청 2026-07-09) */
+.add-dot { position: absolute; width: 11px; height: 11px; border-radius: 50%; border: 1.5px dashed #9a8f74; background: rgba(255,255,255,0.5); transform: translate(-50%, -50%); pointer-events: auto; cursor: copy; }
+.add-dot:hover { border-color: var(--lowconf); background: rgba(226, 121, 63, 0.15); }
+/* 셋잇단 자리(la·li) 고스트 — 점선을 둥글게 촘촘히 해 일반 칸과 구분 */
+.add-dot-tu { border-style: dotted; border-color: #7d9a74; }
+.add-dot-tu:hover { border-color: #4d7a44; background: rgba(125, 154, 116, 0.18); }
+.flow-inner.edit-mode { cursor: copy; }
+.flow-inner.edit-mode .flow-fret { cursor: pointer; outline: 1px dashed rgba(226, 121, 63, 0.55); outline-offset: 2px; }
+/* 자주 쓰는 도구는 악보 위(하단은 스크롤해야 보임 — 사용자 지시 2026-07-08) */
+.score-tools { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; margin: 0 0 var(--sp-2); }
+.lowconf-ring { position: absolute; width: 28px; height: 28px; border-radius: 50%; border: 2px solid var(--lowconf); background: rgba(226, 121, 63, 0.14); transform: translate(-50%, -50%); }
+.score-fidelity-note { margin: var(--sp-2) 0 0; font-size: 11px; color: var(--muted); text-align: center; }
+.playhead-highlight { position: absolute; background: rgba(240, 168, 72, 0.08); border-left: 1px solid rgba(240, 168, 72, 0.35); border-right: 1px solid rgba(240, 168, 72, 0.35); }
+.playhead-line { position: absolute; width: 3px; background: var(--accent); box-shadow: 0 0 10px rgba(240, 168, 72, 0.7); border-radius: 2px; }
+.playhead-caption-row { position: relative; margin-top: var(--sp-2); }
+.playhead-caption { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 600; color: var(--accent); background: rgba(240, 168, 72, 0.12); border: 1px solid rgba(240, 168, 72, 0.35); border-radius: 999px; padding: 4px 10px; white-space: nowrap; }
+
+/* 보정 팝오버 (REQ-TAB-003) */
+.correction-popover { position: absolute; width: 250px; background: var(--surface); border: 1px solid var(--accent); border-radius: var(--r-md); padding: var(--sp-4); box-shadow: 0 16px 40px rgba(0,0,0,0.5); z-index: 20; pointer-events: auto; }
+.corr-all-label { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); margin: 4px 0; cursor: pointer; }
+.correction-popover::before { content: ''; position: absolute; top: -6px; left: 24px; width: 12px; height: 12px; background: var(--surface); border-left: 1px solid var(--accent); border-top: 1px solid var(--accent); transform: rotate(45deg); }
+.correction-popover-title { font-size: 13px; font-weight: 700; margin: 0 0 var(--sp-3); }
+.correction-controls { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 var(--sp-3); }
+.correction-actions { display: flex; gap: var(--sp-2); }
+.correction-actions .btn { flex: 1; justify-content: center; }
+@media (max-width: 720px) {
+  .tab-score-wrap { padding: var(--sp-4); }
+  .correction-popover { width: 200px; }
+}
+
+/* 분석 전/진행 중 상태 (시안엔 없는 상태 — 최소 구성, HANDOFF 기록) */
+.tab-empty { display: flex; flex-direction: column; align-items: center; gap: var(--sp-3); text-align: center; padding: var(--sp-8) var(--sp-4); border: 1px dashed var(--border); border-radius: var(--r-md); color: var(--muted); margin-bottom: var(--sp-3); }
+.tab-empty .progress-bar { width: 100%; max-width: 380px; height: 6px; background: var(--surface-2); border-radius: 999px; overflow: hidden; }
+.tab-empty .progress-fill { height: 100%; background: var(--accent); border-radius: 999px; }
+
+/* 타브 하단 툴바 */
+.score-bottom-toolbar { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; padding: var(--sp-2) 0 var(--sp-8); }
+.score-drum-disabled { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; padding: 6px 12px; border-radius: 999px; background: var(--surface-2); border: 1px dashed var(--border); color: var(--muted); opacity: 0.7; cursor: not-allowed; }
+@media (max-width: 720px) {
+  .score-bottom-toolbar { flex-direction: column; align-items: stretch; }
+}
+
+/* ---- 뷰 3: 코드 악보 ---- */
+.sheet-card { position: relative; background: #f5f2ea; color: #241f16; border: 1px solid var(--border); border-radius: var(--r-md); padding: var(--sp-8) var(--sp-6); }
+.sheet-head { text-align: center; margin: 0 0 20px; }
+.sheet-head h2 { font-size: 20px; margin: 0 0 4px; }
+.sheet-meta { font-size: 13px; color: #6b6250; margin: 0 0 4px; }
+.sheet-draft { font-size: 11px; color: #a3946e; margin: 0; }
+.chord-grid { display: grid; grid-template-columns: repeat(4, 1fr); border-left: 2px solid #241f16; max-width: 720px; margin: 0 auto; }
+.cbar { position: relative; border-right: 2px solid #241f16; border-bottom: 1px solid #c9c2b0; min-height: 54px; display: flex; flex-direction: column; cursor: pointer; }
+.cbar:hover { background: rgba(240, 168, 72, 0.12); }
+.cbar.now { background: rgba(240, 168, 72, 0.22); } /* 재생 중 현재 마디 */
+.chord-grid .cbar:nth-child(-n+4) { border-top: 1px solid #c9c2b0; }
+.cbar-num { position: absolute; top: 3px; left: 5px; font-size: 9px; color: #a3946e; font-variant-numeric: tabular-nums; z-index: 1; }
+.cbar-chords { flex: 1; display: flex; align-items: stretch; min-height: 0; }
+/* 마디 안 코드 칸 — 위치 비례 실분할(경계 = 점선, 어느 박에서 바뀌는지 보이게) */
+.cseg { flex: 1; display: flex; align-items: center; justify-content: center; min-width: 0; border-left: 1px dashed #c9c2b0; overflow: hidden; }
+.cseg:first-child { border-left: none; }
+/* 가사 줄(받아쓰기 초안) — 코드 아래, 마디 폭 안에서 말줄임 */
+.cbar-lyric { font-size: 10.5px; color: #6b6250; padding: 0 6px 4px; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cbar-lyric.manual { color: #2e6b2a; } /* 직접 고친 가사 — 자동과 구분(정직 UI) */
+.cbar .chord { font-size: 18px; font-weight: 800; }
+.cbar .chord.duo { font-size: 15px; }    /* 두 코드 — 반칸에 들어가게 */
+.cbar .chord.multi { font-size: 11.5px; } /* 3~4코드 — 셀 안에 들어가게 */
+.cbar .chord.same { color: #b6ac93; font-weight: 600; }
+.cbar .chord.empty { color: #cfc8b4; font-size: 13px; font-weight: 500; }
+.cbar .chord.manual { color: #2e6b2a; } /* 직접 고친 코드 — 자동 추정과 구분(정직 UI) */
+.sheet-tools { display: flex; align-items: center; gap: var(--sp-3); margin: 0 0 var(--sp-2); }
+.sheet-note { margin: var(--sp-2) 0 0; font-size: 11px; color: var(--muted); text-align: center; }
+.sheet-empty { text-align: center; color: var(--muted); padding: var(--sp-8) 0; }
+/* 코드 편집 팝오버 — 보정 팝오버(타브)와 같은 문법 */
+.chord-editor { position: absolute; width: 230px; background: var(--surface); color: var(--text); border: 1px solid var(--accent); border-radius: var(--r-md); padding: var(--sp-4); box-shadow: 0 16px 40px rgba(0,0,0,0.5); z-index: 20; }
+.chord-editor h3 { font-size: 13px; margin: 0 0 var(--sp-2); }
+.chord-editor input { width: 100%; box-sizing: border-box; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-sm); color: var(--text); font-size: 14px; padding: 7px 10px; margin: 0 0 var(--sp-3); }
+.chord-editor .row { display: flex; gap: 6px; }
+.chord-editor .row .btn { flex: 1; justify-content: center; }
+.chord-editor .hint-text { font-size: 10px; color: var(--muted); margin: 6px 0 0; }
+@media (max-width: 720px) {
+  .sheet-card { padding: var(--sp-4); }
+  .cbar .chord { font-size: 15px; }
+}
+</style>
+</head>
+<body class="wide" data-song-id="{{ song.id }}" data-view="{{ view }}">
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="wordmark" href="/">
+      chaebo <span class="wordmark-sub">채보</span>
+    </a>
+    <div class="topbar-right">
+      <span class="status-badge" title="처리 장치 상태 — 설정에서 확인">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3"/></svg>
+        <span id="device-label">CPU 모드</span>
+      </span>
+      <a class="icon-btn" href="/settings" aria-label="설정">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></svg>
+      </a>
+    </div>
+  </div>
+</header>
+
+<main class="page">
+
+  <div class="practice-subbar">
+    <a class="icon-btn" href="/" aria-label="라이브러리로 돌아가기">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+    </a>
+    <h1 class="practice-title">{{ song.title }}{% if song.artist %} <span class="practice-artist">{{ song.artist }}</span>{% endif %}</h1>
+    <span class="practice-duration" id="duration-label">—:—</span>
+    <!-- 키·BPM = 타브 분석 추정치 — 분석 전에는 숨김(가짜 표시 금지). 키는 눌러서 직접 고침(KEY-001) -->
+    <div class="subbar-badges" style="position: relative;">
+      <button type="button" class="meta-badge" id="key-badge" hidden title="누르면 키를 직접 고칠 수 있어요"></button>
+      <button type="button" class="meta-badge" id="bpm-badge" hidden title="누르면 BPM 을 확인·보정할 수 있어요"></button>
+      <!-- 키 직접 입력(사용자 요청 2026-07-10) — 추정이 틀린 곡의 교정 경로 -->
+      <div class="key-editor" id="key-editor" role="dialog" aria-label="키 고치기" hidden>
+        <h3>키 직접 입력</h3>
+        <input type="text" id="key-input" maxlength="8" placeholder="예: A, F#m, Bb">
+        <div class="row">
+          <button type="button" class="btn btn-primary btn-sm" id="key-save">저장</button>
+          <button type="button" class="btn btn-outline btn-sm" id="key-auto">자동으로</button>
+          <button type="button" class="btn btn-outline btn-sm" id="key-cancel">취소</button>
+        </div>
+        <p class="hint-text">키를 고치면 코드 추정도 이 키 기준으로 다시 계산돼요 · 다시 분석해도 유지</p>
+      </div>
+      <!-- BPM 확인·보정(사용자 요청 2026-07-10) — 배수 오검출 교정 + 인터넷 대조 -->
+      <div class="key-editor" id="bpm-editor" role="dialog" aria-label="BPM 확인·보정" hidden>
+        <h3>BPM 확인·보정</h3>
+        <p class="hint-text" id="bpm-current" style="font-size: 12px; margin: 0 0 8px;">검출 BPM —</p>
+        <div class="row">
+          <button type="button" class="btn btn-outline btn-sm" id="bpm-half">절반으로</button>
+          <button type="button" class="btn btn-outline btn-sm" id="bpm-double">2배로</button>
+        </div>
+        <div class="row" style="margin-top: 6px;">
+          <button type="button" class="btn btn-primary btn-sm" id="bpm-lookup">인터넷에서 확인 (Deezer)</button>
+        </div>
+        <p class="hint-text" id="bpm-lookup-result" hidden></p>
+        <p class="hint-text">절반/2배는 몇 초 안에 다시 계산돼요 · 인터넷 확인은 곡 제목·아티스트만 보내요</p>
+      </div>
+    </div>
+  </div>
+
+  {% include "_transport.html" %}
+
+  <!-- 뷰 전환 — 리로드 없는 섹션 전환(shell.js). 주소는 pushState 로 유지(뒤로가기·새 탭 열기 동작) -->
+  <div class="switcher-row">
+  <div class="view-switcher" role="tablist" aria-label="연습 화면 보기 전환" style="margin: 0;">
+    <a class="view-switch-btn" data-view="mixer" href="/songs/{{ song.id }}/practice" role="tab" aria-selected="false">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
+      믹서
+    </a>
+    <a class="view-switch-btn" data-view="tab" href="/songs/{{ song.id }}/tab" role="tab" aria-selected="false">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+      타브 악보
+    </a>
+    <a class="view-switch-btn" data-view="chords" href="/songs/{{ song.id }}/chords" role="tab" aria-selected="false">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/><line x1="15" y1="21" x2="15" y2="9"/></svg>
+      코드 악보
+    </a>
+  </div>
+  <!-- 전체 가사 보기·수정 — 세 화면 공통 데이터(사용자 요청 2026-07-11) -->
+  <button type="button" class="btn btn-outline btn-sm" id="btn-lyrics-view" hidden>전체 가사</button>
+  </div>
+
+  <!-- ======== 뷰 1: 믹서 ======== -->
+  <section id="view-mixer" data-view-section="mixer" aria-label="믹서" {% if view != 'mixer' %}hidden{% endif %}>
+
+  <p class="speed-warning" id="speed-warning" hidden>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l10 18H2L12 3z"/><line x1="12" y1="9" x2="12" y2="14"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+    이 배속에서는 음질이 떨어질 수 있어요
+  </p>
+
+  <!-- 현재 가사 줄(받아쓰기 초안) — 재생 위치의 소절 + 다음 소절 미리보기 -->
+  <p class="now-lyric" id="now-lyric" hidden>
+    <span class="now-lyric-cur" id="now-lyric-cur"></span>
+    <span class="now-lyric-next" id="now-lyric-next"></span>
+  </p>
+
+  <section class="stem-deck" aria-label="스템 채널 + 파형">
+    <div class="stem-deck-inner">
+      <div class="stem-deck-grid" id="deck-grid">
+        <div class="deck-spacer deck-zoom">
+          <button type="button" class="stepper-btn" id="zoom-out" aria-label="파형 축소">−</button>
+          <span class="zoom-badge" id="zoom-badge">×1</span>
+          <button type="button" class="stepper-btn" id="zoom-in" aria-label="파형 확대">+</button>
+        </div>
+        <div class="deck-ruler-cell">
+          <svg class="ruler-svg" id="ruler" viewBox="0 0 600 28" preserveAspectRatio="none" role="img" aria-label="타임라인 눈금"></svg>
+        </div>
+        <!-- 곡 구간 띠(자동 경계·같은 색=반복 구간) — 클릭=그 구간 A-B 반복, 더블클릭=이름 바꾸기 -->
+        <div class="chord-strip-label" id="sect-label" aria-hidden="true" hidden>구간 (자동)</div>
+        <div class="sect-strip-cell" id="sect-strip" aria-label="곡 구간" hidden></div>
+        <!-- 코드 스트립 (REQ-CHORD-002) — 타브 분석 완료 시 노출, 줌 창과 같은 x-스케일 -->
+        <div class="chord-strip-label" id="chord-label" aria-hidden="true" hidden>코드 (추정)</div>
+        <div class="chord-strip-cell" id="chord-strip" role="img" aria-label="코드 진행" hidden></div>
+        <!-- 스템 행 6개는 JS 렌더 (시안 순서: 베이스·드럼·보컬·기타·건반·그 외) -->
+      </div>
+
+      <div class="deck-overlay" id="deck-overlay">
+        <div class="loop-region" id="loop-region" hidden>
+          <span class="loop-handle loop-handle-start" id="handle-a"></span>
+          <span class="loop-handle loop-handle-end" id="handle-b"></span>
+        </div>
+        <div class="deck-playhead-line" id="playhead" style="left: 0"></div>
+      </div>
+    </div>
+
+    <div class="loop-chip-row" aria-label="저장된 루프" id="loop-chips"></div>
+
+    <!-- 스피드 트레이너 (REQ-PLAY-011) — 반복이 끝날 때마다 배속이 한 스텝씩 올라간다 -->
+    <div class="trainer-row">
+      <button type="button" class="btn btn-outline btn-sm" id="btn-trainer" title="반복 구간을 느리게 시작해 점점 빠르게 — 연습의 정석">
+        스피드 트레이너
+      </button>
+      <div class="trainer-panel" id="trainer-panel" hidden>
+        <label>시작 <input type="number" id="tr-start" value="70" min="25" max="150" step="5">%</label>
+        <span>→</span>
+        <label>목표 <input type="number" id="tr-target" value="100" min="30" max="200" step="5">%</label>
+        <label>· 스텝 <input type="number" id="tr-step" value="5" min="1" max="25">%p</label>
+        <label>· 반복 <input type="number" id="tr-reps" value="3" min="1" max="10">회</label>
+        <button type="button" class="btn btn-primary btn-sm" id="tr-go">시작</button>
+        <button type="button" class="btn btn-outline-danger btn-sm" id="tr-stop" hidden>중지</button>
+        <span class="control-label" id="tr-status"></span>
+        <span class="control-label">· 아주 느린 속도(50% 아래)는 음질이 조금 떨어질 수 있어요</span>
+      </div>
+    </div>
+  </section>
+
+  <p class="deck-hint">파형을 클릭해서 재생 위치로 이동 · A-B 핸들을 드래그해서 반복 구간 조절</p>
+  <!-- 단축키 안내 — REQ-PLAY-008 "안내 노출" (시안엔 없던 요소, REQ 근거 추가) -->
+  <p class="deck-hint">단축키: <b>스페이스</b> 재생/일시정지 · <b>← →</b> 5초 이동 · <b>↑ ↓</b> 배속 · <b>L</b> 구간반복 켬/끔 · <b>1~6</b> 악기 솔로(여러 개 함께 켤 수 있어요)</p>
+
+  <p class="bottom-bar">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+    위치·볼륨·반복 구간은 자동 저장돼요
+  </p>
+
+  </section>
+
+  <!-- ======== 뷰 2: 타브 악보 ======== -->
+  <section id="view-tab" data-view-section="tab" aria-label="타브 악보" {% if view != 'tab' %}hidden{% endif %}>
+
+  <!-- 분석 전/진행 중 (시안 05엔 없는 상태 — 최소 구성) -->
+  <div class="tab-empty" id="tab-empty" hidden>
+    <p id="tab-empty-msg">아직 타브 초안이 없어요 — 베이스 소리에서 자동으로 음을 따 드릴게요</p>
+    <div class="progress-bar" id="tab-progress-wrap" hidden><div class="progress-fill" id="tab-progress" style="width:0%"></div></div>
+    <button type="button" class="btn btn-primary" id="btn-make-tab">타브 초안 만들기 (CPU 로 약 10분 걸려요)</button>
+  </div>
+
+  <div id="tab-ready" hidden>
+    <p class="autodraft-banner">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l10 18H2L12 3z"/><line x1="12" y1="9" x2="12" y2="14"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+      자동으로 딴 초안이에요 (약 70~75% 정확) — 주황색 음표는 확신이 낮아요. 모든 음표를 고치거나 새 음표를 넣으려면 아래 도구줄의 <b>음표 고치기</b>를 켜세요
+    </p>
+
+    <!-- 자주 쓰는 도구 — 악보 위(하단 배치는 스크롤해야 보임, 사용자 지시 2026-07-08) -->
+    <div class="score-tools">
+      <label class="count-toggle">
+        <input type="checkbox" id="count-check" checked>
+        <span class="toggle-track"><span class="toggle-thumb"></span></span>
+        <span class="control-label">박자 세기 (1 e n a)</span>
+      </label>
+      <label class="count-toggle" title="받아쓴 가사를 마디 아래에 — 코드 악보에서 고칠 수 있어요">
+        <input type="checkbox" id="lyrics-check" checked>
+        <span class="toggle-track"><span class="toggle-thumb"></span></span>
+        <span class="control-label">가사</span>
+      </label>
+      <label class="count-toggle">
+        <input type="checkbox" id="edit-check">
+        <span class="toggle-track"><span class="toggle-thumb"></span></span>
+        <span class="control-label">음표 고치기</span>
+      </label>
+      <button type="button" class="btn btn-outline btn-sm" id="btn-undo" disabled title="마지막 편집 취소">되돌리기</button>
+      <span class="control-label" title="곡이 1에서 시작하지 않으면 기준을 칸 단위로 옮겨 맞춰요">박자 시작점</span>
+      <button type="button" class="btn btn-outline btn-sm" id="btn-shift-left" title="박자 기준 한 칸 앞으로">◀</button>
+      <button type="button" class="btn btn-outline btn-sm" id="btn-shift-right" title="박자 기준 한 칸 뒤로">▶</button>
+      <!-- 자동 박자 판정(4/4·12/8) 수동 전환 — 판정이 틀린 곡 대비(캐시 재계산이라 몇 초) -->
+      <button type="button" class="btn btn-outline btn-sm" id="btn-meter" title="자동 박자 판정이 틀렸으면 눌러서 전환해요">박자 <span id="meter-label">4/4</span></button>
+      <select id="sens-select" class="metro-div-select"
+              aria-label="분석 감도" title="타브가 너무 복잡하면 '단순하게'로 다시 분석해 보세요 — 약한 소리·번진 소리를 걸러내요">
+        <option value="normal">감도: 기본</option>
+        <option value="simple">감도: 단순하게</option>
+      </select>
+      <select id="tempo-select" class="metro-div-select"
+              aria-label="빠르기 보정" title="BPM 이 실제 느낌보다 2배로 나왔으면 '절반'으로 다시 분석해 보세요">
+        <option value="auto">빠르기: 자동</option>
+        <option value="half">빠르기: 절반</option>
+        <option value="double">빠르기: 2배</option>
+      </select>
+      <button type="button" class="btn btn-outline btn-sm" id="btn-reanalyze">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.13-3.36L23 10M1 14l5.36 4.36A9 9 0 0020.49 15"/></svg>
+        다시 분석
+      </button>
+      <button type="button" class="btn btn-outline btn-sm" id="btn-print" title="브라우저 인쇄 창에서 'PDF로 저장'을 고르면 파일로 저장돼요">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+        인쇄 / PDF 저장
+      </button>
+    </div>
+
+    <!-- 흐름 타브 — 시간 비례 뷰(칸=고정 폭): 박자 간격 균일·진행바 등속·프렛/카운트 일렬.
+         조판 악보는 가로축이 시간 비례가 아니라 등간격·등속이 구조적으로 불가(사용자 피드백 반복 끝의 설계 전환). -->
+    <section class="flow-wrap" aria-label="흐름 타브 (박자 일정)">
+      <div class="flow-scroll" id="flow-scroll">
+        <div class="flow-inner" id="flow-inner">
+          <div class="flow-playhead" id="flow-playhead"></div>
+        </div>
+      </div>
+      <p class="flow-caption">흐름 타브 — 박자 간격이 일정해요 · 클릭하면 그 위치로 이동 · 아래 악보는 인쇄용 표기</p>
+    </section>
+
+    <section class="tab-score-wrap" aria-label="베이스 타브 악보">
+      <div class="at-paper" id="at-paper">
+        <div id="alphaTab"></div>
+        <div class="at-overlay" id="at-overlay" aria-hidden="true">
+          <div class="playhead-highlight" id="playhead-highlight" hidden></div>
+          <div class="playhead-line" id="playhead-line" hidden></div>
+          <div class="correction-popover" id="correction-popover" role="dialog" aria-label="노트 보정" hidden>
+            <p class="correction-popover-title">이 음이 맞나요?</p>
+            <div class="correction-controls">
+              <button type="button" class="btn btn-outline btn-sm" id="corr-up">음 올리기 ▲</button>
+              <button type="button" class="btn btn-outline btn-sm" id="corr-down">음 내리기 ▼</button>
+            </div>
+            <!-- 박자 칸 이동 — 틈새 음이 약박으로 적힌 경우 한 칸씩(사용자 요청 2026-07-08) -->
+            <div class="correction-controls">
+              <button type="button" class="btn btn-outline btn-sm" id="corr-left">한 칸 앞 ◀</button>
+              <button type="button" class="btn btn-outline btn-sm" id="corr-right">한 칸 뒤 ▶</button>
+            </div>
+            <!-- 다른 자리·옥타브 대안(도착지 표시) — 운지 선택은 결국 연주자 몫(사용자 피드백 2026-07-08) -->
+            <div class="correction-controls" id="corr-alts"></div>
+            <!-- 같은 자리(음·줄·프렛) 전부에 한 번에 — 반복 리프 일괄 수정(사용자 요청 2026-07-09) -->
+            <label class="corr-all-label"><input type="checkbox" id="corr-all"> 같은 자리 음 전부에 적용</label>
+            <!-- 셋잇단 박 복구 — 셋잇단 추가가 박 전체를 변환하므로 반대 방향 한 클릭 제공(사용자 실증 2026-07-09) -->
+            <div class="correction-controls">
+              <button type="button" class="btn btn-outline btn-sm" id="corr-beat-straight" hidden>이 박자를 16분으로 되돌리기</button>
+            </div>
+            <!-- 삭제 두 방식 — 악보는 빈 시간을 쉼표로 표기하므로, 앞 음을 늘려 메우는 선택지 제공(사용자 요청 2026-07-09) -->
+            <div class="correction-actions">
+              <button type="button" class="btn btn-outline-danger btn-sm" id="corr-delete">삭제→쉼표</button>
+              <button type="button" class="btn btn-outline-danger btn-sm" id="corr-delete-extend">삭제→앞 음 늘림</button>
+            </div>
+            <div class="correction-actions" style="margin-top: 6px;">
+              <button type="button" class="btn btn-primary btn-sm" id="corr-ok">확인</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="playhead-caption-row">
+        <span class="playhead-caption" id="playhead-caption" hidden>▲ 재생 중 — 지금 연주되는 위치</span>
+      </div>
+    </section>
+
+    <p class="score-fidelity-note">이 악보는 실제 alphaTab 조판입니다 — 최종 제품과 동일한 렌더러</p>
+
+    <div class="score-bottom-toolbar">
+      <span class="score-drum-disabled" title="예정 — 아직 개발되지 않음">드럼 악보 <span class="badge badge-muted" style="margin-left:2px;">예정</span></span>
+      <span class="score-drum-disabled" title="예정 — 보컬 멜로디, P2 — 아직 개발되지 않음">멜로디 악보 <span class="badge badge-muted" style="margin-left:2px;">예정</span></span>
+      <span class="score-drum-disabled" title="예정 — 박자표 변경(REQ-TAB-004)">박자표 4/4 <span class="badge badge-muted" style="margin-left:2px;">예정</span></span>
+      <span class="score-drum-disabled" title="예정 — 셔플(REQ-TAB-005 P2)">셔플 <span class="badge badge-muted" style="margin-left:2px;">예정</span></span>
+    </div>
+  </div>
+
+  </section>
+
+  <!-- ======== 뷰 3: 코드 악보 ======== -->
+  <section id="view-chords" data-view-section="chords" aria-label="코드 악보" {% if view != 'chords' %}hidden{% endif %}>
+
+  <div class="sheet-tools">
+    <button type="button" class="btn btn-outline btn-sm" id="btn-print-chords" title="브라우저 인쇄 창에서 'PDF로 저장'을 고르면 파일로 저장돼요">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+      인쇄 / PDF 저장
+    </button>
+    <button type="button" class="btn btn-outline btn-sm" id="btn-lyrics" hidden>가사 받아쓰기</button>
+    <span class="control-label">마디를 누르면 코드·가사를 고칠 수 있어요 · 초록 = 직접 고친 것</span>
+  </div>
+
+  <div id="sheet-wrap" style="position: relative;">
+    <section class="sheet-card" aria-label="코드 악보">
+      <div class="sheet-head">
+        <h2>{{ song.title }}</h2>
+        <p class="sheet-meta" id="sheet-meta"></p>
+        <p class="sheet-draft">자동 채보 초안 — 코드는 추정이에요. 마디를 눌러 직접 고칠 수 있어요.</p>
+      </div>
+      <div class="chord-grid" id="chord-grid"></div>
+      <p class="sheet-empty" id="sheet-empty" hidden>아직 코드가 없어요 — 타브 화면에서 먼저 분석해 주세요.</p>
+    </section>
+
+    <!-- 코드 편집 팝오버 -->
+    <div class="chord-editor" id="chord-editor" role="dialog" aria-label="코드 고치기" hidden>
+      <h3 id="chord-editor-title">코드</h3>
+      <input type="text" id="chord-input" maxlength="50" placeholder="예: Am · 여러 코드는 띄어서: Fm Db">
+      <label class="field-label" style="font-size: 11px; color: var(--muted);" for="lyric-input">가사 (받아쓰기 초안)</label>
+      <input type="text" id="lyric-input" maxlength="200" placeholder="">
+      <div class="row">
+        <button type="button" class="btn btn-primary btn-sm" id="chord-save">저장</button>
+        <button type="button" class="btn btn-outline btn-sm" id="chord-auto">자동으로</button>
+        <button type="button" class="btn btn-outline btn-sm" id="chord-cancel">취소</button>
+      </div>
+      <p class="hint-text">띄어 쓴 만큼 마디를 나눠요(최대 4개: 2=반씩·3=반+3·4박·4=박마다) · '자동으로' = 자동 추정 복귀</p>
+    </div>
+  </div>
+  <p class="sheet-note">옅은 코드 = 앞 마디와 같음 · 'Fm / Db' = 한 마디에 두 코드(반마디씩) · 재생하면 현재 마디가 주황으로 따라가요</p>
+
+  </section>
+
+  <!-- 전체 가사 모달 — 믹서·타브·코드가 공유하는 하나의 가사(줄 단위 수정, 빈칸=삭제) -->
+  <div class="lyr-overlay" id="lyrics-modal" hidden>
+    <div class="lyr-modal" role="dialog" aria-modal="true" aria-label="전체 가사">
+      <div class="lyr-head">
+        <div class="lyr-head-row">
+          <h2>전체 가사</h2>
+          <span class="badge badge-muted">받아쓰기 초안</span>
+          <button type="button" class="icon-btn" id="lyrics-modal-close" aria-label="닫기">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+        <p class="lyr-sub">고치면 믹서·타브·코드 악보에 함께 반영돼요 · 빈칸으로 지우면 그 줄이 삭제돼요 · 시각을 누르면 그 위치로 이동해요</p>
+      </div>
+      <div class="lyr-list" id="lyr-list"></div>
+      <div class="lyr-foot">
+        <span class="control-label" id="lyr-msg"></span>
+        <button type="button" class="btn btn-outline btn-sm" id="lyrics-cancel">닫기</button>
+        <button type="button" class="btn btn-primary btn-sm" id="lyrics-save">저장</button>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<script src="/static/vendor/alphatab/alphaTab.min.js"></script>
+<script src="/static/syncplayer-legacy.js"></script>
+<script src="/static/syncplayer.js"></script>
+<script src="/static/transport.js"></script>
+<script src="/static/shell.js"></script>
+<script src="/static/practice.js"></script>
+<script src="/static/tab.js"></script>
+<script src="/static/chords.js"></script>
+</body>
+</html>
