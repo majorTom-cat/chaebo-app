@@ -593,6 +593,10 @@
         } else if (stage === 'restarting') {
           applyBtn.textContent = '다시 시작 중…';
           statusText.textContent = '다시 시작하는 중이에요… 잠시만 기다려 주세요.';
+        } else if (stage === 'already-current') {
+          // 이미 최신 — 재시작 없이 안내(무한 업데이트 루프 방지, 사용자 요청 2026-07-13)
+          applyBtn.hidden = true; checkBtn.disabled = false;
+          statusText.textContent = '이미 최신 버전이에요 — 다시 받을 필요가 없어요.';
         } else if (stage === 'apply-failed') {
           applyBtn.disabled = false; applyBtn.textContent = '지금 업데이트';
           checkBtn.disabled = false;

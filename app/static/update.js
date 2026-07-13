@@ -33,6 +33,8 @@
       onStage('applying');
       return U.apply().then(function (res) {
         if (!res || !res.ok) { onStage('apply-failed', res); return false; }
+        // 서버가 '받은 코드가 지금과 같음'을 확인하면 교체·재시작을 안 한다(무한 루프 방지 — 사용자 요청).
+        if (res.already_current) { onStage('already-current', res); return false; }
         onStage('applied', res);
         return new Promise(function (resolve) {
           setTimeout(function () {

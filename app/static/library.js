@@ -350,6 +350,13 @@
           } else if (stage === 'restarting') {
             box.innerHTML = '<h3 style="margin:0 0 8px">다시 시작하는 중…</h3>' +
               '<p style="color:#555;font-size:14px;line-height:1.6;margin:0">앱을 껐다 켜고 있어요. 잠시만 기다려 주세요.</p>';
+          } else if (stage === 'already-current') {
+            // 이미 최신 — 재시작 없이 안내만(무한 업데이트 루프 방지)
+            box.innerHTML = '<h3 style="margin:0 0 8px">이미 최신이에요</h3>' +
+              '<p style="color:#555;font-size:14px;line-height:1.6;margin:0 0 16px">지금 버전이 최신이라 다시 받을 필요가 없어요.</p>' +
+              '<div style="display:flex;justify-content:flex-end"><button type="button" id="upd-ok2" class="btn btn-primary btn-sm">알겠어요</button></div>';
+            localStorage.setItem('update_dismissed', d.latest);  // 이 버전은 다시 안 물음
+            box.querySelector('#upd-ok2').addEventListener('click', function () { ov.remove(); });
           } else if (stage === 'apply-failed') {
             qb.disabled = false; qb.textContent = '빠른 업데이트';
             alert('빠른 업데이트에 실패했어요 — "직접 받기"로 설치해 주세요.');

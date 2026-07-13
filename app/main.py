@@ -973,18 +973,29 @@ async def apply_update():
                        tdp / "x")
             if not (src / "app").is_dir() or not (src / "run.py").is_file():
                 raise RuntimeError("업데이트 파일 형식이 올바르지 않아요")
+            # ★버전 확인부터 먼저(사용자 요청 2026-07-13): 받은 코드의 APP_VERSION 이 '지금 실행 중'보다
+            # 진짜 새 버전일 때만 교체한다. 안 그러면 CDN 캐시 등으로 같은(또는 옛) 코드를 받아 교체·재시작만
+            # 반복하는 무한 루프가 난다(사용자 실측: 6.20 인데 '지금 업데이트'가 계속 재적용). 같으면 교체 안 함.
+            delivered = None
+            try:
+                mm = re.search(r'APP_VERSION\s*=\s*"([^"]+)"',
+                               (src / "app" / "config.py").read_text(encoding="utf-8"))
+                delivered = mm.group(1) if mm else None
+            except Exception:  # noqa: BLE001 — 못 읽으면 아래에서 그냥 교체(기존 동작)
+                delivered = None
+            if delivered and not _ver_gt(delivered, config.APP_VERSION):
+                return {"replaced": False, "version": config.APP_VERSION}  # 이미 최신 — 교체·재시작 안 함
             # 교체(제자리 덮어쓰기): app/ 트리 + run.py. 파이썬 파일은 잠기지 않아 재시작 때 반영.
             shutil.copytree(src / "app", config.BASE_DIR / "app", dirs_exist_ok=True)
             shutil.copy2(src / "run.py", config.BASE_DIR / "run.py")
             # 새 .py 를 옛 바이트코드(.pyc)가 가리지 않게 — 델타 교체 후 __pycache__ 제거(재시작 시 새로 컴파일).
-            # (드문 케이스지만, 옛 캐시가 남으면 '업데이트했는데 옛 버전'으로 보여 무한 업데이트 루프의 한 원인.)
             for pc in (config.BASE_DIR / "app").rglob("__pycache__"):
                 shutil.rmtree(pc, ignore_errors=True)
-        return info.get("version")
+        return {"replaced": True, "version": delivered or info.get("version")}
 
     try:
-        newv = await asyncio.get_event_loop().run_in_executor(None, _work)
-        return {"ok": True, "version": newv}
+        res = await asyncio.get_event_loop().run_in_executor(None, _work)
+        return {"ok": True, "version": res["version"], "already_current": not res["replaced"]}
     except Exception as e:  # noqa: BLE001 — 실패해도 기존 설치는 그대로(안전)
         print(f"[update] 빠른 업데이트 실패: {e}", flush=True)
         return {"ok": False}
