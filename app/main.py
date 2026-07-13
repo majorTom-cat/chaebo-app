@@ -915,6 +915,51 @@ async def update_check():
         return {"enabled": True, "current": config.APP_VERSION, "error": True}
 
 
+@app.post("/api/apply-update")
+async def apply_update():
+    """빠른 업데이트(사용자 요청 2026-07-13) — version.json 의 app_zip(프로그램 파일만)을 받아 app/·run.py
+    만 교체한다. 엔진·파이썬·GPU torch·AI 모델·곡 데이터는 안 건드림(그래서 몇 MB·몇 초). 실패는 안전하게
+    중단(설치 안 망가짐) → 사용자는 '받으러 가기'(전체 설치)로 폴백. 완료 후 앱 재시작해야 새 코드가 뜬다."""
+    if not config.UPDATE_INFO_URL:
+        raise HTTPException(400, "업데이트 설정이 없어요")
+    import shutil
+    import tempfile
+    import urllib.request
+    import zipfile
+
+    def _work():
+        info = json.loads(urllib.request.urlopen(
+            urllib.request.Request(config.UPDATE_INFO_URL, headers={"User-Agent": "chaebo"}),
+            timeout=10).read())
+        zip_url = info.get("app_zip")
+        if not zip_url:
+            raise RuntimeError("빠른 업데이트 주소가 없어요")
+        with tempfile.TemporaryDirectory() as td:
+            tdp = Path(td)
+            with urllib.request.urlopen(
+                    urllib.request.Request(zip_url, headers={"User-Agent": "chaebo"}), timeout=90) as r:
+                (tdp / "app.zip").write_bytes(r.read())
+            with zipfile.ZipFile(tdp / "app.zip") as z:
+                z.extractall(tdp / "x")
+            # GitHub archive 는 최상위 폴더 1개(chaebo-app-main/) 안에 app/·run.py 가 들어있다
+            cands = [p for p in (tdp / "x").iterdir() if p.is_dir()]
+            src = next((c for c in cands if (c / "app").is_dir() and (c / "run.py").is_file()),
+                       tdp / "x")
+            if not (src / "app").is_dir() or not (src / "run.py").is_file():
+                raise RuntimeError("업데이트 파일 형식이 올바르지 않아요")
+            # 교체(제자리 덮어쓰기): app/ 트리 + run.py. 파이썬 파일은 잠기지 않아 재시작 때 반영.
+            shutil.copytree(src / "app", config.BASE_DIR / "app", dirs_exist_ok=True)
+            shutil.copy2(src / "run.py", config.BASE_DIR / "run.py")
+        return info.get("version")
+
+    try:
+        newv = await asyncio.get_event_loop().run_in_executor(None, _work)
+        return {"ok": True, "version": newv}
+    except Exception as e:  # noqa: BLE001 — 실패해도 기존 설치는 그대로(안전)
+        print(f"[update] 빠른 업데이트 실패: {e}", flush=True)
+        return {"ok": False}
+
+
 def run():
     import uvicorn
 

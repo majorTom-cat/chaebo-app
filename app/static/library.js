@@ -320,19 +320,41 @@
       if (localStorage.getItem('update_dismissed') === d.latest) return; // 이 버전은 '나중에' 누름
       var ov = document.createElement('div');
       ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:1400;';
-      ov.innerHTML = '<div style="background:#fff;color:#222;max-width:420px;width:92vw;padding:22px 24px;border-radius:14px;box-shadow:0 12px 40px rgba(0,0,0,.35);">' +
+      ov.innerHTML = '<div class="upd-box" style="background:#fff;color:#222;max-width:440px;width:92vw;padding:22px 24px;border-radius:14px;box-shadow:0 12px 40px rgba(0,0,0,.35);">' +
         '<h3 style="margin:0 0 8px">새 버전 v' + esc(d.latest) + ' 이 나왔어요</h3>' +
         '<p style="color:#555;font-size:14px;line-height:1.6;margin:0 0 16px">지금은 v' + esc(d.current) + ' 이에요.' +
-        (d.notes ? '<br>' + esc(d.notes) : '') + '<br>업데이트할지, 이 버전을 그대로 쓸지 고르세요.</p>' +
-        '<div style="display:flex;justify-content:flex-end;gap:8px;">' +
-        '<button type="button" id="upd-later" class="btn btn-ghost btn-sm">나중에 (이 버전 유지)</button>' +
-        (d.url ? '<button type="button" id="upd-get" class="btn btn-primary btn-sm">받으러 가기</button>' : '') + '</div></div>';
+        (d.notes ? '<br>' + esc(d.notes) : '') +
+        '<br><b>빠른 업데이트</b>는 바뀐 부분만 몇 초 만에 받아요(엔진·설정·곡은 그대로).</p>' +
+        '<div style="display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px;">' +
+        '<button type="button" id="upd-later" class="btn btn-ghost btn-sm">나중에</button>' +
+        (d.url ? '<button type="button" id="upd-get" class="btn btn-outline btn-sm">직접 받기</button>' : '') +
+        '<button type="button" id="upd-quick" class="btn btn-primary btn-sm">빠른 업데이트</button>' +
+        '</div></div>';
       document.body.appendChild(ov);
+      var box = ov.querySelector('.upd-box');
       ov.querySelector('#upd-later').addEventListener('click', function () {
         localStorage.setItem('update_dismissed', d.latest); ov.remove();
       });
       var getBtn = ov.querySelector('#upd-get');
       if (getBtn) getBtn.addEventListener('click', function () { window.open(d.url, '_blank'); });
+      ov.querySelector('#upd-quick').addEventListener('click', function () {
+        var qb = ov.querySelector('#upd-quick');
+        qb.disabled = true; qb.textContent = '업데이트 받는 중…';
+        fetch('/api/apply-update', { method: 'POST' }).then(function (r) { return r.json(); }).then(function (res) {
+          if (res && res.ok) {
+            box.innerHTML = '<h3 style="margin:0 0 8px">다 됐어요!</h3>' +
+              '<p style="color:#555;font-size:14px;line-height:1.6;margin:0 0 16px">앱을 <b>껐다 다시 켜면</b> 새 버전(v' + esc(res.version || d.latest) + ')이에요.</p>' +
+              '<div style="display:flex;justify-content:flex-end"><button type="button" id="upd-done" class="btn btn-primary btn-sm">알겠어요</button></div>';
+            box.querySelector('#upd-done').addEventListener('click', function () { ov.remove(); });
+          } else {
+            qb.disabled = false; qb.textContent = '빠른 업데이트';
+            alert('빠른 업데이트에 실패했어요 — "직접 받기"로 설치해 주세요.');
+          }
+        }).catch(function () {
+          qb.disabled = false; qb.textContent = '빠른 업데이트';
+          alert('빠른 업데이트에 실패했어요 — "직접 받기"로 설치해 주세요.');
+        });
+      });
       ov.addEventListener('click', function (e) { if (e.target === ov) ov.remove(); });
     }).catch(function () { /* 조회 실패는 조용히(로컬 우선) */ });
   })();
