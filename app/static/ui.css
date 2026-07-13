@@ -1,6 +1,12 @@
 /* ===== chaebo 공통 컴포넌트 (시안 4화면 공통 — 새 화면은 tokens.css + 이 파일만 얹으면 동일해진다)
    내용 변경은 곧 전 화면 변경 — 시안(design-input)과의 diff 검증 대상. 페이지 고유 규칙은 각 템플릿에. ===== */
 
+/* ---- 텍스트 선택·복사 허용(사용자 요청 2026-07-14) — 앱 창(WebView2)은 기본이 선택 불가라 문구·오류를
+   드래그·복사할 수 없었다. 전역으로 텍스트 선택을 켜고, 조작 요소(버튼·슬라이더·아이콘)만 제외해
+   탭 시 엉뚱한 선택을 막는다. 오류 메시지도 이걸로 드래그해 Ctrl+C 가능. ---- */
+* { -webkit-user-select: text; user-select: text; }
+button, .btn, .icon-btn, .stem-toggle, input[type="range"], svg, .badge { -webkit-user-select: none; user-select: none; }
+
 /* ---- 상단바 · 페이지 골격 ---- */
 .topbar { position: fixed; top: 0; left: 0; right: 0; height: var(--topbar-h); background: var(--surface); border-bottom: 1px solid var(--border); z-index: 100; }
 .topbar-inner { max-width: var(--content-max); margin: 0 auto; height: 100%; display: flex; align-items: center; justify-content: space-between; padding: 0 var(--sp-6); }

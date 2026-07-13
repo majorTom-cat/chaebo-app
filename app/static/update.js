@@ -14,9 +14,14 @@
       return fetch('/api/update-check').then(j);
     },
 
-    /* 바뀐 부분(app/·run.py)만 델타로 받아 제자리 교체. 반환: {ok, version}. */
+    /* 바뀐 부분(app/·run.py)만 델타로 받아 제자리 교체. 반환: {ok, version, already_current}.
+       타임아웃(90초) — 응답이 영영 안 오면 '받는 중…'에 무한히 갇히지 않게 실패로 처리(사용자 실측 2026-07-14). */
     apply: function () {
-      return fetch('/api/apply-update', { method: 'POST' }).then(j);
+      var ctl = window.AbortController ? new AbortController() : null;
+      var timer = setTimeout(function () { if (ctl) ctl.abort(); }, 90000);
+      return fetch('/api/apply-update', { method: 'POST', signal: ctl ? ctl.signal : undefined })
+        .then(function (r) { clearTimeout(timer); return r.json(); })
+        .catch(function () { clearTimeout(timer); return { ok: false, timeout: true }; });
     },
 
     /* 앱을 자동으로 껐다 켠다. 서버가 곧 종료되므로 응답을 못 받을 수도 있는데(정상),
