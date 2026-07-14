@@ -176,6 +176,7 @@ def align_to_onsets(notes, onsets, tol=0.08):
 REFINE_RISE = float(os.environ.get("CHAEBO_REFINE_RISE", "0.10"))   # 재타건 판정: envelope 상승폭
 REFINE_LVL = float(os.environ.get("CHAEBO_REFINE_LVL", "0.06"))     # 그 구간 최소 음량(정규화 0~1)
 REFINE_MINKEEP = float(os.environ.get("CHAEBO_REFINE_MINKEEP", "0.12"))  # 어택 없이도 살릴 최소 길이(초)
+REFINE_SNAP = float(os.environ.get("CHAEBO_REFINE_SNAP", "0.05"))  # 음 시작을 파형 어택에 스냅 허용(초). 0=끔
 
 
 def _bass_envelope(x, sr, hop_ms=8):
@@ -186,6 +187,21 @@ def _bass_envelope(x, sr, hop_ms=8):
         return np.array([0.0]), 1.0
     e = np.sqrt((x[:n * hop].reshape(n, hop) ** 2).mean(axis=1))
     return e / (float(e.max()) or 1.0), hop / sr
+
+
+def _attack_times(e, fd):
+    """envelope 급상승 시작 = 어택(재타건) 시각들. 표시 파형과 같은 근거라 음을 여기 스냅하면
+    음·그리드·파형이 정렬된다(사용자 지적 2026-07-14: 파형 어택과 타브가 진행바와 안 맞음)."""
+    if len(e) < 3:
+        return np.array([])
+    d = np.diff(e)
+    idx = np.where((d > REFINE_RISE) & (e[:-1] > REFINE_LVL))[0]
+    out, prev = [], -10
+    for fi in idx:
+        if fi - prev > 3:   # 24ms 이상 떨어진 새 어택만(연속 상승 프레임은 첫 것만)
+            out.append(float(fi) * fd)
+        prev = fi
+    return np.array(out)
 
 
 def refine_with_envelope(notes, x, sr):
@@ -212,8 +228,19 @@ def refine_with_envelope(notes, x, sr):
                 merged[-1]["dur"] = round(nt["start"] + nt["dur"] - merged[-1]["start"], 3)
                 continue
         merged.append(dict(nt))
-    return [n for n in merged
-            if n["dur"] >= REFINE_MINKEEP or has_attack(n["start"] - 0.03, n["start"] + 0.05)]
+    result = [n for n in merged
+              if n["dur"] >= REFINE_MINKEEP or has_attack(n["start"] - 0.03, n["start"] + 0.05)]
+    # 음 시작을 가장 가까운 파형 어택에 스냅(±SNAP) — 음/그리드/파형/진행바 정렬. 끝은 유지(길이 보정).
+    if REFINE_SNAP > 0 and result:
+        atk = _attack_times(e, fd)
+        if len(atk):
+            for nt in result:
+                near = float(atk[np.argmin(np.abs(atk - nt["start"]))])
+                if abs(near - nt["start"]) <= REFINE_SNAP:
+                    end = nt["start"] + nt["dur"]
+                    nt["start"] = round(near, 3)
+                    nt["dur"] = round(max(0.03, end - near), 3)
+    return result
 
 
 def estimate_tempo(drums_path):
@@ -1153,7 +1180,7 @@ def main():
     # 원시 캐시 재사용: 검출(CREPE ~10분/bp ~30초)은 안 변했는데 그리드·조판 수리 때마다 전체
     # 재실행하던 낭비(실증: 하루 6회) 제거. 검출 파이프라인이 바뀌면 RAW_V 를 올려 무효화.
     # 강제 전체 재분석은 CHAEBO_FRESH=1.
-    RAW_V = 2  # v2: 파형 어택 기준 정제(refine_with_envelope) 추가 — 옛 캐시 무효화
+    RAW_V = 3  # v3: 음 시작을 파형 어택에 스냅(정렬)
     apply_sensitivity(os.environ.get("CHAEBO_SENS", "normal"))
     cache = None
     if os.environ.get("CHAEBO_FRESH") != "1" and Path(out_json).exists():
