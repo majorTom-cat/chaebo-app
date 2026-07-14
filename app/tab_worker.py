@@ -1187,6 +1187,7 @@ def main():
     # 강제 전체 재분석은 CHAEBO_FRESH=1.
     RAW_V = 4  # v4: 유령 drop 기본 끔(실음 손실 방지)
     apply_sensitivity(os.environ.get("CHAEBO_SENS", "normal"))
+    _crepe_mode = os.environ.get("CHAEBO_CREPE_MODEL", "tiny")  # tiny(빠름)|full(정확)
     cache = None
     if os.environ.get("CHAEBO_FRESH") != "1" and Path(out_json).exists():
         try:
@@ -1195,6 +1196,10 @@ def main():
                 cache = None
             # 감도가 바뀌면 검출부터 다시 — 캐시는 검출 결과라 감도 종속
             if cache and cache.get("sens", "normal") != SENS["mode"]:
+                cache = None
+            # ★음정 모드(tiny/full)가 바뀌면 재검출 — 안 그러면 '정확하게 다시 분석'이 tiny 캐시를 그대로
+            #   써서 안 먹혔음(사용자 지적 2026-07-14: 정밀분석 안 먹힘). crepe_mode 를 캐시 키에 포함.
+            if cache and cache.get("crepe_mode", "tiny") != _crepe_mode:
                 cache = None
         except Exception:  # noqa: BLE001
             cache = None
@@ -1288,7 +1293,8 @@ def main():
                    "meter": meter, "bar_slots": bar_slots, "grid_v": grid_v,
                    "families": families,
                    "slots": [round(float(s), 3) for s in slots[:max_gi]] if slots is not None else None,
-                   "raw_cache": {"v": RAW_V, "sens": SENS["mode"], "raw_notes": raw_notes,
+                   "raw_cache": {"v": RAW_V, "sens": SENS["mode"], "crepe_mode": _crepe_mode,
+                                 "raw_notes": raw_notes,
                                  "beat_times": [round(float(b), 4) for b in beat_times_full],
                                  "tune_cents": tune_cents,
                                  "bpm0": bpm0_orig}},
