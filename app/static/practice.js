@@ -605,6 +605,8 @@
         Shell.ready,
       ]).then(function (res) {
         peaksData = res[0];
+        window.__peaks = peaksData; // 타브 흐름 뷰가 재사용(베이스 파형 — 중복 fetch 방지)
+        if (window.__drawFlowWave) window.__drawFlowWave(); // 폭·오디오 준비됐으면 즉시, 아니면 renderFlow 가
         // 슬라이더·토글을 저장 상태로 (플레이어 반영은 셸이 이미)
         Object.keys(state.volumes || {}).forEach(function (k) {
           var slider = document.querySelector('[data-volume="' + k + '"]');
