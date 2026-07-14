@@ -43,6 +43,10 @@ body.wide .topbar-inner, body.wide .page { max-width: 1500px; }
 .btn-sm { padding: 6px 10px; font-size: 13px; }
 .badge { display: inline-flex; align-items: center; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
 .badge-muted { background: var(--surface-2); color: var(--muted); border: 1px solid var(--border); }
+/* 숫자 값 배지는 폭 고정 — 값 자릿수(음량 100%↔90%↔5%, 싱크 0ms↔-1000ms)에 따라 배지 폭이 바뀌어
+   상단바 flex(flex-wrap)가 통째로 재배치되던 버그 교정(사용자 지적 2026-07-14). tabular-nums 로 숫자 폭 균일. */
+#master-badge { min-width: 50px; justify-content: center; font-variant-numeric: tabular-nums; }
+#sync-value { min-width: 70px; justify-content: center; font-variant-numeric: tabular-nums; }
 
 /* ---- 곡 서브바 (연습·타브 공통) ---- */
 .practice-subbar { display: flex; align-items: center; gap: var(--sp-3); padding: var(--sp-4) 0; border-bottom: 1px solid var(--border); margin-bottom: var(--sp-6); }
