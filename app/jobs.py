@@ -135,21 +135,40 @@ async def stop():
         _worker_task.cancel()
 
 
+async def _kill_tree(proc):
+    """자식 프로세스 '트리' 전체 종료. proc.kill() 은 직속 자식만 죽여, 분리(MSST/torch 워커)·다운로드
+    (yt-dlp 가 부르는 ffmpeg)가 띄운 손자 프로세스가 살아남아 파일을 잠그고 임시폴더 정리를 막았다
+    (코드리뷰 2026-07-14: 좀비·TemporaryDirectory PermissionError). Windows=taskkill /T(트리 종료),
+    실패·비윈도우는 직속 kill 폴백. taskkill 은 서브프로세스로 비동기 실행(이벤트루프 안 막음)."""
+    pid = getattr(proc, "pid", None)
+    if pid is not None and os.name == "nt":
+        try:
+            tk = await asyncio.create_subprocess_exec(
+                "taskkill", "/F", "/T", "/PID", str(pid),
+                stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
+                creationflags=_NO_WINDOW)
+            await asyncio.wait_for(tk.wait(), timeout=10)
+            return
+        except Exception:  # noqa: BLE001 — taskkill 실패 시 아래 직속 kill 로 폴백
+            pass
+    try:
+        proc.kill()
+    except Exception:  # noqa: BLE001 — 이미 종료됐거나 경합
+        pass
+
+
 async def cancel(song_id: int):
     """분석(다운로드/분리)을 중지하고 '멈춤' 상태로 둔다(사용자 요청 2026-07-12).
     - 진행 중이 아니면(이미 완료·오류) 아무것도 안 함 — 완료 결과를 덮지 않게.
     - DB status 를 먼저 stopped 로 → 즉시 UI 반영 + 워커의 단일 신호(대기 중이면 dequeue 때 건너뜀).
-    - 실행 중 서브프로세스가 있으면 종료해 무거운 작업을 실제로 멈춘다."""
+    - 실행 중 서브프로세스가 있으면 트리째 종료해 무거운 작업을 실제로 멈춘다(손자까지)."""
     song = await db.get_song(song_id)
     if not song or song["status"] not in ("queued", "downloading", "separating"):
         return
     await db.update_song(song_id, status="stopped", progress=0, error=None)
     proc = _running_procs.get(song_id)
     if proc and proc.returncode is None:
-        try:
-            proc.kill()
-        except Exception:  # noqa: BLE001 — 이미 종료됐거나 경합
-            pass
+        await _kill_tree(proc)
 
 
 async def _worker():
