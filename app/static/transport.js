@@ -367,6 +367,7 @@
       var ALIGN_PERIOD = 1.0;
       var alignRAF = null, alignTimer = null, alignOscs = [], alignScheduled = 0;
       var marker = el('sync-align-marker');
+      var alignCanvas = null, alignCtx2d = null, _lastAlignK = null; // 인광 잔상·비프 플래시용
       var alignHeardCtx = function () {
         var ctx = player.ctx; if (!ctx) return 0;
         if (ctx.getOutputTimestamp) {
@@ -406,8 +407,26 @@
         var phase = frac - Math.round(frac);      // -0.5..+0.5, beat 에서 0(=가운데 타겟)
         if (marker) {
           marker.style.left = Math.max(0, Math.min(100, 50 + phase * 100)) + '%';
-          marker.classList.toggle('hit', Math.abs(phase) < 0.06);
+          marker.classList.toggle('hit', Math.abs(phase) < 0.07);
         }
+        // 인광 잔상(canvas): 매 프레임 배경을 살짝 덮어 옛 궤적을 서서히 지우고 현재 막대를 밝게 그린다.
+        // 삑 순간의 막대 위치가 자국으로 남아 눈으로 잡기 쉽다(사용자 요청 2026-07-14: 삑마다 잔상).
+        if (alignCtx2d && alignCanvas) {
+          var cw = alignCanvas.width, ch = alignCanvas.height;
+          alignCtx2d.fillStyle = 'rgba(23,26,34,0.13)';   // 트랙 배경색으로 페이드(잔상 서서히 소멸)
+          alignCtx2d.fillRect(0, 0, cw, ch);
+          var mx = (50 + Math.max(-50, Math.min(50, phase * 100))) / 100 * cw;
+          var near = Math.abs(phase) < 0.07;
+          alignCtx2d.fillStyle = near ? 'rgba(46,193,107,0.92)' : 'rgba(255,210,122,0.8)';
+          alignCtx2d.fillRect(mx - 1.5, ch * 0.1, 3, ch * 0.8);
+        }
+        // 비프(삑) 순간 화면 플래시 — 소리와 함께 시각 신호(hc 가 비프 격자 k·PERIOD 를 넘을 때).
+        var kNow = Math.floor(hc / ALIGN_PERIOD);
+        if (_lastAlignK !== null && kNow !== _lastAlignK) {
+          var trk = el('sync-align-track');
+          if (trk) { trk.classList.add('flash'); setTimeout(function () { trk.classList.remove('flash'); }, 80); }
+        }
+        _lastAlignK = kNow;
         var mEl = el('align-measured');
         if (mEl) {
           var ctx = player.ctx;
@@ -429,6 +448,15 @@
         var ctx = player.ctx;
         if (!ctx) { alert('먼저 곡을 불러온 뒤 맞춰 주세요'); return false; }
         if (ctx.state === 'suspended') ctx.resume();
+        // 인광 잔상 캔버스 준비(모달 열린 뒤라야 트랙 크기 확정) — 실픽셀로 그려 선명하게.
+        alignCanvas = el('sync-align-canvas'); _lastAlignK = null;
+        if (alignCanvas) {
+          var _tr = el('sync-align-track');
+          alignCanvas.width = (_tr && _tr.clientWidth) || 360;
+          alignCanvas.height = (_tr && _tr.clientHeight) || 96;
+          alignCtx2d = alignCanvas.getContext('2d');
+          if (alignCtx2d) alignCtx2d.clearRect(0, 0, alignCanvas.width, alignCanvas.height);
+        }
         alignOscs = []; alignScheduled = ctx.currentTime;
         alignSchedule();
         alignTimer = setInterval(alignSchedule, 250);

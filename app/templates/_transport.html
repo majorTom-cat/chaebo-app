@@ -93,18 +93,20 @@
 <div class="sync-align-overlay" id="sync-align-modal" hidden>
   <div class="sync-align-box" role="dialog" aria-modal="true" aria-label="소리-화면 맞추기">
     <h3 style="margin:0 0 6px">소리-화면 맞추기</h3>
-    <p class="sync-align-help">움직이는 <b>막대</b>가 가운데 선을 <b>지날 때</b> ‘딱’ 소리가 나야 맞아요.<br>소리가 막대보다 늦으면 ◀, 빠르면 ▶ 로 맞춰 주세요. (자동 저장)</p>
+    <p class="sync-align-help"><b>‘삑’ 소리가 날 때</b> 밝은 막대가 가운데 <b>초록 구간</b>에 있으면 맞아요.<br>삑 순간 막대가 <b>왼쪽</b>이면 ◀, <b>오른쪽</b>이면 ▶ 를 눌러 가운데로. 잔상(연한 자국)이 가운데에 모이면 잘 맞은 거예요. (자동 저장)</p>
     <p class="sync-align-help" style="background:#fff5e6;border-radius:8px;padding:7px 10px;margin:0 0 8px;">
       <span style="color:#888">블루투스는 소리가 조금 늦게 나요. 유선이 가장 잘 맞아요.</span></p>
     <p class="sync-align-help" id="align-measured" style="font-size:12px;margin:0 0 8px;"></p>
-    <div class="sync-align-track">
+    <div class="sync-align-track" id="sync-align-track">
+      <canvas class="sync-align-canvas" id="sync-align-canvas"></canvas>
+      <div class="sync-align-zone"></div>
       <div class="sync-align-target"></div>
       <div class="sync-align-marker" id="sync-align-marker"></div>
     </div>
     <div class="sync-align-row">
-      <button type="button" class="btn btn-outline" id="align-minus" title="점이 소리보다 늦게 뜨면 누르세요">◀ 점이 늦어요</button>
+      <button type="button" class="btn btn-outline" id="align-minus" title="삑 순간 막대가 가운데보다 왼쪽에 있으면 누르세요">◀ 막대가 늦어요</button>
       <span class="badge badge-muted" id="align-value" style="min-width:64px">0ms</span>
-      <button type="button" class="btn btn-outline" id="align-plus" title="점이 소리보다 먼저 뜨면 누르세요">점이 빨라요 ▶</button>
+      <button type="button" class="btn btn-outline" id="align-plus" title="삑 순간 막대가 가운데보다 오른쪽에 있으면 누르세요">막대가 빨라요 ▶</button>
     </div>
     <div class="sync-align-actions">
       <button type="button" class="btn btn-ghost btn-sm" id="align-reset">0으로</button>
@@ -119,13 +121,20 @@
   .sync-align-box { background: #fff; color: #222; padding: 22px 24px; border-radius: 14px;
     width: min(92vw, 420px); text-align: center; box-shadow: 0 12px 40px rgba(0,0,0,.35); }
   .sync-align-help { color: #555; font-size: 13px; line-height: 1.5; margin: 0 0 6px; }
-  .sync-align-track { position: relative; height: 64px; margin: 4px 0 6px;
-    background: #f1f1f4; border-radius: 10px; overflow: hidden; }
-  .sync-align-target { position: absolute; left: 50%; top: 8%; width: 3px; height: 84%;
-    margin-left: -1.5px; background: #f0a848; border-radius: 2px; }
-  .sync-align-marker { position: absolute; top: 14%; height: 72%; width: 10px; margin-left: -5px;
-    border-radius: 5px; background: #333; left: 0%; will-change: left; }
-  .sync-align-marker.hit { background: #2ec16b; }
+  /* 오실로스코프풍 — 어두운 바탕에 밝은 막대+인광 잔상(canvas). 가운데 초록 구간=맞은 자리. */
+  .sync-align-track { position: relative; height: 96px; margin: 6px 0 8px;
+    background: #171a22; border-radius: 10px; overflow: hidden; transition: box-shadow .05s; }
+  .sync-align-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  .sync-align-zone { position: absolute; left: 50%; top: 0; bottom: 0; width: 13%;
+    transform: translateX(-50%); background: rgba(46,193,107,.15);
+    border-left: 1px solid rgba(46,193,107,.45); border-right: 1px solid rgba(46,193,107,.45); }
+  .sync-align-target { position: absolute; left: 50%; top: 6%; width: 2px; height: 88%;
+    margin-left: -1px; background: #2ec16b; border-radius: 2px; z-index: 2; }
+  .sync-align-marker { position: absolute; top: 10%; height: 80%; width: 8px; margin-left: -4px;
+    border-radius: 4px; background: #ffd27a; left: 0%; z-index: 3; will-change: left;
+    box-shadow: 0 0 10px rgba(255,210,122,.75); }
+  .sync-align-marker.hit { background: #2ec16b; box-shadow: 0 0 16px rgba(46,193,107,.95); }
+  .sync-align-track.flash { box-shadow: inset 0 0 0 3px rgba(255,255,255,.65); }
   .sync-align-row { display: flex; align-items: center; justify-content: center; gap: 12px; margin: 6px 0 14px; }
   .sync-align-actions { display: flex; justify-content: flex-end; gap: 8px; }
   @media (prefers-color-scheme: dark) {
