@@ -84,15 +84,8 @@
     <button type="button" class="btn btn-outline btn-sm" id="btn-sync-reset" title="보정을 0으로">0으로</button>
     <button type="button" class="btn btn-outline btn-sm" id="btn-sync-align" title="딱딱 소리와 화면 점이 동시에 오게 맞춰요">소리-화면 맞추기</button>
   </div>
-
-  <!-- '점점 밀림' 보정 — 곡이 진행될수록 화면-소리가 점점 벌어질 때만. 위 '싱크 보정'은 처음부터 끝까지
-       똑같이 밀린 걸 잡고, 이건 시간이 갈수록 커지는 밀림(선형 드리프트)을 잡는다. 한 번 맞추면 유지. -->
-  <div class="loop-control" role="group" aria-label="점점 밀림 보정">
-    <span class="control-label" title="곡이 진행될수록 화면과 소리가 점점 벌어질 때만 쓰세요. 화면이 갈수록 뒤처지면 ＋, 앞서가면 −. 한 번 맞추면 곡 내내 유지돼요. 위 '싱크 보정'으로 먼저 시작점을 맞춘 뒤 쓰면 좋아요.">점점 밀림</span>
-    <button type="button" class="btn btn-outline btn-sm" id="btn-drift-minus" title="곡 뒤로 갈수록 화면이 앞서면 누르세요(길게 누르면 계속)">−</button>
-    <span class="badge badge-muted" id="drift-value" title="누르면 0으로 되돌려요" style="cursor: pointer; min-width: 66px;">0 ms/분</span>
-    <button type="button" class="btn btn-outline btn-sm" id="btn-drift-plus" title="곡 뒤로 갈수록 화면이 뒤처지면 누르세요(길게 누르면 계속)">＋</button>
-  </div>
+  <!-- '점점 밀림' 보정 제거(2026-07-14) — 진짜 밀림 원인(파형 peaks 곡끝 버림)을 v0.6.24 에서 잡아
+       손으로 돌리는 드리프트 보정은 불필요·혼란. '싱크 보정'(상수 오프셋, BT 지연용)만 남긴다. -->
 </section>
 
 <!-- 소리-화면 맞추기(캘리브레이션): 딱딱 소리 + 화면 점을 커서와 같은 시계로 몰아, 동시에 오도록
@@ -102,9 +95,7 @@
     <h3 style="margin:0 0 6px">소리-화면 맞추기</h3>
     <p class="sync-align-help">움직이는 <b>막대</b>가 가운데 선을 <b>지날 때</b> ‘딱’ 소리가 나야 맞아요.<br>소리가 막대보다 늦으면 ◀, 빠르면 ▶ 로 맞춰 주세요. (자동 저장)</p>
     <p class="sync-align-help" style="background:#fff5e6;border-radius:8px;padding:7px 10px;margin:0 0 8px;">
-      <b>곡이 갈수록 점점 벌어지나요?</b> → <b>재생하면서</b> 지금 한 번 맞추고 “다 맞췄어요”,<br>
-      <b>20~30초 더 들은 뒤</b> 다시 열어 한 번 더 맞추면 <b>밀리는 속도를 자동으로</b> 잡아요.<br>
-      <span style="color:#888">블루투스는 원래 밀림이 커요. 유선이 가장 잘 맞아요.</span></p>
+      <span style="color:#888">블루투스는 소리가 조금 늦게 나요. 유선이 가장 잘 맞아요.</span></p>
     <p class="sync-align-help" id="align-measured" style="font-size:12px;margin:0 0 8px;"></p>
     <div class="sync-align-track">
       <div class="sync-align-target"></div>

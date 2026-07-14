@@ -217,7 +217,11 @@ def _run_app_window():
     """chaebo 전용 창을 먼저 띄우고(스플래시), 그 안에서 준비→앱 로드. 콘솔 없이 동작."""
     try:
         import webview
-    except ImportError:
+    except ImportError as e:
+        # 앱 창 모드인데 pywebview 미설치 → 브라우저 폴백. '앱으로 설정했는데 웹으로 열림'의 한 원인이라
+        # 로그로 남긴다(사용자 지적 2026-07-14: 웹→앱 전환 안 됨). pythonw 는 stdout 이 chaebo-log.txt.
+        print(f"[open-mode] 앱 창 폴백→브라우저: pywebview 임포트 실패({e}). "
+              f"설정은 '앱'이어도 이 PC 는 앱 창을 못 써 웹으로 엽니다.", flush=True)
         if _prepare_backend():
             _open_browser()
         _keepalive()
@@ -225,8 +229,10 @@ def _run_app_window():
     try:
         window = webview.create_window("chaebo", html=_SPLASH_HTML,
                                        width=1280, height=860, min_size=(900, 600))
-    except Exception:
-        # 창 생성 자체가 안 되면(WebView2 부재 등) 브라우저 폴백
+    except Exception as e:
+        # 창 생성 자체가 안 되면(WebView2 런타임 부재 등) 브라우저 폴백 — 마찬가지로 로그로 남긴다.
+        print(f"[open-mode] 앱 창 폴백→브라우저: 창 생성 실패({e}). WebView2 런타임이 없을 수 있어요. "
+              f"설정은 '앱'이어도 이 PC 는 앱 창을 못 써 웹으로 엽니다.", flush=True)
         if _prepare_backend():
             _open_browser()
         _keepalive()

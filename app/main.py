@@ -19,7 +19,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
-from app import config, db, gpu, jobs, system
+from app import config, db, gpu, jobs, migrate, system
 
 templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
 
@@ -38,6 +38,12 @@ def _spawn(coro):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # 데이터를 공유 위치로 모으기(설치마다 곡이 다르던 문제) — DB 를 열기 '전'에 1회. 옛 위치 원본은
+    # 보존(복사만). 큰 곡이 많으면 몇 초 걸릴 수 있어 스레드로(이벤트루프 블록 회피). 실패해도 앱은 뜬다.
+    try:
+        await asyncio.to_thread(migrate.migrate_to_shared)
+    except Exception:  # noqa: BLE001
+        pass
     await db.init()
     _spawn(system.device())  # 장치 감지 예열(첫 호출 torch 임포트 ~수 초 — cold 페이지가 배지 놓침)
     if os.environ.get("CHAEBO_NO_WORKER") != "1":  # UI 검증용: 잡 워커 없이 화면만
@@ -1061,11 +1067,11 @@ def restart_app():
     if not run_py.is_file():
         raise HTTPException(400, "재시작 스크립트를 찾지 못했어요")
 
-    # 현재 열기 방식(web/app)을 그대로 이어받는다 — 실행 인자로 온 것만 전달(없으면 저장값 사용).
-    _MODE_ARGS = {"web", "--web", "browser", "--browser", "브라우저",
-                  "app", "--app", "window", "--window", "앱"}
+    # 재시작 후 열기 방식 = 저장된 설정(open_mode.txt)을 따른다. 인자를 안 붙이면 run.py 가 이 파일을
+    # 읽는다. 예전엔 '최초 실행 인자'(run.bat web 의 web)를 그대로 물려줘, 사용자가 설정에서 앱으로 바꿔도
+    # 재시작이 옛 인자로 웹을 다시 열었다(사용자 지적 2026-07-14: 웹으로 켰다가 앱으로 바꿔도 또 웹으로 열림).
+    # 이제 설정 파일이 정본 — 설정에서 바꾼 방식이 재시작/업데이트 후에도 유지된다.
     cmd = [sys.executable, str(run_py), "--relaunch"]
-    cmd += [a for a in sys.argv[1:] if a.lower() in _MODE_ARGS]
 
     flags = 0
     if os.name == "nt":

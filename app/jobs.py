@@ -19,6 +19,11 @@ from app import config, db, gpu
 # 분석 워커·MSST 창이 번쩍이던 문제(사용자 실측 2026-07-12). gpu/system 은 이미 적용, jobs 만 누락됐었다.
 _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
+# 무진행 감시(watchdog): 분석·분리(heavy) 서브프로세스가 이 시간 동안 아무 출력(tqdm 진행)도 없으면
+# '멈춤'으로 보고 트리째 종료한다. 멈춘 고아 워커가 CPU·메모리(실증: tab_worker 1.8GB·CPU 1시간,
+# 2026-07-13)를 물고 PC 를 느리게 하던 문제 방지. 20분 무출력은 어떤 정상 단계(모델 로딩 등)보다도 길다.
+_HEAVY_IDLE_TIMEOUT = 60 * int(os.environ.get("CHAEBO_ANALYZE_IDLE_MIN", "20"))
+
 queue: asyncio.Queue = asyncio.Queue()
 _worker_task = None
 # 실행 중 서브프로세스(곡별) — 중지 시 종료 대상. '멈춤'의 단일 신호는 DB status='stopped'.
@@ -350,9 +355,20 @@ async def _run(cmd: list[str], cwd=None, on_line=None, heavy=False, env_extra=No
     tail: list[str] = []
     assert proc.stdout
     buf = b""
+    timed_out = False
+    # heavy(분석·분리)만 무진행 감시 — 다운로드는 네트워크 특성상 제외(자체 진행 로그 있음).
+    idle = _HEAVY_IDLE_TIMEOUT if heavy else None
     try:
         while True:
-            chunk = await proc.stdout.read(1024)
+            try:
+                chunk = await asyncio.wait_for(proc.stdout.read(1024), timeout=idle)
+            except asyncio.TimeoutError:
+                # idle 동안 출력 0 = 멈춘 것으로 판단. 트리째 종료(고아가 CPU/메모리 물고 PC 를 느리게 함).
+                timed_out = True
+                await _kill_tree(proc)
+                tail.append(f"[자동 종료] {idle // 60}분 동안 진행이 없어 분석을 멈췄어요")
+                tail[:] = tail[-30:]
+                break
             if not chunk:
                 break
             buf += chunk
@@ -368,10 +384,13 @@ async def _run(cmd: list[str], cwd=None, on_line=None, heavy=False, env_extra=No
                     tail[:] = tail[-30:]
                     if on_line:
                         await on_line(text)
-        await proc.wait()
+        if not timed_out:
+            await proc.wait()
     finally:
         if song_id is not None:
             _running_procs.pop(song_id, None)
+    if timed_out:
+        return 124, "\n".join(tail)  # 124 = 시간초과(관례). 호출부가 실패로 처리·재큐 안 함.
     return proc.returncode or 0, "\n".join(tail)
 
 

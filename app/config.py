@@ -4,7 +4,22 @@ import sys
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-DATA_DIR = Path(os.environ.get("CHAEBO_DATA", BASE_DIR / "data"))
+
+
+def _default_data_dir() -> Path:
+    """공유 데이터 위치 — 설치 경로와 무관한 '사용자당 1곳'. 설치기(chaebo.iss)가 데이터를 두는
+    %LOCALAPPDATA%\\chaebo\\data 와 동일하게 맞춰, 개발 체크아웃(E:/chaebo)·다른 설치·설치판이
+    모두 같은 곡 라이브러리를 보게 한다(사용자 지적 2026-07-14: 앱/웹 곡이 다름 — 설치마다 data/ 가
+    따로였음). 옛 설치-상대 위치의 데이터는 app.migrate 가 여기로 1회 복사(원본 보존)한다."""
+    base = os.environ.get("LOCALAPPDATA") or os.environ.get("APPDATA")
+    if base:
+        return Path(base) / "chaebo" / "data"
+    return Path.home() / ".chaebo" / "data"  # 비윈도우/환경변수 부재 폴백
+
+
+DATA_DIR = Path(os.environ.get("CHAEBO_DATA", _default_data_dir()))
+# 옛(설치-상대) 데이터 위치 — 마이그레이션 출발점. 설치판은 BASE_DIR==공유부모라 LEGACY==DATA_DIR(무동작).
+LEGACY_DATA_DIR = BASE_DIR / "data"
 RAW_DIR = DATA_DIR / "raw"
 STEMS_DIR = DATA_DIR / "stems"
 DB_PATH = DATA_DIR / "chaebo.sqlite3"
@@ -39,7 +54,7 @@ ALLOWED_EXTS = {".mp3", ".wav", ".flac", ".m4a"}
 STEMS = ["vocals", "drums", "bass", "guitar", "piano", "other"]
 
 # 런타임 표시·업데이트 비교용 버전(설치기 버전은 chaebo.iss/readme 별도 — 릴리스마다 함께 올린다).
-APP_VERSION = "0.6.29"
+APP_VERSION = "0.6.30"
 
 # 소리-화면 싱크 '공식 세대'(사용자 지적 2026-07-13: 싱크 구현이 바뀌면 옛 보정값이 stale 해진다).
 # 표시시계 공식(heardTime·워크릿 _latency·drift 수식 등)이 바뀔 때마다 이 값을 올린다. 저장된
