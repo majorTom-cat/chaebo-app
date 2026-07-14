@@ -28,6 +28,9 @@
   var peaksData = {};
   var zoom = 1;
   var viewStart = 0; // 창 시작(초)
+  // 스템별 파형 세로 확대(진폭) 배율 — 파형은 가장 큰 악기 기준 정규화라 조용한 베이스가 작게 보인다.
+  // 레인마다 '세로 ×' 버튼으로 1→2→4 배 키워 본다(사용자 요청 2026-07-14). 재생·논리엔 무영향(표시만).
+  var vamp = {};
 
   function windowDur() { return (player.duration() || 1) / zoom; }
 
@@ -49,6 +52,7 @@
       '<span class="stem-name">' + s.label + '</span>' +
       '<button type="button" class="stem-toggle" data-solo="' + s.key + '" aria-pressed="false" aria-label="' + s.label + ' 솔로" title="이 악기만 듣기">솔로</button>' +
       '<button type="button" class="stem-toggle" data-mute="' + s.key + '" aria-pressed="false" aria-label="' + s.label + ' 음소거" title="이 악기 끄기">음소거</button>' +
+      '<button type="button" class="stem-toggle" data-vamp="' + s.key + '" aria-label="' + s.label + ' 파형 세로 확대" title="이 악기 파형을 세로로 크게 보기(진폭)">세로 1×</button>' +
       '<input type="range" class="stem-volume" min="0" max="100" value="100" data-volume="' + s.key + '" aria-label="' + s.label + ' 볼륨">' +
       '</div>';
 
@@ -88,7 +92,8 @@
         var b = Math.max(a + 1, Math.floor((i + 1) / pts * slice.length));
         var v = 0;
         for (var j = a; j < b; j++) if (slice[j] > v) v = slice[j];
-        var h = Math.max(0.6, v * LANE_AMP) / 2;
+        // 세로 확대 배율 적용 후 lane 높이 안으로 클램프(넘치면 잘려도 위아래 대칭 유지).
+        var h = Math.min(LANE_MID - 0.5, Math.max(0.6, v * LANE_AMP * (vamp[s.key] || 1)) / 2);
         var x = (i / pts * DRAW_POINTS).toFixed(1);
         top.push(x + ',' + (LANE_MID - h).toFixed(2));
         bottom.push(x + ',' + (LANE_MID + h).toFixed(2));
@@ -482,6 +487,14 @@
           player.setMute(key, state.muted[key]);
           renderToggles();
           saveState();
+        } else {
+          var vampBtn = e.target.closest('[data-vamp]');
+          if (vampBtn) {
+            var vk = vampBtn.dataset.vamp, cur = vamp[vk] || 1;
+            vamp[vk] = cur >= 4 ? 1 : (cur >= 2 ? 4 : 2);  // 1→2→4→1 순환
+            vampBtn.textContent = '세로 ' + vamp[vk] + '×';
+            drawWaves();
+          }
         }
       });
       grid.addEventListener('input', function (e) {

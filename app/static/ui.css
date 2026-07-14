@@ -7,6 +7,11 @@
 * { -webkit-user-select: text; user-select: text; }
 button, .btn, .icon-btn, .stem-toggle, input[type="range"], svg, .badge { -webkit-user-select: none; user-select: none; }
 
+/* ★hidden 속성이 항상 먹게(사용자 실측 2026-07-14): `.btn{display:inline-flex}` 같은 규칙이 브라우저
+   기본 `[hidden]{display:none}` 과 같은 우선순위라 나중 규칙이 이겨 hidden 버튼이 계속 보였다
+   (예: '지금 업데이트' 버튼이 최신인데도 눌림·'받는 중'에 머묾). !important 로 숨김을 확정한다. */
+[hidden] { display: none !important; }
+
 /* ---- 상단바 · 페이지 골격 ---- */
 .topbar { position: fixed; top: 0; left: 0; right: 0; height: var(--topbar-h); background: var(--surface); border-bottom: 1px solid var(--border); z-index: 100; }
 .topbar-inner { max-width: var(--content-max); margin: 0 auto; height: 100%; display: flex; align-items: center; justify-content: space-between; padding: 0 var(--sp-6); }
