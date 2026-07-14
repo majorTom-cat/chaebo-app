@@ -16,7 +16,9 @@ N_BUCKETS = 256000  # 줌 256배에서도 창당 ~1000버킷(0.9ms/버킷@4분) 
 
 
 def peaks_path(song_id: int):
-    return config.STEMS_DIR / str(song_id) / "peaks_v4.json"  # v3=8000버킷(×8 한계) → v4
+    # v5: 곡 끝 샘플을 버리던 버그 교정(파형이 늘어나 진행바가 곡 진행에 비례해 밀림 — 사용자 실측
+    # −1000ms@2:44, 실측 늘림 1.37%=2.2s@2:44, 2026-07-14). 옛 캐시(v3/v4)는 버그가 박혀 재생성 필요.
+    return config.STEMS_DIR / str(song_id) / "peaks_v5.json"  # v3=8000버킷 → v4=끝버림버그 → v5=전구간
 
 
 def ensure_gz(song_id: int):
@@ -41,13 +43,18 @@ def compute(song_id: int) -> dict:
         x, _sr = sf.read(f, dtype="float32")
         if x.ndim > 1:
             x = x.mean(axis=1)
-        n = len(x) // N_BUCKETS or 1
         # 픽셀 해상도(0.2초 안팎) 버킷에선 |x|max envelope 가 DAW 표준 — 리프 사이
         # 쉼표·어택이 그대로 보인다. (수 초 버킷에서 max 를 쓰면 천장에 붙음 — 그 실패는
         # 버킷을 줄여 해결하는 게 표준이지 집계를 뭉개는 게 아님)
+        # ★버킷은 곡 [0, len] 전구간을 균등하게 덮어야 한다. 예전엔 x[:n*N_BUCKETS] 로 reshape 해
+        # 끝 (len mod N_BUCKETS) 샘플(최대 수 초)을 버렸고, drawWaves 는 이 버킷들이 player.duration()
+        # 전체를 덮는다 가정해 그려서 파형이 늘어났다 → 진행바가 곡 진행에 비례해 파형 뒤로 밀림
+        # (사용자 실측 −1000ms@2:44, 실측 bass.wav 늘림 1.37%=2.2s@2:44, 2026-07-14). reduceat 로 전구간 덮음.
         if len(x) >= N_BUCKETS:
-            buckets = np.abs(x[: n * N_BUCKETS]).reshape(N_BUCKETS, -1)
-            raw[stem] = buckets.max(axis=1)
+            ax = np.abs(x)
+            # int64 강제 — 윈도우 np.arange 기본 int32 라 (256001 * 1300만)에서 오버플로 위험.
+            edges = (np.arange(N_BUCKETS + 1, dtype=np.int64) * len(x)) // N_BUCKETS
+            raw[stem] = np.maximum.reduceat(ax, edges[:-1])  # 버킷 i = max(ax[edges[i]:edges[i+1]]), 끝까지
         else:
             raw[stem] = np.abs(x)
 
