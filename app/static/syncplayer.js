@@ -414,6 +414,9 @@
       g.connect(this.ctx.destination);
       osc.start(t0);
       osc.stop(t0 + 0.1);
+      // ★끝난 노드는 그래프에서 끊어 GC 되게 — 안 하면 매 박(분당 수백 개)이 쌓여 WebView2 메모리
+      // 누수 → 앱이 꺼짐(윈도우 RADAR_PRE_LEAK 실측 2026-07-14). var 루프 캡처는 IIFE 로.
+      osc.onended = (function (o, gn) { return function () { try { o.disconnect(); gn.disconnect(); } catch (e) {} }; })(osc, g);
     }
     var self = this;
     Object.keys(this._metroSched).forEach(function (k) {
@@ -450,6 +453,21 @@
     this._raf = this._metroTimer = null;
   };
 
+  // 페이지를 떠날 때(곡 전환·닫기) 6스템 워크릿 버퍼(수백 MB)·노드·컨텍스트를 명시적으로 해제한다.
+  // 안 하면 WebView2 가 옛 페이지 메모리를 늦게 회수해 쌓일 수 있다(누수 조사 2026-07-14). shell.pagehide 에서 호출.
+  SyncPlayer.prototype.destroy = function () {
+    try { this.pause(); } catch (e) {}
+    try { this._stopLoop(); } catch (e) {}
+    (this.audios || []).forEach(function (a) {
+      try { a.node.dropBuffers(); } catch (e) {}
+      try { a.node.disconnect(); } catch (e) {}
+      try { a.gain.disconnect(); } catch (e) {}
+    });
+    this.audios = [];
+    try { if (this.masterGain) this.masterGain.disconnect(); } catch (e) {}
+    try { if (this.ctx && this.ctx.state !== 'closed') this.ctx.close(); } catch (e) {}
+  };
+
   /* 카운트인 — 재생 전 예비박 클릭(첫 박 높은음). 공유 컨텍스트 재사용(닫지 않는다!) */
   SyncPlayer.prototype.countIn = function (bpm, beats, onDone) {
     var ctx;
@@ -468,6 +486,7 @@
       g.connect(ctx.destination);
       osc.start(t0);
       osc.stop(t0 + 0.15);
+      osc.onended = (function (o, gn) { return function () { try { o.disconnect(); gn.disconnect(); } catch (e) {} }; })(osc, g);  // 끝난 노드 정리(누수 방지)
     }
     setTimeout(onDone, Math.round(beats * beat * 1000));
   };

@@ -432,6 +432,9 @@
           g.gain.exponentialRampToValueAtTime(0.0001, t + 0.06);
           osc.connect(g); g.connect(ctx.destination);
           osc.start(t); osc.stop(t + 0.08);
+          // 끝난 노드는 그래프에서 끊어 GC — 안 하면 맞추기 창 열어둔 동안 매 250ms 노드가 쌓임
+          // (게인은 alignOscs 에 추적조차 안 됐음 — 누수. 메트로놈과 같은 정리 패턴, 2026-07-14).
+          osc.onended = (function (o, gn) { return function () { try { o.disconnect(); gn.disconnect(); } catch (e) {} }; })(osc, g);
           alignOscs.push(osc);
           alignScheduled = t;
         }

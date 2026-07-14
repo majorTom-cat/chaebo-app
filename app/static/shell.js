@@ -44,7 +44,11 @@ window.Shell = (function () {
       keepalive: !!keepalive,
     });
   }
-  window.addEventListener('pagehide', function () { clearTimeout(saveTimer); saveNow(true); });
+  window.addEventListener('pagehide', function () {
+    clearTimeout(saveTimer); saveNow(true);
+    // 떠나기 전 오디오 버퍼·컨텍스트 명시적 해제 — 곡 전환마다 수백 MB 를 바로 반환(누수 방지 2026-07-14).
+    try { if (player.destroy) player.destroy(); } catch (e) { /* 저장은 이미 됨 */ }
+  });
   setInterval(function () { if (player.isPlaying()) saveNow(); }, 5000);
 
   /* ---- 공용 재생 박스 — 훅은 뷰들로 팬아웃 ---- */
