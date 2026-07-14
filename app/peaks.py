@@ -12,13 +12,16 @@ import soundfile as sf
 
 from app import config
 
-N_BUCKETS = 256000  # 줌 256배에서도 창당 ~1000버킷(0.9ms/버킷@4분) — 클라이언트가 창 단위 축약
+# v6 는 버킷마다 양·음 피크 2값이라 데이터가 2배 — 버킷 수를 절반(128000)으로 낮춰 총량을 v5 수준(~10MB)
+# 유지. 줌 256배에서도 창당 ~500버킷(1.8ms/버킷@4분)이라 베이스 실파형 모양엔 충분(저음 <300Hz).
+N_BUCKETS = 128000
 
 
 def peaks_path(song_id: int):
-    # v5: 곡 끝 샘플을 버리던 버그 교정(파형이 늘어나 진행바가 곡 진행에 비례해 밀림 — 사용자 실측
-    # −1000ms@2:44, 실측 늘림 1.37%=2.2s@2:44, 2026-07-14). 옛 캐시(v3/v4)는 버그가 박혀 재생성 필요.
-    return config.STEMS_DIR / str(song_id) / "peaks_v5.json"  # v3=8000버킷 → v4=끝버림버그 → v5=전구간
+    # v6: 부호 있는 실제 파형 — 버킷마다 양의 피크(hi=max)·음의 피크(lo=min)를 따로 저장(DAW 표준).
+    # 예전 v5 는 |x|max 하나라 위아래 대칭 미러였음(부호 없음, 사용자 지적 2026-07-14). 형식도 배열→
+    # {hi:[], lo:[]} 로 바뀌어 옛 캐시 재생성 필요. (v3=8000버킷→v4=끝버림버그→v5=전구간|x|→v6=부호)
+    return config.STEMS_DIR / str(song_id) / "peaks_v6.json"
 
 
 def ensure_gz(song_id: int):
@@ -37,28 +40,35 @@ def compute(song_id: int) -> dict:
     if cache.exists():
         return json.loads(cache.read_text(encoding="utf-8"))
 
-    raw: dict[str, np.ndarray] = {}
+    hi: dict[str, np.ndarray] = {}
+    lo: dict[str, np.ndarray] = {}
     for stem in config.STEMS:
         f = config.STEMS_DIR / str(song_id) / f"{stem}.wav"
         x, _sr = sf.read(f, dtype="float32")
         if x.ndim > 1:
             x = x.mean(axis=1)
-        # 픽셀 해상도(0.2초 안팎) 버킷에선 |x|max envelope 가 DAW 표준 — 리프 사이
-        # 쉼표·어택이 그대로 보인다. (수 초 버킷에서 max 를 쓰면 천장에 붙음 — 그 실패는
-        # 버킷을 줄여 해결하는 게 표준이지 집계를 뭉개는 게 아님)
-        # ★버킷은 곡 [0, len] 전구간을 균등하게 덮어야 한다. 예전엔 x[:n*N_BUCKETS] 로 reshape 해
-        # 끝 (len mod N_BUCKETS) 샘플(최대 수 초)을 버렸고, drawWaves 는 이 버킷들이 player.duration()
-        # 전체를 덮는다 가정해 그려서 파형이 늘어났다 → 진행바가 곡 진행에 비례해 파형 뒤로 밀림
-        # (사용자 실측 −1000ms@2:44, 실측 bass.wav 늘림 1.37%=2.2s@2:44, 2026-07-14). reduceat 로 전구간 덮음.
+        # 버킷마다 부호 있는 양/음 피크(min·max) — DAW 표준 실파형. 예전엔 |x|max 하나라 대칭이었음.
+        # ★버킷은 곡 [0, len] 전구간을 균등 덮음(reduceat) — 끝 버림 버그(v4, 진행바 밀림) 재발 방지.
         if len(x) >= N_BUCKETS:
-            ax = np.abs(x)
             # int64 강제 — 윈도우 np.arange 기본 int32 라 (256001 * 1300만)에서 오버플로 위험.
             edges = (np.arange(N_BUCKETS + 1, dtype=np.int64) * len(x)) // N_BUCKETS
-            raw[stem] = np.maximum.reduceat(ax, edges[:-1])  # 버킷 i = max(ax[edges[i]:edges[i+1]]), 끝까지
+            hi[stem] = np.maximum.reduceat(x, edges[:-1])  # 양의 피크(위)
+            lo[stem] = np.minimum.reduceat(x, edges[:-1])  # 음의 피크(아래)
         else:
-            raw[stem] = np.abs(x)
+            hi[stem] = np.maximum(x, 0.0)
+            lo[stem] = np.minimum(x, 0.0)
 
-    global_max = max(float(v.max()) for v in raw.values()) or 1.0
-    data = {stem: [round(float(v) / global_max, 3) for v in arr] for stem, arr in raw.items()}
+    # 공유 정규화(전 스템 공통) — |양/음| 최댓값 기준. 악기 간 강약 비교 목적 유지.
+    global_max = max(
+        max(float(np.abs(hi[s]).max()) for s in hi),
+        max(float(np.abs(lo[s]).max()) for s in lo),
+    ) or 1.0
+    data = {
+        stem: {
+            "hi": [round(float(v) / global_max, 3) for v in hi[stem]],
+            "lo": [round(float(v) / global_max, 3) for v in lo[stem]],
+        }
+        for stem in config.STEMS
+    }
     cache.write_text(json.dumps(data), encoding="utf-8")  # 인코딩 명시(하드규칙12 — 읽기와 대칭)
     return data

@@ -339,14 +339,14 @@
   function drawFlowWave() {
     var svg = document.getElementById('flow-wave');
     var inner = document.getElementById('flow-inner');
-    var bass = (window.__peaks && window.__peaks.bass) || null;
+    var pk = (window.__peaks && window.__peaks.bass) || null;   // v6: {hi:[양], lo:[음]}
     var W = inner ? (parseFloat(inner.style.width) || inner.offsetWidth) : 0;
-    if (!svg || !W || !bass || !bass.length || !tab || !tab.bpm) { if (svg) svg.innerHTML = ''; return; }
+    if (!svg || !W || !pk || !pk.hi || !pk.hi.length || !tab || !tab.bpm) { if (svg) svg.innerHTML = ''; return; }
     var dur = (player && player.duration && player.duration()) || 0;
     if (!dur) return; // 오디오 로드 전 — peaks 훅/틱에서 다시 그림
-    var n = bass.length, mid = FLOW_WAVE_H / 2;
-    var bmax = 0;
-    for (var m = 0; m < n; m++) { if (bass[m] > bmax) bmax = bass[m]; }  // 베이스 자체 최대로 정규화(전스템 공통 정규화라 베이스는 작게 보임 — 믹서 세로확대와 같은 취지)
+    var hiA = pk.hi, loA = pk.lo, n = hiA.length, mid = FLOW_WAVE_H / 2;
+    var bmax = 0;   // 베이스 자체 최대(|양|,|음|)로 정규화 — 전스템 공통 정규화라 베이스가 작게 보이는 것 보정
+    for (var m = 0; m < n; m++) { var av = hiA[m] > -loA[m] ? hiA[m] : -loA[m]; if (av > bmax) bmax = av; }
     if (!bmax) bmax = 1;
     var step = Math.max(2, Math.round(W / 5000)); // 포인트 상한(긴 곡도 SVG 1회 렌더 가볍게)
     var top = [], bot = [];
@@ -356,11 +356,12 @@
       var lo = Math.min(t0, t1), hi = Math.max(t0, t1);
       var i0 = Math.max(0, Math.floor(lo / dur * n));
       var i1 = Math.min(n, Math.max(i0 + 1, Math.ceil(hi / dur * n)));
-      var v = 0;
-      for (var j = i0; j < i1; j++) { if (bass[j] > v) v = bass[j]; } // 구간 max — 어택 보존
-      var h = Math.max(0.4, Math.min(mid - 0.4, (v / bmax) * (mid - 1)));
-      top.push(x + ',' + (mid - h).toFixed(1));
-      bot.push(x + ',' + (mid + h).toFixed(1));
+      var hv = 0, lv = 0;
+      for (var j = i0; j < i1; j++) { if (hiA[j] > hv) hv = hiA[j]; if (loA[j] < lv) lv = loA[j]; } // 양=max 음=min
+      var th = Math.max(0.3, Math.min(mid - 0.4, (hv / bmax) * (mid - 1)));
+      var bh = Math.max(0.3, Math.min(mid - 0.4, (-lv / bmax) * (mid - 1)));
+      top.push(x + ',' + (mid - th).toFixed(1));
+      bot.push(x + ',' + (mid + bh).toFixed(1));
     }
     bot.reverse();
     svg.setAttribute('width', W);

@@ -78,25 +78,27 @@
     var dur = player.duration() || 1;
     var w = windowDur();
     STEMS.forEach(function (s) {
-      var all = peaksData[s.key] || [];
-      var n = all.length;
+      var pk = peaksData[s.key];
+      if (!pk || !pk.hi) return;              // v6: {hi:[양피크], lo:[음피크]}
+      var hiA = pk.hi, loA = pk.lo, n = hiA.length;
       if (!n) return;
       var i0 = Math.floor(viewStart / dur * n);
       var i1 = Math.min(n, Math.ceil((viewStart + w) / dur * n));
-      var slice = all.slice(i0, i1);
-      // 창 버킷 → 화면 포인트 축약(구간 max — 피크 보존)
-      var pts = Math.min(DRAW_POINTS, slice.length);
+      var len = Math.max(1, i1 - i0);
+      // 창 버킷 → 화면 포인트 축약(양=구간 max, 음=구간 min — 부호 있는 실파형 보존)
+      var pts = Math.min(DRAW_POINTS, len);
+      var amp = LANE_AMP * (vamp[s.key] || 1) / 2;   // 위/아래 각각 반높이
       var top = [], bottom = [];
       for (var i = 0; i < pts; i++) {
-        var a = Math.floor(i / pts * slice.length);
-        var b = Math.max(a + 1, Math.floor((i + 1) / pts * slice.length));
-        var v = 0;
-        for (var j = a; j < b; j++) if (slice[j] > v) v = slice[j];
-        // 세로 확대 배율 적용 후 lane 높이 안으로 클램프(넘치면 잘려도 위아래 대칭 유지).
-        var h = Math.min(LANE_MID - 0.5, Math.max(0.6, v * LANE_AMP * (vamp[s.key] || 1)) / 2);
+        var a = i0 + Math.floor(i / pts * len);
+        var b = Math.max(a + 1, i0 + Math.floor((i + 1) / pts * len));
+        var hv = 0, lv = 0;
+        for (var j = a; j < b; j++) { if (hiA[j] > hv) hv = hiA[j]; if (loA[j] < lv) lv = loA[j]; }
+        var th = Math.min(LANE_MID - 0.5, Math.max(0.3, hv * amp));   // 위(양) 높이
+        var bh = Math.min(LANE_MID - 0.5, Math.max(0.3, -lv * amp));  // 아래(음) 높이(lv 음수)
         var x = (i / pts * DRAW_POINTS).toFixed(1);
-        top.push(x + ',' + (LANE_MID - h).toFixed(2));
-        bottom.push(x + ',' + (LANE_MID + h).toFixed(2));
+        top.push(x + ',' + (LANE_MID - th).toFixed(2));
+        bottom.push(x + ',' + (LANE_MID + bh).toFixed(2));
       }
       bottom.reverse();
       var svg = document.querySelector('[data-lane="' + s.key + '"] .mini-wave');
