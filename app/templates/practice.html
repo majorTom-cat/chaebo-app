@@ -163,9 +163,17 @@ button.meta-badge:hover { border-color: var(--accent); }
 /* 베이스 파형 띠 — 흐름 타브 칸(grid) 축에 맞춰 그려, 진행바 하나가 음표·파형을 동시에 관통.
    시각·정렬은 tab.js drawFlowWave(믹서와 같은 peaks·같은 timeSlot 매핑). */
 .flow-wave-sep { position: absolute; left: 0; right: 0; top: 150px; height: 1px; background: rgba(92, 86, 66, 0.28); }
-.flow-wave-tag { position: absolute; left: 4px; top: 152px; font-size: 10px; color: #a3946e; z-index: 2; pointer-events: none; }
 .flow-wave { position: absolute; left: 0; top: 158px; height: 50px; display: block; }
 .flow-wave polygon { fill: var(--stem-bass, #4a90d9); opacity: 0.82; }
+/* 좌측 고정 칸(gutter) — 각 가로줄 의미를 스크롤과 무관하게 항상 좌측에 표시(사용자 요청). */
+.flow-row { display: flex; align-items: flex-start; }
+.flow-gutter { position: relative; flex: 0 0 34px; width: 34px; height: 214px; background: var(--surface);
+  border-right: 1px solid var(--border); z-index: 4; }
+.flow-gutter .g-str { position: absolute; right: 6px; transform: translateY(-50%);
+  font-size: 12.5px; font-weight: 800; color: #6b5f45; }
+.flow-gutter .g-note { position: absolute; right: 5px; transform: translateY(-50%);
+  font-size: 9.5px; line-height: 1.1; color: #a3946e; text-align: right; }
+.flow-scroll { min-width: 0; flex: 1 1 auto; }
 .flow-bar-line { position: absolute; top: 20px; bottom: 6px; width: 1px; background: rgba(92, 86, 66, 0.45); }
 .flow-chord { position: absolute; top: 2px; font-size: 12.5px; font-weight: 800; color: #241f16; }
 .flow-chord.fc-same { color: #a89c7d; font-weight: 600; } /* 앞 마디와 같은 코드 — 변화가 눈에 띄게 */
@@ -509,15 +517,19 @@ button.meta-badge:hover { border-color: var(--accent); }
     <!-- 흐름 타브 — 시간 비례 뷰(칸=고정 폭): 박자 간격 균일·진행바 등속·프렛/카운트 일렬.
          조판 악보는 가로축이 시간 비례가 아니라 등간격·등속이 구조적으로 불가(사용자 피드백 반복 끝의 설계 전환). -->
     <section class="flow-wrap" aria-label="흐름 타브 (박자 일정)">
-      <div class="flow-scroll" id="flow-scroll">
-        <div class="flow-inner" id="flow-inner">
-          <div class="flow-wave-sep"></div>
-          <span class="flow-wave-tag">베이스 파형</span>
-          <svg class="flow-wave" id="flow-wave" preserveAspectRatio="none" aria-hidden="true"></svg>
-          <div class="flow-playhead" id="flow-playhead"></div>
+      <!-- 좌측 고정 칸(gutter): 각 가로줄 의미(현 이름 등)를 스크롤과 무관하게 항상 보이게(사용자 요청
+           2026-07-14). flow-scroll 밖이라 가로 스크롤에 안 밀린다. 라벨 y 는 tab.js 가 현 위치와 맞춤. -->
+      <div class="flow-row">
+        <div class="flow-gutter" id="flow-gutter" aria-hidden="true"></div>
+        <div class="flow-scroll" id="flow-scroll">
+          <div class="flow-inner" id="flow-inner">
+            <div class="flow-wave-sep"></div>
+            <svg class="flow-wave" id="flow-wave" preserveAspectRatio="none" aria-hidden="true"></svg>
+            <div class="flow-playhead" id="flow-playhead"></div>
+          </div>
         </div>
       </div>
-      <p class="flow-caption">흐름 타브 — 박자 간격이 일정해요 · 아래 <b>베이스 파형</b>과 음표를 <b>진행바 하나</b>가 같이 지나가요 · 클릭하면 그 위치로 이동</p>
+      <p class="flow-caption">흐름 타브 — 왼쪽은 <b>줄 이름</b>(G·D·A·E 현) · 아래 <b>베이스 파형</b>과 음표를 <b>진행바 하나</b>가 같이 지나가요 · 클릭하면 이동</p>
     </section>
 
     <section class="tab-score-wrap" aria-label="베이스 타브 악보">

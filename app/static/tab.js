@@ -304,6 +304,32 @@
     inner.appendChild(frag);
     window.__flowReady = true;
     drawFlowWave(); // 베이스 파형 띠 — 폭 확정 뒤(같은 grid 축)
+    renderGutter(); // 좌측 고정 줄이름 라벨(스크롤 무관)
+  }
+
+  // 좌측 고정 칸(gutter) — 각 가로줄 의미를 항상 좌측에 표시(사용자 요청 2026-07-14: 스크롤 옮겨도 유지).
+  // 현 라벨 y 는 renderFlow 의 현 위치(70 + li·24)와 동일해 정확히 정렬. flow-scroll 밖이라 안 밀린다.
+  function renderGutter() {
+    var gut = document.getElementById('flow-gutter');
+    if (!gut) return;
+    gut.innerHTML = '';
+    var names = ['G', 'D', 'A', 'E']; // 위=G(얇은 줄) ~ 아래=E(굵은 줄), 타브 관례
+    for (var i = 0; i < 4; i++) {
+      var s = document.createElement('div');
+      s.className = 'g-str';
+      s.textContent = names[i];
+      s.title = names[i] + '현 (' + (i === 0 ? '가장 얇은 줄' : i === 3 ? '가장 굵은 줄' : '') + ')';
+      s.style.top = (70 + i * 24) + 'px';
+      gut.appendChild(s);
+    }
+    var note = function (top, txt) {
+      var d = document.createElement('div');
+      d.className = 'g-note'; d.style.top = top + 'px'; d.textContent = txt;
+      gut.appendChild(d);
+    };
+    note(9, '코드');
+    note(41, '박자');
+    note(183, '파형');
   }
 
   // 베이스 파형 띠(사용자 요청 2026-07-14): 믹서와 같은 peaks 를, 흐름 타브의 칸(grid) 축에 매핑해
