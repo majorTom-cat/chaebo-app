@@ -172,6 +172,50 @@ def align_to_onsets(notes, onsets, tol=0.08):
     return out
 
 
+# 파형(진폭 envelope) 기준 정제 문턱 — env 로 조절 가능(사용자 귀 검증 후 튜닝).
+REFINE_RISE = float(os.environ.get("CHAEBO_REFINE_RISE", "0.10"))   # 재타건 판정: envelope 상승폭
+REFINE_LVL = float(os.environ.get("CHAEBO_REFINE_LVL", "0.06"))     # 그 구간 최소 음량(정규화 0~1)
+REFINE_MINKEEP = float(os.environ.get("CHAEBO_REFINE_MINKEEP", "0.12"))  # 어택 없이도 살릴 최소 길이(초)
+
+
+def _bass_envelope(x, sr, hop_ms=8):
+    """8ms RMS envelope(정규화 0~1) — 표시 파형과 같은 진폭 근거. 반환:(env, 프레임초)."""
+    hop = max(1, int(sr * hop_ms / 1000))
+    n = len(x) // hop
+    if n < 2:
+        return np.array([0.0]), 1.0
+    e = np.sqrt((x[:n * hop].reshape(n, hop) ** 2).mean(axis=1))
+    return e / (float(e.max()) or 1.0), hop / sr
+
+
+def refine_with_envelope(notes, x, sr):
+    """파형 어택(재타건) 기준 정제(사용자 요청 2026-07-14): ①어택 없이 이어지는 같은 음 = 지속(둥~)
+    으로 병합(반복 둥둥둥은 사이 어택이 있어 안 병합) ②어택도 없고 짧은 유령음 제거(실제 안 친 미세음).
+    파형에 맞춰 — 진폭 envelope 의 상승(diff)>RISE & 음량>LVL 을 '어택'으로 본다."""
+    if not notes:
+        return notes
+    e, fd = _bass_envelope(x, sr)
+
+    def has_attack(t0, t1):
+        i0 = max(0, int(t0 / fd)); i1 = min(len(e), int(t1 / fd))
+        if i1 - i0 < 2:
+            return False
+        seg = e[i0:i1]
+        return bool(np.max(np.diff(seg)) > REFINE_RISE and seg.max() > REFINE_LVL)
+
+    ns = sorted(notes, key=lambda nt: nt["start"])
+    merged = []
+    for nt in ns:
+        if merged and merged[-1]["midi"] == nt["midi"]:
+            gs = merged[-1]["start"] + merged[-1]["dur"]
+            if not has_attack(gs - 0.02, nt["start"] + 0.03):   # 사이에 재타건 없음 → 지속으로 연장
+                merged[-1]["dur"] = round(nt["start"] + nt["dur"] - merged[-1]["start"], 3)
+                continue
+        merged.append(dict(nt))
+    return [n for n in merged
+            if n["dur"] >= REFINE_MINKEEP or has_attack(n["start"] - 0.03, n["start"] + 0.05)]
+
+
 def estimate_tempo(drums_path):
     import librosa
 
@@ -1109,7 +1153,7 @@ def main():
     # 원시 캐시 재사용: 검출(CREPE ~10분/bp ~30초)은 안 변했는데 그리드·조판 수리 때마다 전체
     # 재실행하던 낭비(실증: 하루 6회) 제거. 검출 파이프라인이 바뀌면 RAW_V 를 올려 무효화.
     # 강제 전체 재분석은 CHAEBO_FRESH=1.
-    RAW_V = 1
+    RAW_V = 2  # v2: 파형 어택 기준 정제(refine_with_envelope) 추가 — 옛 캐시 무효화
     apply_sensitivity(os.environ.get("CHAEBO_SENS", "normal"))
     cache = None
     if os.environ.get("CHAEBO_FRESH") != "1" and Path(out_json).exists():
@@ -1141,6 +1185,7 @@ def main():
         def _prep(raw):  # 공통 정리 + 8분정합 점수
             raw = gate_quiet(raw, x, sr)
             raw = align_to_onsets(raw, _onsets_amp)
+            raw = refine_with_envelope(raw, x, sr)  # 파형 어택 기준 지속병합·유령제거
             return raw, eighth_ratio(raw, beat_times)
 
         # 1차: basic-pitch (~30초, 리듬 선명 곡에서 우세 — SP-4b) → 정합 낮으면 CREPE 도 돌려 우세 채택
