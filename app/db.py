@@ -58,6 +58,8 @@ MIGRATIONS = [
     "ALTER TABLE transcriptions ADD COLUMN key_override TEXT",  # 키 직접 입력('F#m' 등, 2026-07-10)
     "ALTER TABLE transcriptions ADD COLUMN lyrics TEXT",  # 가사 받아쓰기 JSON(SP-5, 2026-07-10)
     "ALTER TABLE transcriptions ADD COLUMN sections TEXT",  # 곡 구간(경계·그룹·보컬힌트, 2026-07-10)
+    # 음정 검출 정밀도: 'full'=정확(느림)·NULL/'tiny'=빠름. '정확하게 다시 분석' 버튼용(2026-07-14)
+    "ALTER TABLE transcriptions ADD COLUMN crepe_mode TEXT",
 ]
 
 

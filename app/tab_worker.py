@@ -228,8 +228,13 @@ def refine_with_envelope(notes, x, sr):
                 merged[-1]["dur"] = round(nt["start"] + nt["dur"] - merged[-1]["start"], 3)
                 continue
         merged.append(dict(nt))
-    result = [n for n in merged
-              if n["dur"] >= REFINE_MINKEEP or has_attack(n["start"] - 0.03, n["start"] + 0.05)]
+    # 유령 제거(drop)는 기본 끔(2026-07-14): 실제 음 손실(파형 있는데 타브에 안 그려짐 — 사용자 지적)
+    # 방지 우선. 조용한 유령은 gate_quiet 가 이미 처리한다. 정말 과밀하면 CHAEBO_REFINE_DROP=1 로 켠다.
+    if os.environ.get("CHAEBO_REFINE_DROP") == "1":
+        result = [n for n in merged
+                  if n["dur"] >= REFINE_MINKEEP or has_attack(n["start"] - 0.03, n["start"] + 0.05)]
+    else:
+        result = list(merged)
     # 음 시작을 가장 가까운 파형 어택에 스냅(±SNAP) — 음/그리드/파형/진행바 정렬. 끝은 유지(길이 보정).
     if REFINE_SNAP > 0 and result:
         atk = _attack_times(e, fd)
@@ -1180,7 +1185,7 @@ def main():
     # 원시 캐시 재사용: 검출(CREPE ~10분/bp ~30초)은 안 변했는데 그리드·조판 수리 때마다 전체
     # 재실행하던 낭비(실증: 하루 6회) 제거. 검출 파이프라인이 바뀌면 RAW_V 를 올려 무효화.
     # 강제 전체 재분석은 CHAEBO_FRESH=1.
-    RAW_V = 3  # v3: 음 시작을 파형 어택에 스냅(정렬)
+    RAW_V = 4  # v4: 유령 drop 기본 끔(실음 손실 방지)
     apply_sensitivity(os.environ.get("CHAEBO_SENS", "normal"))
     cache = None
     if os.environ.get("CHAEBO_FRESH") != "1" and Path(out_json).exists():

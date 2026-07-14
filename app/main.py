@@ -471,6 +471,7 @@ class TabStart(BaseModel):
     meter: str | None = None  # '4/4'|'12/8'|'auto' — 자동 박자 판정이 틀렸을 때 수동 고정
     sensitivity: str | None = None  # 'normal'|'simple' — 밀집 믹스에서 과밀 타브 억제
     tempo: str | None = None  # 'auto'|'half'|'double' — 템포 배수 오검출 수동 교정
+    mode: str | None = None  # 'tiny'(빠름·기본)|'full'(정확·느림) — '정확하게 다시 분석'
 
 
 @app.post("/api/songs/{song_id}/tab", status_code=202)
@@ -491,6 +492,11 @@ async def start_tab(song_id: int, body: TabStart | None = None):
         if body.tempo not in ("auto", "half", "double"):
             raise HTTPException(422, "빠르기는 auto, half, double 중 하나로 정해주세요")
         fields["tempo_override"] = None if body.tempo == "auto" else body.tempo
+    if body and body.mode:
+        if body.mode not in ("tiny", "full", "auto"):
+            raise HTTPException(422, "분석 정밀도는 tiny 또는 full 로 정해주세요")
+        # tiny/auto = 기본(빠름) = NULL, full = 정확(느림). 버튼이 매번 명시해 모드가 고정된다.
+        fields["crepe_mode"] = "full" if body.mode == "full" else None
     await db.upsert_transcription(song_id, **fields)
     await jobs.queue.put(("tab", song_id))
     return await db.get_transcription(song_id)

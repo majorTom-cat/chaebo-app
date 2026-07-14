@@ -252,6 +252,8 @@ async def _process_tab(song_id: int):
         env_extra["CHAEBO_TEMPO"] = row["tempo_override"]  # 2배 템포 오검출 교정
     if row and row.get("key_override"):
         env_extra["CHAEBO_KEY"] = row["key_override"]  # 키 직접 입력 — 재분석에도 유지
+    if row and row.get("crepe_mode"):
+        env_extra["CHAEBO_CREPE_MODEL"] = row["crepe_mode"]  # 'full'=정확(느림) — '정확하게 다시 분석'
     code, tail = await _run(
         [config.PYTHON, "-m", "app.tab_worker", str(bass), str(drums),
          str(out_json), song["title"][:80]],

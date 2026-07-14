@@ -94,16 +94,23 @@
     fetch('/api/songs/' + songId + '/tab', { method: 'POST' }).then(refreshTab);
   }
   document.getElementById('btn-make-tab').addEventListener('click', startTab);
-  document.getElementById('btn-reanalyze').addEventListener('click', function () {
-    if (!confirm('처음부터 다시 분석할까요? 직접 고친 내용은 사라져요')) return;
-    // 감도·빠르기 반영(사용자 요청 2026-07-10) — 감도: 과밀 억제 / 빠르기 절반: 2배 템포 오검출 교정
+  function reanalyze(mode) {  // mode: 'tiny'(빠름·기본) | 'full'(정확·느림)
     fetch('/api/songs/' + songId + '/tab', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         sensitivity: document.getElementById('sens-select').value,
         tempo: document.getElementById('tempo-select').value,
+        mode: mode,
       }),
     }).then(refreshTab);
+  }
+  document.getElementById('btn-reanalyze').addEventListener('click', function () {
+    if (!confirm('처음부터 다시 분석할까요? 직접 고친 내용은 사라져요')) return;
+    reanalyze('tiny');  // 빠른 기본 모드로(정확 모드에서 되돌리기도 됨)
+  });
+  document.getElementById('btn-reanalyze-accurate').addEventListener('click', function () {
+    if (!confirm('음정을 더 정확하게 다시 분석할까요?\n시간이 더 걸려요(곡당 몇 분~십몇 분). 직접 고친 내용은 사라져요.')) return;
+    reanalyze('full');  // 정확 모드(full CREPE) — 반음/옥타브 오류 줄임
   });
 
   // 박자 시작점 이동 — 1에서 시작하지 않는 곡의 수동 맞춤
