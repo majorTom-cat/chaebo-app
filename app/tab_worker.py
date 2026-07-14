@@ -51,12 +51,17 @@ def track_pitch(x, sr):
     import torchcrepe
 
     hop = int(sr * HOP_SEC)
-    # GPU 있으면 GPU 로 — CREPE 는 CPU 에서 ~10분이라 GPU 가속 효과가 크다(사용자 지적: GPU PC 인데
-    # 채보가 CPU 로만 뜸). torchcrepe 가 입력을 내부에서 device 로 옮긴다. (분리는 이미 GPU 적응형.)
+    # GPU 있으면 GPU 로 — torchcrepe 가 입력을 내부에서 device 로 옮긴다. (분리는 이미 GPU 적응형.)
     dev = "cuda" if torch.cuda.is_available() else "cpu"
+    # 모델 크기: 'full'(22M 파라미터)은 CPU 에서 너무 느림(실측 30초 베이스에 68초 = 5.5분 곡 ~13분+,
+    # 사용자 지적 2026-07-14: Pretender 채보 너무 오래·하드웨어 과다). 베이스는 저음·단선율이라 CREPE
+    # 'tiny'(0.5M)로도 품질 거의 동일 — 실측 A/B(곡6 베이스 30초): tiny 가 full 대비 음정 반음이내 94.5%·
+    # 중앙값 0.14반음, 속도 19.9배(3.4s). 프렛(반음 간격)·16분 그리드 초안엔 충분. 기본 tiny, 필요시
+    # CHAEBO_CREPE_MODEL=full 로 되돌림.
+    model = os.environ.get("CHAEBO_CREPE_MODEL", "tiny")
     f0, per = torchcrepe.predict(
         torch.from_numpy(x).unsqueeze(0), sr, hop_length=hop,
-        fmin=35.0, fmax=400.0, model="full", batch_size=512,
+        fmin=35.0, fmax=400.0, model=model, batch_size=512,
         device=dev, return_periodicity=True,
     )
     # GPU 텐서는 .numpy() 직접 불가 → .cpu() 먼저(안 하면 GPU 에서 크래시).
