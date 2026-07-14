@@ -957,6 +957,91 @@ def _dur_token(glen, table=_DUR_TABLE):
     return name, dotted, tup, length
 
 
+def _chord_templates(key):
+    """24 트라이어드(장/단) 템플릿 + 라벨(키 철자 반영). 반환 (T[24x12] 정규화, labels)."""
+    names = _pc_names(key)
+    T, labels = [], []
+    for r in range(12):
+        maj = np.zeros(12); maj[[r, (r + 4) % 12, (r + 7) % 12]] = 1.0
+        T.append(maj); labels.append(names[r])
+        mn = np.zeros(12); mn[[r, (r + 3) % 12, (r + 7) % 12]] = 1.0
+        T.append(mn); labels.append(names[r] + "m")
+    T = np.array(T)
+    T = T / np.linalg.norm(T, axis=1, keepdims=True)
+    return T, labels
+
+
+def chroma_chords(stems_dir, notes, slots, bpm, offset, bar_slots, key=None):
+    """★코드 초안 — 실제 화성(크로마) 기반(사용자 지적 2026-07-14: 코드 안 맞음). 예전 bass+키다이어토닉
+    추정은 근음이 베이스에 종속·비다이어토닉 오류·키 틀리면 전멸(실증: 곡12 전 마디 'C'). 화성 스템
+    (드럼 제외)을 합쳐 chroma_cqt → 마디별(필요시 반마디) 12트라이어드 템플릿 매칭. 스템 없으면 None(폴백)."""
+    if not notes:
+        return []
+    try:
+        import librosa
+    except Exception:  # noqa: BLE001
+        return None
+    sig = None
+    for st in ("bass", "guitar", "piano", "other", "vocals"):
+        p = Path(stems_dir) / f"{st}.wav"
+        if not p.exists():
+            continue
+        x, s = sf.read(str(p), dtype="float32")
+        if x.ndim > 1:
+            x = x.mean(axis=1)
+        if s != 22050:
+            x = librosa.resample(x, orig_sr=s, target_sr=22050)
+        sig = x if sig is None else (sig + x if len(sig) == len(x)
+                                     else sig[:min(len(sig), len(x))] + x[:min(len(sig), len(x))])
+    if sig is None or len(sig) < 22050:
+        return None
+    hop = 2048
+    chroma = librosa.feature.chroma_cqt(y=sig, sr=22050, hop_length=hop)
+    tpf = hop / 22050.0
+    T, labels = _chord_templates(key)
+
+    def slot_time(g):
+        if slots is not None and len(slots) > 1:
+            i = max(0, min(len(slots) - 2, int(g)))
+            return slots[i] + (slots[i + 1] - slots[i]) * (g - i)
+        return offset + g * (60.0 / bpm / (bar_slots / 4.0))
+
+    # 에너지 기준(무음/인트로 마디 배제) — 곡 전체 chroma 에너지 중앙값의 일부 미만이면 무음 취급.
+    frame_energy = chroma.sum(axis=0)
+    e_th = float(np.median(frame_energy[frame_energy > 0])) * 0.25 if (frame_energy > 0).any() else 0.0
+
+    def chord_at(t0, t1):
+        i0 = max(0, int(t0 / tpf)); i1 = min(chroma.shape[1], int(t1 / tpf))
+        if i1 - i0 < 1:
+            return None
+        seg = chroma[:, i0:i1]
+        if float(seg.sum(axis=0).mean()) < e_th:   # 무음/인트로 마디 → 코드 없음(직전 유지)
+            return None
+        c = seg.mean(axis=1)
+        n = float(np.linalg.norm(c))
+        if n < 1e-6:
+            return None
+        return labels[int((T @ (c / n)).argmax())]
+
+    # 마디별 1코드(초안) — 화성 크로마 매칭. 반마디 분할은 노이즈로 오분할 잦아 뺌(정확 우선).
+    total_bars = (notes[-1]["gi"] + max(notes[-1].get("glen", 1), 1)) // bar_slots + 1
+    chords, prev, first = [], None, None
+    for bar in range(total_bars):
+        lab = chord_at(slot_time(bar * bar_slots), slot_time((bar + 1) * bar_slots))
+        if lab is None:
+            lab = prev  # 무음 마디는 직전 코드 유지(첫 감지 전이면 아래에서 첫 코드로 채움)
+        chords.append({"bar": bar, "pos": 0, "label": lab})
+        if lab is not None:
+            prev = lab
+            if first is None:
+                first = lab
+    # 첫 코드 감지 전(인트로) 마디는 첫 코드로 채움
+    for c in chords:
+        if c["label"] is None:
+            c["label"] = first
+    return [c for c in chords if c["label"] is not None]
+
+
 def to_alphatex(notes, bpm, title, key=None, chords=None, meter="4/4", families=None):
     """alphaTex 생성 — 베이스 표준(낮은음자리표 F4 + 조표 + 마디 코드), 튜닝 표기 G2 D2 A1 E1.
     그리드: 4/4 v1(마디 16칸, 균일 폴백) / 4/4 v2(마디 48칸 + families 로 박별 16분·셋잇단
@@ -1284,7 +1369,16 @@ def main():
         notes, slots, families, offset, bpm, bar_slots)
     prog(92)
     key = effective_key(notes, os.environ.get("CHAEBO_KEY"))  # 키 직접 입력은 재분석에도 유지
-    chords = estimate_chords(notes, key, bar_slots=bar_slots)
+    # 코드: 화성 크로마 기반(정확) 우선, 실패 시 옛 bass+키 추정 폴백. env 로 끔.
+    chords = None
+    if os.environ.get("CHAEBO_CHROMA_CHORDS", "1") == "1":
+        try:
+            chords = chroma_chords(Path(bass_path).parent, notes, slots, bpm, offset, bar_slots, key=key)
+        except Exception as e:  # noqa: BLE001 — 실패해도 폴백으로 계속
+            print(f"[chroma_chords 실패, 폴백] {e}", flush=True)
+            chords = None
+    if not chords:
+        chords = estimate_chords(notes, key, bar_slots=bar_slots)
     tex = to_alphatex(notes, bpm, title, key=key, chords=chords, meter=meter, families=families)
     max_gi = (notes[-1]["gi"] + notes[-1]["glen"] + 32) if notes else 0
     with open(out_json, "w", encoding="utf-8") as f:
