@@ -48,7 +48,10 @@
        논리 위치(currentTime)는 seek·저장·A-B 루프·워크릿 스케줄 전용 — 여기에 표시 보정을 쓰면
        위치가 밀려 저장된다. 두 보정(워크릿 지연·사용자 싱크)은 재생 중에만 — 정지 땐 맞출 소리가 없다. */
     function displayTime() {
-      if (!player.isPlaying()) return player.currentTime(); // 정지 = 논리 위치(저장·시크 값과 일치)
+      // 정지 중에도 싱크 보정을 '표시'에 반영 — 사용자가 sync 를 조절하면 진행바·커서가 실시간으로
+      // 움직여 파형·음표와 맞춰볼 수 있다(사용자 지적 2026-07-14: 타브 진행바에 실시간 영향 없음).
+      // 시크·저장·A-B 는 player.currentTime()(논리 위치)를 그대로 써서 영향 없음(표시만 이동).
+      if (!player.isPlaying()) return player.currentTime() - syncMs / 1000;
       // 재생 중 = '실제 들리는' 위치: getOutputTimestamp 로 하드웨어 출력지연(스피커·BT)을 자동 보정
       // + 스트레치 look-ahead(worklet). 남는 잔차(BT 추가지연 등)만 사용자 싱크(tap-to-sync)로 뺀다.
       var heard = player.heardTime ? player.heardTime() : player.currentTime();
