@@ -507,7 +507,10 @@ async def get_tab(song_id: int):
         notes = json.loads(row["notes"])
         meter = row.get("meter") or "4/4"
         key = effective_key(notes, row.get("key_override"))
-        chords = estimate_chords(notes, key, bar_slots=48 if meter == "12/8" else 16)
+        # bar_slots 에 grid_v 반영(divergence #2 교정 2026-07-14) — 편집 경로들은 grid_v>=2 면 48 을 쓰는데
+        # 이 구버전 업그레이드만 16 을 써서 grid_v2 곡의 코드가 편집 후와 달라졌다. 일치시킨다.
+        chords = estimate_chords(
+            notes, key, bar_slots=48 if (meter == "12/8" or (row.get("grid_v") or 1) >= 2) else 16)
         song = await db.get_song(song_id)
         tex = to_alphatex(notes, row["bpm"], song["title"][:80], key=key, chords=chords, meter=meter)
         fields = dict(tex=tex,
@@ -549,6 +552,18 @@ async def shift_tab_phase(song_id: int, body: TabShift):
         return await _shift_tab_phase(song_id, body)
 
 
+def _tex_from_notes(row, song, notes, key_override, existing_chords, bar_slots, families):
+    """채보 tex 재생성의 '공통 꼬리' — 이 3줄(키·코드·tex)이 여러 편집 경로에 복붙돼 드리프트 위험이었다
+    (코드리뷰 2026-07-14). 각 호출부는 자신의 families/겹침정규화·bar_slots·수동코드를 계산해 넘긴다.
+    ★주의(리뷰 발견): 앞단(정규화·bar_slots)은 경로마다 미세하게 다르다 — 여기서 통일하지 않는다."""
+    from app.tab_worker import effective_key, estimate_chords, merge_manual_chords, to_alphatex
+    key = effective_key(notes, key_override)
+    chords = merge_manual_chords(estimate_chords(notes, key, bar_slots=bar_slots), existing_chords)
+    tex = to_alphatex(notes, row["bpm"], song["title"][:80], key=key, chords=chords,
+                      meter=row.get("meter") or "4/4", families=families)
+    return key, chords, tex
+
+
 async def _shift_tab_phase(song_id: int, body: TabShift):
     row = await db.get_transcription(song_id)
     if not row or row["status"] != "ready":
@@ -580,8 +595,7 @@ async def _shift_tab_phase(song_id: int, body: TabShift):
             nt["gi"] += step
             nt["start"] = round(new_offset + nt["gi"] * grid, 3)
     song = await db.get_song(song_id)
-    from app.tab_worker import (effective_key, estimate_chords, merge_manual_chords,
-                                sanitize_mixed, to_alphatex)
+    from app.tab_worker import sanitize_mixed
     meter = row.get("meter") or "4/4"
     grid_v = row.get("grid_v") or 1
     bar_slots = 48 if (meter == "12/8" or grid_v >= 2) else 16
@@ -589,12 +603,14 @@ async def _shift_tab_phase(song_id: int, body: TabShift):
     if grid_v >= 2 and meter != "12/8":
         # shift(±3칸)가 셋잇단 오프셋을 불법 위치(7·11)로 보내 조판에서 증발(적대 리뷰 확정) — 위생 스냅
         notes, families = sanitize_mixed(notes)
-    key = effective_key(notes, row.get("key_override"))
-    chords = merge_manual_chords(
-        estimate_chords(notes, key, bar_slots=bar_slots),
-        json.loads(row.get("chords") or "[]"))
-    tex = to_alphatex(notes, row["bpm"], song["title"][:80], key=key, chords=chords,
-                      meter=meter, families=families)
+    else:
+        # ★_put_tab_notes 엔 있는데 여기엔 없던 겹침 정규화(divergence #1 교정 2026-07-14): 지속이 다음 음
+        # 시작을 넘으면 조판기가 그 음을 스킵(증발). 겹침 없으면 무변화(no-op)라 안전. 두 경로 일치.
+        for cur, nxt in zip(notes, notes[1:]):
+            if cur["glen"] > nxt["gi"] - cur["gi"]:
+                cur["glen"] = max(1, nxt["gi"] - cur["gi"])
+    key, chords, tex = _tex_from_notes(
+        row, song, notes, row.get("key_override"), json.loads(row.get("chords") or "[]"), bar_slots, families)
     await db.upsert_transcription(
         song_id, notes=json.dumps(notes, ensure_ascii=False), tex=tex,
         beat_offset=new_offset,
@@ -620,8 +636,7 @@ async def _put_tab_notes(song_id: int, body: TabNotes):
     if not row or row["status"] != "ready":
         raise HTTPException(409, "타브 초안이 아직 없어요")
     song = await db.get_song(song_id)
-    from app.tab_worker import (effective_key, estimate_chords, merge_manual_chords,
-                                sanitize_mixed, to_alphatex)
+    from app.tab_worker import sanitize_mixed
     notes = sorted(body.notes, key=lambda n: n["gi"])
     meter = row.get("meter") or "4/4"
     grid_v = row.get("grid_v") or 1
@@ -635,12 +650,8 @@ async def _put_tab_notes(song_id: int, body: TabNotes):
         for cur, nxt in zip(notes, notes[1:]):
             if cur["glen"] > nxt["gi"] - cur["gi"]:
                 cur["glen"] = max(1, nxt["gi"] - cur["gi"])
-    key = effective_key(notes, row.get("key_override"))  # 보정이 쌓이면 키·코드도 좋아진다 — 함께 재계산
-    chords = merge_manual_chords(
-        estimate_chords(notes, key, bar_slots=bar_slots),
-        json.loads(row.get("chords") or "[]"))  # 수동 수정 코드는 보존
-    tex = to_alphatex(notes, row["bpm"], song["title"][:80], key=key, chords=chords,
-                      meter=meter, families=families)
+    key, chords, tex = _tex_from_notes(  # 키·코드·tex 공통 꼬리(보정 쌓이면 키·코드도 재계산, 수동코드 보존)
+        row, song, notes, row.get("key_override"), json.loads(row.get("chords") or "[]"), bar_slots, families)
     await db.upsert_transcription(
         song_id, notes=json.dumps(notes, ensure_ascii=False), tex=tex,
         key_json=json.dumps(key, ensure_ascii=False),
