@@ -464,9 +464,12 @@
       document.getElementById('zoom-in').addEventListener('click', function () { setZoom(zoom * 2); });
       document.getElementById('zoom-out').addEventListener('click', function () { setZoom(zoom / 2); });
 
-      // 줌 상태에서 휠 = 좌우 이동 (한 칸당 창의 4% — 사용자 피드백: 10%는 너무 빠름)
+      // 줌 상태에서 휠 = 좌우 이동 (한 칸당 창의 4% — 사용자 피드백: 10%는 너무 빠름).
+      // ★파형 레인(과 룰러) 위에서만 좌우 이동. 솔로·음소거·세로 등 컨트롤 위에선 개입하지 않아
+      // 평소처럼 세로 스크롤이 되게 한다(사용자 요청 2026-07-14).
       document.querySelector('.stem-deck').addEventListener('wheel', function (e) {
         if (zoom === 1) return;
+        if (!e.target.closest('.stem-lane-cell') && !e.target.closest('.deck-ruler-cell')) return;
         e.preventDefault();
         viewStart += (e.deltaY / 100) * windowDur() * 0.04;
         clampView();

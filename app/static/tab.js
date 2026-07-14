@@ -344,6 +344,7 @@
      옛 #alphaTab 요소를 통째로 덮개로 전환하고 새 렌더는 새 요소에(복제 비용 0).
      옛 api 파괴는 덮개 제거 시점으로 미룸(먼저 부수면 옛 화면이 지워짐). */
   var frozenApi = null;
+  var freezeTimer = null;
   function freezeScore() {
     if (document.getElementById('score-freeze')) return;
     var el = document.getElementById('alphaTab');
@@ -359,9 +360,11 @@
     fresh.id = 'alphaTab';
     frozenApi = api;
     api = null; // renderScore 가 새 요소에 새 api 를 만든다
-    setTimeout(unfreezeScore, 8000); // 렌더 실패 안전핀
+    clearTimeout(freezeTimer);
+    freezeTimer = setTimeout(unfreezeScore, 8000); // 렌더 실패 안전핀(이전 사이클 타이머는 위에서 취소)
   }
   function unfreezeScore() {
+    clearTimeout(freezeTimer);  // 빠른 연속 편집 시 옛 타이머가 다음 사이클을 잘못 해제하던 것 방지(리뷰 2026-07-14)
     var g = document.getElementById('score-freeze');
     if (g) g.remove();
     if (frozenApi) {

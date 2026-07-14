@@ -60,5 +60,5 @@ def compute(song_id: int) -> dict:
 
     global_max = max(float(v.max()) for v in raw.values()) or 1.0
     data = {stem: [round(float(v) / global_max, 3) for v in arr] for stem, arr in raw.items()}
-    cache.write_text(json.dumps(data), encoding="utf-8")
+    cache.write_text(json.dumps(data), encoding="utf-8")  # 인코딩 명시(하드규칙12 — 읽기와 대칭)
     return data

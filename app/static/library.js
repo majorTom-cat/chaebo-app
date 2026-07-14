@@ -33,9 +33,11 @@
   }
 
   function esc(s) {
-    var d = document.createElement('div');
-    d.textContent = s == null ? '' : String(s);
-    return d.innerHTML;
+    // 따옴표까지 이스케이프 — 속성값에 넣기(data-title="..." 등). div.innerHTML 은 " ' 를 안 바꿔서
+    // 유튜브 제목의 " 가 속성을 깨고 이벤트핸들러 주입 여지까지 있었음(코드리뷰 2026-07-14).
+    return (s == null ? '' : String(s)).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
   }
 
   function fmtDur(sec) {

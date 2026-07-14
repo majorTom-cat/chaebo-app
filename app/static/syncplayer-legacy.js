@@ -153,6 +153,19 @@
     this._stopLoop();
   };
 
+  // 모던 엔진과 대칭 — pagehide/곡전환 시 오브젝트URL·오디오요소·메트로놈 컨텍스트 해제(누수 방지,
+  // 코드리뷰 2026-07-14: 레거시엔 destroy 가 없어 shell.pagehide 가 아무것도 안 풀었음).
+  SyncPlayer.prototype.destroy = function () {
+    try { this.pause(); } catch (e) {}
+    this.audios.forEach(function (a) {
+      try { URL.revokeObjectURL(a.el.src); } catch (e) {}
+      try { a.el.src = ''; } catch (e) {}
+    });
+    this.audios = [];
+    try { if (this._metroCtx && this._metroCtx.state !== 'closed') this._metroCtx.close(); } catch (e) {}
+    this._metroCtx = null;
+  };
+
   SyncPlayer.prototype.seek = function (t) {
     this.audios.forEach(function (a) { a.el.currentTime = t; });
   };

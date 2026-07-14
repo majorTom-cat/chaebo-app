@@ -23,12 +23,23 @@ from app import config, db, gpu, jobs, system
 
 templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
 
+# 참조 없는 create_task 는 CPython 이벤트루프가 약참조만 잡아 실행 중 GC 로 조용히 소멸할 수 있다
+# (특히 build_pitch_stems 가 사라지면 폴링이 영원히 ready:false — 에러도 없음, 코드리뷰 2026-07-14).
+# set 에 붙잡고 끝나면 뗀다.
+_bg_tasks: set = set()
+
+
+def _spawn(coro):
+    t = asyncio.create_task(coro)
+    _bg_tasks.add(t)
+    t.add_done_callback(_bg_tasks.discard)
+    return t
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await db.init()
-    import asyncio as _asyncio
-    _asyncio.create_task(system.device())  # 장치 감지 예열(첫 호출 torch 임포트 ~수 초 — cold 페이지가 배지 놓침)
+    _spawn(system.device())  # 장치 감지 예열(첫 호출 torch 임포트 ~수 초 — cold 페이지가 배지 놓침)
     if os.environ.get("CHAEBO_NO_WORKER") != "1":  # UI 검증용: 잡 워커 없이 화면만
         await jobs.start()
     yield
@@ -658,8 +669,7 @@ async def build_pitch(song_id: int, body: PitchBody):
         raise HTTPException(422, "키는 -12~+12 반음 사이로 정해주세요")
     if body.semitones == 0 or jobs.pitch_ready(song_id, body.semitones):
         return {"ready": True, "stems": _pitch_stem_urls(song_id, body.semitones)}
-    import asyncio as _asyncio
-    _asyncio.create_task(jobs.build_pitch_stems(song_id, body.semitones))
+    _spawn(jobs.build_pitch_stems(song_id, body.semitones))
     return {"ready": False}
 
 
@@ -983,7 +993,16 @@ async def apply_update():
                     urllib.request.Request(zip_url, headers={"User-Agent": "chaebo"}), timeout=90) as r:
                 (tdp / "app.zip").write_bytes(r.read())
             with zipfile.ZipFile(tdp / "app.zip") as z:
-                z.extractall(tdp / "x")
+                # zip-slip 방어(코드리뷰 2026-07-14): 항목 경로가 추출 폴더를 벗어나면(../ 등) 거부.
+                # 자동 업데이트는 신뢰 앵커라 gist 탈취 시 임의 파일 덮어쓰기(RCE) 위험 — 미리 막는다.
+                dest = (tdp / "x").resolve()
+                for m in z.namelist():
+                    if m.endswith("/"):
+                        continue
+                    tgt = (dest / m).resolve()
+                    if dest != tgt and dest not in tgt.parents:
+                        raise RuntimeError("업데이트 파일에 안전하지 않은 경로가 있어요")
+                z.extractall(dest)
             # GitHub archive 는 최상위 폴더 1개(chaebo-app-main/) 안에 app/·run.py 가 들어있다
             cands = [p for p in (tdp / "x").iterdir() if p.is_dir()]
             src = next((c for c in cands if (c / "app").is_dir() and (c / "run.py").is_file()),

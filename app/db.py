@@ -119,6 +119,11 @@ async def list_songs():
 
 async def delete_song(song_id: int):
     async with aiosqlite.connect(config.DB_PATH) as conn:
+        # ON DELETE CASCADE 는 SQLite 기본이 FK OFF 라 실제로 동작 안 함(연결마다 PRAGMA 필요) →
+        # 자식 행을 명시 삭제한다. 안 그러면 곡 삭제 때 transcriptions·practice_state 가 고아로 무한
+        # 누적되고, get_tab 이 삭제된 곡의 유령 채보를 200 으로 돌려줬다(코드리뷰 2026-07-14).
+        await conn.execute("DELETE FROM transcriptions WHERE song_id=?", (song_id,))
+        await conn.execute("DELETE FROM practice_state WHERE song_id=?", (song_id,))
         await conn.execute("DELETE FROM songs WHERE id=?", (song_id,))
         await conn.commit()
 
