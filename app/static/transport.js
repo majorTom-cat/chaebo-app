@@ -367,7 +367,7 @@
       var ALIGN_PERIOD = 1.0;
       var alignRAF = null, alignTimer = null, alignOscs = [], alignScheduled = 0;
       var marker = el('sync-align-marker');
-      var alignCanvas = null, alignCtx2d = null, _lastAlignK = null, alignStamps = []; // 삑 도장용
+      var alignCanvas = null, alignCtx2d = null, _lastAlignK = null; // 삑 도장용
       var alignHeardCtx = function () {
         var ctx = player.ctx; if (!ctx) return 0;
         if (ctx.getOutputTimestamp) {
@@ -417,16 +417,11 @@
           if (alignCtx2d && alignCanvas) {
             var cw = alignCanvas.width, ch = alignCanvas.height;
             var mx = (50 + Math.max(-50, Math.min(50, phase * 100))) / 100 * cw;
-            alignStamps.push({ x: mx, near: Math.abs(phase) < 0.07 });
-            if (alignStamps.length > 4) alignStamps.shift();
+            var near = Math.abs(phase) < 0.07;
+            // 직전 도장 하나만 — 다음 삑에 새 도장으로 교체(사용자 지적 2026-07-14: 옛 도장 누적 금지).
             alignCtx2d.clearRect(0, 0, cw, ch);
-            for (var si = 0; si < alignStamps.length; si++) {
-              var st = alignStamps[si];
-              var a = 0.22 + 0.78 * (si + 1) / alignStamps.length; // 최신=진하게, 옛것=흐리게
-              var rgb = st.near ? '46,193,107' : '255,210,122';
-              alignCtx2d.fillStyle = 'rgba(' + rgb + ',' + a.toFixed(2) + ')';
-              alignCtx2d.fillRect(st.x - 2.5, ch * 0.1, 5, ch * 0.8);
-            }
+            alignCtx2d.fillStyle = near ? 'rgba(46,193,107,0.95)' : 'rgba(255,210,122,0.9)';
+            alignCtx2d.fillRect(mx - 2.5, ch * 0.1, 5, ch * 0.8);
           }
           var trk = el('sync-align-track');
           if (trk) { trk.classList.add('flash'); setTimeout(function () { trk.classList.remove('flash'); }, 80); }
@@ -454,7 +449,7 @@
         if (!ctx) { alert('먼저 곡을 불러온 뒤 맞춰 주세요'); return false; }
         if (ctx.state === 'suspended') ctx.resume();
         // 인광 잔상 캔버스 준비(모달 열린 뒤라야 트랙 크기 확정) — 실픽셀로 그려 선명하게.
-        alignCanvas = el('sync-align-canvas'); _lastAlignK = null; alignStamps = [];
+        alignCanvas = el('sync-align-canvas'); _lastAlignK = null;
         if (alignCanvas) {
           var _tr = el('sync-align-track');
           alignCanvas.width = (_tr && _tr.clientWidth) || 360;
