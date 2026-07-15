@@ -262,13 +262,10 @@ def _run_app_window():
                           "text-align:center;padding-top:20vh'><h2>준비 중 문제가 있었어요</h2>"
                           "<p>인터넷 연결을 확인하고 다시 실행해 주세요.</p></body>")
 
-    # 최소화하면 트레이로 숨기고(백그라운드 유지), 닫기(X)=완전 종료 — 사용자 선택 2026-07-13
-    # ('몰래 백그라운드 상주' 우려 반영: 상주는 사용자가 최소화할 때만). 트레이는 부가기능이라
-    # 전 과정을 try/except 로 감싸 실패해도 앱 본체는 정상. GUI 코드라 실기기 확인 필요.
-    # 최소화 = 평범하게 작업표시줄로(창을 숨기지 않는다). 예전엔 최소화 시 window.hide() 로 트레이에
-    # 숨겨 작업표시줄에서 사라졌는데, 사용자에겐 '창이 꺼진 것처럼' 보였다(실기기 지적 2026-07-13:
-    # 최소화 버튼이 창을 없애는 놀라운 효과). 트레이 아이콘은 편의 접근용으로 유지(좌클릭 열기·우클릭
-    # 메뉴). 닫기(X)=완전 종료. '몰래 백그라운드 상주' 없음 — 창이 있어야 앱이 돈다.
+    # 창 X(닫기) = 트레이로 숨기기(계속 실행) — 사용자 요청 2026-07-15(예전 X=완전종료가 '트레이에서도
+    # 사라진다'고 지적). 완전 종료는 트레이 우클릭 '종료'(os._exit). 최소화 = 평범하게 작업표시줄로
+    # (창 안 숨김 — v0.6.15 '최소화가 창을 없앤다' 지적 반영). 즉 X→트레이, 최소화→작업표시줄로 역할 분리.
+    # 트레이는 부가기능이라 전 과정 try/except(실패해도 앱 본체 정상). GUI 코드라 실기기 확인 필요.
 
     def _tray_open():
         try:
@@ -294,6 +291,23 @@ def _run_app_window():
                     on_quit=lambda: os._exit(0))
     except Exception:
         pass  # 트레이 실패는 무시 — 앱은 정상 동작
+
+    # 닫기(X) 가로채 트레이로 숨김 — closing 핸들러가 False 를 반환하면 pywebview 가 닫기를 취소한다
+    # (winforms args.Cancel=True, event.py: false_values 있으면 should_cancel). 완전 종료는 트레이 '종료'
+    # (os._exit) 로만 — 그건 이 핸들러를 우회한다. 트레이 실패로 창을 못 되살릴 위험 대비: 트레이가 안
+    # 떴으면 숨기지 않고 그냥 닫히게(False 반환 안 함) 둬 '창도 트레이도 없이 갇힘'을 방지.
+    def _on_closing():
+        try:
+            if not _tray.is_running():   # 트레이 없으면 숨기면 되살릴 길이 없음 → 정상 종료 허용
+                return None
+            window.hide()
+            return False                 # 닫기 취소 → 트레이에만 남음
+        except Exception:
+            return None
+    try:
+        window.events.closing += _on_closing
+    except Exception:
+        pass  # 이벤트 등록 실패해도 앱은 정상(그 경우 X=종료로 폴백)
 
     _icon = _ICON if os.path.isfile(_ICON) else None
     webview.start(_work, window, icon=_icon)  # 창 닫힐 때까지 블록

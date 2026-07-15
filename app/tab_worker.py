@@ -211,6 +211,44 @@ def _attack_times(e, fd):
     return np.array(out)
 
 
+def _is_reattack(ns_start, e, fd):
+    """두 같은음 사이가 '진짜 다시 뜯음(둥둥)'인지 '이어진 지속(둥~)'인지 — 경계 부근 envelope 골로 판정.
+    다시 뜯으려면 이전 음이 감쇠해 골로 꺼졌다 솟는다(골<peak·REFINE_VALLEY). 지속은 안 꺼지고 높게 유지
+    (사용자 지적 2026-07-15: 연음이 둥둥으로 쪼개짐). 안 꺼졌으면 지속으로 병합."""
+    ib = int(ns_start / fd); w = max(1, int(0.10 / fd))
+    a = e[max(0, ib - w):ib + 1]; b = e[ib:min(len(e), ib + w)]
+    if len(a) < 1 or len(b) < 1:
+        return True   # 판정 불가 시 보수적으로 분리 유지(음 손실 방지 우선)
+    peak = max(float(a.max()), float(b.max()))
+    if peak < REFINE_LVL:
+        return False  # 둘 다 조용 → 유령 지속으로 병합
+    trough = float(e[max(0, ib - 2):ib + 3].min())
+    return trough < peak * REFINE_VALLEY   # 골이 깊으면(감쇠) 다시 뜯음 → 분리 유지
+
+
+def _merge_same_pitch(notes, reattack):
+    """같은음 연속을 지속이면 병합, 다시 뜯음이면 유지. reattack(gs, ns_start)->bool(True=분리 유지)."""
+    ns = sorted(notes, key=lambda nt: nt["start"])
+    merged = []
+    for nt in ns:
+        if merged and merged[-1]["midi"] == nt["midi"]:
+            gs = merged[-1]["start"] + merged[-1]["dur"]
+            if not reattack(gs, nt["start"]):   # 사이에 재타건 없음 → 지속으로 연장
+                merged[-1]["dur"] = round(nt["start"] + nt["dur"] - merged[-1]["start"], 3)
+                continue
+        merged.append(dict(nt))
+    return merged
+
+
+def merge_sustained(notes, x, sr):
+    """저역 음정 교정 뒤 재병합(사용자 지적 2026-07-15: 한 번 친 걸 둥둥 둥으로 쪼갬) — 교정으로 같은음이
+    된 인접 조각(C↔C# 흔들리다 둘 다 C 등)을 refine 과 같은 valley 기준으로 지속(둥~)으로 합친다."""
+    if not REFINE_MERGE or not notes:
+        return notes
+    e, fd = _bass_envelope(x, sr)
+    return _merge_same_pitch(notes, lambda gs, ns: _is_reattack(ns, e, fd))
+
+
 def refine_with_envelope(notes, x, sr):
     """파형 어택(재타건) 기준 정제(사용자 요청 2026-07-14): ①어택 없이 이어지는 같은 음 = 지속(둥~)
     으로 병합(반복 둥둥둥은 사이 어택이 있어 안 병합) ②어택도 없고 짧은 유령음 제거(실제 안 친 미세음).
@@ -226,30 +264,9 @@ def refine_with_envelope(notes, x, sr):
         seg = e[i0:i1]
         return bool(np.max(np.diff(seg)) > REFINE_RISE and seg.max() > REFINE_LVL)
 
-    def is_reattack(gs, ns_start):
-        """두 같은음 사이가 '진짜 다시 뜯음(둥둥)'인지 '이어진 지속(둥~)'인지 — 경계 부근 envelope 골로 판정.
-        다시 뜯으려면 이전 음이 감쇠해 골로 꺼졌다 솟는다(골<peak·REFINE_VALLEY). 지속은 안 꺼지고
-        높게 유지(사용자 지적 2026-07-15: 연음이 둥둥으로 쪼개짐). 안 꺼졌으면 지속으로 병합."""
-        ib = int(ns_start / fd); w = max(1, int(0.10 / fd))
-        a = e[max(0, ib - w):ib + 1]; b = e[ib:min(len(e), ib + w)]
-        if len(a) < 1 or len(b) < 1:
-            return True   # 판정 불가 시 보수적으로 분리 유지(음 손실 방지 우선)
-        peak = max(float(a.max()), float(b.max()))
-        if peak < REFINE_LVL:
-            return False  # 둘 다 조용 → 유령 지속으로 병합
-        trough = float(e[max(0, ib - 2):ib + 3].min())
-        return trough < peak * REFINE_VALLEY   # 골이 깊으면(감쇠) 다시 뜯음 → 분리 유지
-
-    reattack = is_reattack if REFINE_MERGE else (lambda gs, ns: has_attack(gs - 0.02, ns + 0.03))
-    ns = sorted(notes, key=lambda nt: nt["start"])
-    merged = []
-    for nt in ns:
-        if merged and merged[-1]["midi"] == nt["midi"]:
-            gs = merged[-1]["start"] + merged[-1]["dur"]
-            if not reattack(gs, nt["start"]):   # 사이에 재타건 없음 → 지속으로 연장
-                merged[-1]["dur"] = round(nt["start"] + nt["dur"] - merged[-1]["start"], 3)
-                continue
-        merged.append(dict(nt))
+    reattack = ((lambda gs, ns: _is_reattack(ns, e, fd)) if REFINE_MERGE
+                else (lambda gs, ns: has_attack(gs - 0.02, ns + 0.03)))
+    merged = _merge_same_pitch(notes, reattack)
     # 유령 제거(drop)는 기본 끔(2026-07-14): 실제 음 손실(파형 있는데 타브에 안 그려짐 — 사용자 지적)
     # 방지 우선. 조용한 유령은 gate_quiet 가 이미 처리한다. 정말 과밀하면 CHAEBO_REFINE_DROP=1 로 켠다.
     if os.environ.get("CHAEBO_REFINE_DROP") == "1":
@@ -272,6 +289,70 @@ def refine_with_envelope(notes, x, sr):
 
 # CREPE fmin=35Hz 아래 저음 사각 — 이 midi 미만은 CREPE 가 못 봐서(주기성 0%) basic-pitch 로 보강한다.
 LOW_RECOVER_MIDI = int(os.environ.get("CHAEBO_LOW_RECOVER_MIDI", "28"))  # E1=28. 그 아래(C1·B0 등)만 대상.
+
+
+def _autocorr_f0(seg, sr, fmin=28.0, fmax=350.0):
+    """FFT 자기상관 기본주파수 + 확신도(정규화 피크). 극저역(30~60Hz)에서 CREPE·basic-pitch 보다
+    정확 — 주기 자체를 재므로 배음 혼동이 없다(반옥타브는 같은 음이름이라 무해). 반환 (f0Hz, 0~1)."""
+    seg = np.asarray(seg, dtype=float)
+    n = len(seg)
+    if n < int(sr / fmin) * 2:
+        return 0.0, 0.0
+    seg = seg - seg.mean()
+    if np.sqrt((seg ** 2).mean()) < 1e-4:
+        return 0.0, 0.0
+    nfft = 1 << int(np.ceil(np.log2(2 * n)))
+    S = np.fft.rfft(seg, nfft)
+    ac = np.fft.irfft(S * np.conj(S), nfft)[:n]
+    ac /= (ac[0] + 1e-12)
+    lo, hi = int(sr / fmax), min(int(sr / fmin), n - 1)
+    if hi <= lo:
+        return 0.0, 0.0
+    k = lo + int(np.argmax(ac[lo:hi]))
+    return sr / k, float(ac[k])
+
+
+LOWPITCH_MAXMIDI = int(os.environ.get("CHAEBO_LOWPITCH_MAXMIDI", "40"))  # 이 midi 이하만 교정(E2=40 위는 검출기 신뢰)
+LOWPITCH_CONF = float(os.environ.get("CHAEBO_LOWPITCH_CONF", "0.6"))     # 자기상관 확신 하한(낮추면 교정↑·오손 위험↑)
+LOWPITCH_MAXSHIFT = int(os.environ.get("CHAEBO_LOWPITCH_MAXSHIFT", "2"))  # 반음 교정 최대 폭 — 실패모드는 반음권
+LOWPITCH_ON = os.environ.get("CHAEBO_LOWPITCH", "1") == "1"
+
+
+def refine_low_pitch(notes, x, sr):
+    """저역 음정을 자기상관으로 재측정·교정(사용자 지적 2026-07-15: 74마디부터 C를 C#으로 등 반음 오차).
+    ★실증(곡14): 곡 전체가 C1(~33Hz) 초저역이라 CREPE 무력·basic-pitch 반음 혼동(C1 33Hz vs C#1 35Hz =
+    2Hz 차). 자기상관(주기 기반)은 이 저역서 정확 → midi≤LOWPITCH_MAXMIDI 음을 자기상관 f0 로 교정.
+    ★안전장치(정상곡 오손 방지): ①교정 폭 ±LOWPITCH_MAXSHIFT 반음 이내 — 실패모드는 반음권이고, 큰 점프는
+    자기상관 옥타브/배음 오검출 의심이라 보류 ②자기상관 확신 하한(약한 피크는 원음 유지). ※검출기 conf 로는
+    거르지 않는다 — 곡14 는 CREPE 가 저역을 '확신하며' 틀려(conf 높음) conf 게이트가 오히려 교정을 막았다(실측).
+    self-tune: 확신 음들의 센트 편차 중앙값으로 곡 튜닝 보정(반음 경계 뒤집힘 방지)."""
+    if not LOWPITCH_ON or not notes:
+        return notes
+    meas = []
+    for i, nt in enumerate(notes):
+        if nt["midi"] > LOWPITCH_MAXMIDI:
+            continue
+        # 분석 창 = 음 길이를 [0.25, 0.4]s 로 클램프 — 짧게 검출된 음도 베이스 울림(다음 음 전까지)에서
+        # 피치를 잡게(실증 곡14: 0.05s 로 검출된 C#1 은 창이 짧아 자기상관 0 → 스킵되던 것). 33Hz 는 한 주기
+        # 30ms 라 최소 0.25s 면 8주기 확보. 다음 음이 아주 가까우면 창에 섞여 확신이 낮아져 자연히 스킵된다.
+        win = max(0.25, min(nt.get("dur", 0.3), 0.4))
+        seg = x[int(nt["start"] * sr):int((nt["start"] + win) * sr)]
+        f0, conf = _autocorr_f0(seg, sr)
+        if f0 > 0 and conf >= LOWPITCH_CONF:
+            meas.append((i, 69.0 + 12.0 * np.log2(f0 / 440.0), conf))
+    if not meas:
+        return notes
+    tune = float(np.median([(m - round(m)) for _, m, _ in meas]))  # 반음 단위 튜닝(자체 보정)
+    out = [dict(n) for n in notes]
+    for i, m, _ in meas:
+        target = int(round(m - tune))   # 자기상관이 본 음(옥타브 포함) — 저역이라 검출값보다 옥타브 낮을 수 있다
+        old = out[i]["midi"]
+        # ★검출 음의 옥타브는 유지하고 '음이름(pitch class)'만 자기상관 값으로 최소 이동(±6 이내).
+        #   저역은 진짜 f0 가 옥타브 아래라(C#2 검출 ↔ 실제 C1) 절대 midi 비교는 옥타브차로 막힌다 — 음이름만 본다.
+        new = old + ((target - old + 6) % 12) - 6
+        if 0 < abs(new - old) <= LOWPITCH_MAXSHIFT:  # 반음권 교정만 — 큰 점프는 보류(오손 방지)
+            out[i]["midi"] = new
+    return out
 
 
 def merge_low_notes(primary, bp_notes, x, sr, low_midi=LOW_RECOVER_MIDI):
@@ -1330,7 +1411,7 @@ def main():
     # 원시 캐시 재사용: 검출(CREPE ~10분/bp ~30초)은 안 변했는데 그리드·조판 수리 때마다 전체
     # 재실행하던 낭비(실증: 하루 6회) 제거. 검출 파이프라인이 바뀌면 RAW_V 를 올려 무효화.
     # 강제 전체 재분석은 CHAEBO_FRESH=1.
-    RAW_V = 5  # v5: 초저음(<E1) bp 보강 + 같은음 재타건(valley) 병합 강화(2026-07-15)
+    RAW_V = 6  # v6: 저역 음정 자기상관 교정(74마디 C→C# 등) 추가(2026-07-15)
     apply_sensitivity(os.environ.get("CHAEBO_SENS", "normal"))
     _crepe_mode = os.environ.get("CHAEBO_CREPE_MODEL", "tiny")  # tiny(빠름)|full(정확)
     cache = None
@@ -1388,6 +1469,11 @@ def main():
         # CREPE 가 채택돼도 못 보는 초저음(<E1)은 bp 검출로 보강 — 빈 구간만(사용자 지적 2026-07-15:
         # 첫 음 C 누락 = 33Hz 가 CREPE fmin 아래). bp 채택 경로면 멱등(이미 있음).
         raw_notes = merge_low_notes(raw_notes, raw_bp, x, sr)
+        # 저역 음정 교정 — CREPE·bp 가 30~60Hz 서 내는 반음 오차를 자기상관으로 바로잡음(사용자 지적
+        # 2026-07-15: 74마디부터 C→C# 등). merge 로 보강한 음까지 함께 교정되도록 뒤에 둔다.
+        raw_notes = refine_low_pitch(raw_notes, x, sr)
+        # 교정으로 같은음이 된 인접 조각(C↔C# 흔들림 등)을 다시 지속으로 병합 — 둥둥 과분절 완화(사용자 지적).
+        raw_notes = merge_sustained(raw_notes, x, sr)
         prog(75)
     beat_times_full = list(beat_times)  # 캐시엔 원본 보관(절반/2배 적용을 멱등하게)
     bpm0_orig = bpm0  # 캐시 복원용 — "적용됐을 것"이라고 역산하면 비트 0개 곡(no-op)에서 오염(실증 2026-07-10)

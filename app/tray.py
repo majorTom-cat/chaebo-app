@@ -117,6 +117,15 @@ def _setup_signatures(user32, shell32, kernel32):
     shell32.Shell_NotifyIconW.argtypes = [W.DWORD, POINTER(NOTIFYICONDATA)]
 
 
+_ready = threading.Event()  # 트레이 아이콘이 실제로 떠 있는지 — run.py 가 X→숨김 안전 여부 판단에 씀
+
+
+def is_running():
+    """트레이 아이콘이 실제 생성돼 살아있으면 True. run.py 가 '창을 숨겨도 트레이로 되살릴 수 있는지'
+    판단에 쓴다(트레이가 없는데 창을 숨기면 되살릴 길이 없어 갇힘 — 그 경우 X 는 정상 종료로 폴백)."""
+    return _ready.is_set()
+
+
 def start(icon_path, on_open=None, on_settings=None, on_quit=None):
     """데몬 스레드에서 트레이를 띄운다. 어떤 실패도 앱을 막지 않는다(부가기능)."""
     t = threading.Thread(target=_run, args=(icon_path, on_open, on_settings, on_quit),
@@ -208,12 +217,16 @@ def _run_inner(icon_path, on_open, on_settings, on_quit):
     if not shell32.Shell_NotifyIconW(NIM_ADD, ctypes.byref(nid)):
         raise OSError("Shell_NotifyIcon(ADD) 실패")
     _run._nid = nid  # GC 방지(구조체 수명 유지)
+    _ready.set()  # 아이콘 실제 생성됨 — 이제 X→트레이 숨김이 안전(되살릴 수 있음)
 
     # 메시지 루프(이 스레드 전용)
-    msg = wintypes.MSG()
-    while user32.GetMessageW(ctypes.byref(msg), None, 0, 0) > 0:
-        user32.TranslateMessage(ctypes.byref(msg))
-        user32.DispatchMessageW(ctypes.byref(msg))
+    try:
+        msg = wintypes.MSG()
+        while user32.GetMessageW(ctypes.byref(msg), None, 0, 0) > 0:
+            user32.TranslateMessage(ctypes.byref(msg))
+            user32.DispatchMessageW(ctypes.byref(msg))
+    finally:
+        _ready.clear()  # 루프 종료 = 트레이 내려감
 
 
 def _show_menu(user32, hwnd, on_open, on_settings, on_quit, shell32):
