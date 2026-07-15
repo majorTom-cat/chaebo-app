@@ -61,7 +61,7 @@
         document.getElementById('meter-label').textContent = t.meter || '4/4';
         document.getElementById('sens-select').value = t.sensitivity || 'normal';
         document.getElementById('tempo-select').value = t.tempo_override || 'auto';
-        document.getElementById('lead-snap-check').checked = (t.lead_snap == null || t.lead_snap === 1); // 기본 켬
+        document.getElementById('lead-snap-check').checked = (t.lead_snap === 1); // 기본 끔(명시적으로 켠 곡만 체크)
         transport.setMeta(t); // 메트로놈·카운트인 활성화(재분석 직후에도 신선하게)
         renderFlow(); // 고정 px 좌표 — 숨김 중에도 안전
         if (Shell.active() === 'tab') renderScore();
@@ -110,10 +110,8 @@
     if (!confirm('처음부터 다시 분석할까요? 직접 고친 내용은 사라져요')) return;
     reanalyze('tiny');  // 빠른 기본 모드로(정확 모드에서 되돌리기도 됨)
   });
-  // 첫 음 정박 체크박스 — 바꾸면 바로 다시 분석(빠른 모드·캐시 재사용이라 몇 초). 끄면 당김음 원복.
-  document.getElementById('lead-snap-check').addEventListener('change', function () {
-    reanalyze('tiny');
-  });
+  // 첫 음 정박 체크박스 — 값만 저장하고 '다시 분석'을 누를 때 함께 적용(sens·tempo 셀렉트와 동일).
+  //   토글마다 자동 재분석하던 동작 제거 — 체크만 껐다켰다 해도 분석이 시작되던 버그(2026-07-15).
   document.getElementById('btn-reanalyze-accurate').addEventListener('click', function () {
     if (!confirm('음정을 더 정확하게 다시 분석할까요?\n시간이 더 걸려요(곡당 몇 분~십몇 분). 직접 고친 내용은 사라져요.')) return;
     reanalyze('full');  // 정확 모드(full CREPE) — 반음/옥타브 오류 줄임

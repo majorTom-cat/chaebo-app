@@ -745,6 +745,40 @@ def derive_families(notes):
     return fams
 
 
+def snap_bar_phase(notes, slots, bar_slots):
+    """마디 위상 자동 보정 — 박 '간격'은 맞는데 '어느 박이 1박이냐'(마디 위상)가 통째로 틀린 경우 교정.
+    실측(2026-07-15): 서브박 위상(gi%12)은 이미 최적인데 마디 다운비트 커버리지는 곡15 43%뿐 —
+    통-박(12·24·36칸)만 시프트하면 92%로 급등(격자가 1박을 엉뚱한 박에 붙였던 것). 당김음(서브박)은
+    안 건드리고, 어택이 마디 다운비트에 가장 많이 걸리는 통-박 위상을 1박으로. delta 슬롯을 앞에 외삽
+    추가 + gi 이동(음 시각 보존·무손실). 반환 (notes, slots, delta_slots) — delta 0=미변경.
+    ★수동 override = '박자 시작점 이동'(자동이 틀리게 골랐을 때 사용자가 되돌림)."""
+    if not notes or slots is None or len(slots) < 2:
+        return notes, slots, 0
+    beat = bar_slots // 4
+    gis = [n["gi"] for n in notes]
+    nb = len({g // bar_slots for g in gis})
+    if nb < 4:  # 너무 짧으면 판단 불가
+        return notes, slots, 0
+
+    def cov(phi):  # phi 를 1박으로 봤을 때 다운비트에 어택 있는 마디 비율
+        return len({(g - phi) // bar_slots for g in gis if (g - phi) % bar_slots == 0}) / nb
+    cands = list(range(0, bar_slots, beat))  # 통-박 위상만(0·12·24·36)
+    covs = {p: cov(p) for p in cands}
+    phi = max(cands, key=lambda p: covs[p])
+    # 게이트: 개선폭 충분(+15%p)하고 결과 쓸만(>=55%)일 때만 — 이미 맞은 곡(예: 곡9)은 안 건드림
+    if phi == 0 or covs[phi] < covs[0] + 0.15 or covs[phi] < 0.55:
+        return notes, slots, 0
+    delta = (bar_slots - phi) % bar_slots  # 앞을 채워 phi->0 (무손실). delta 는 박의 배수
+    med = (slots[-1] - slots[0]) / (len(slots) - 1)
+    pre = [round(slots[0] - (delta - i) * med, 3) for i in range(delta)]
+    new_slots = pre + list(slots)
+    for n in notes:
+        n["gi"] += delta
+        if n["gi"] < len(new_slots):
+            n["start"] = round(float(new_slots[n["gi"]]), 3)
+    return notes, new_slots, delta
+
+
 def quantize_mixed(notes, slots):
     """박당 12칸(마디 48) 정량화 — 4/4 곡 속 부분 셋잇단(Longview·Come Together 류) 표기.
     ①허용 위치(16분∪셋잇단)로 스냅 ②약박 관례(정중앙 틈 → 8분 우선, 1.5배 규칙)
@@ -1127,7 +1161,7 @@ def chroma_chords(stems_dir, notes, slots, bpm, offset, bar_slots, key=None):
     except Exception:  # noqa: BLE001
         return None
     sig = None
-    for st in ("bass", "guitar", "piano", "other", "vocals"):
+    for st in ("guitar", "piano", "other", "vocals"):  # 베이스 제외(2026-07-15 코드청소): 저음 근음이 트라이어드 매칭 편향
         p = Path(stems_dir) / f"{st}.wav"
         if not p.exists():
             continue
@@ -1166,11 +1200,11 @@ def chroma_chords(stems_dir, notes, slots, bpm, offset, bar_slots, key=None):
     def bass_pc_at(lo, hi):
         a = int(np.searchsorted(_bgis, lo)); b = int(np.searchsorted(_bgis, hi))
         if b > a:  # 구간에 친 음 있음 → 가장 긴(지배적) 음
-            return int(_bpcs[a + int(np.argmax(_bglens[a:b]))])
+            k = a + int(np.argmax(_bglens[a:b])); return int(_bpcs[k]), int(_bglens[k])
         j = a - 1  # 구간에 친 음 없음 → lo 를 덮는 held 음
         if j >= 0 and int(_bgis[j]) + int(_bglens[j]) > lo:
-            return int(_bpcs[j])
-        return None
+            return int(_bpcs[j]), int(_bglens[j])
+        return None, 0
 
     def chord_at(t0, t1):
         i0 = max(0, int(t0 / tpf)); i1 = min(chroma.shape[1], int(t1 / tpf))
@@ -1187,9 +1221,12 @@ def chroma_chords(stems_dir, notes, slots, bpm, offset, bar_slots, key=None):
         return labels[k], k // 2   # (라벨, 근음 pitch class)
 
     def slashed(lo, hi, label, root_pc):
-        # 베이스 타브 표준(사용자 선택 2026-07-15): 베이스가 근음이 아니면 슬래시 코드 G/B 로.
-        bpc = bass_pc_at(lo, hi)
-        return f"{label}/{names[bpc]}" if (bpc is not None and bpc != root_pc) else label
+        # 슬래시(G/B)는 베이스가 근음 아니면서 '한 박 이상 지속'된 경우만 — 걷는(패싱) 베이스의 슬래시
+        # 남발 억제(2026-07-15 코드청소). 짧은 패싱음엔 슬래시 안 붙임.
+        bpc, bglen = bass_pc_at(lo, hi)
+        if bpc is None or bpc == root_pc or bglen < max(1, bar_slots // 4):
+            return label
+        return f"{label}/{names[bpc]}"
 
     # 마디를 재귀 반분할 — 전·후반 코드가 다르면 나눠 마디당 여러 코드(사용자 지적 2026-07-15: 한 마디
     # 한 코드로 뭉뚱그려짐). 박(1/4마디) 이하로는 안 나눔·같으면 안 나눔(노이즈 오분할 방지). 최대 4/마디.
@@ -1206,8 +1243,8 @@ def chroma_chords(stems_dir, notes, slots, bpm, offset, bar_slots, key=None):
         return [(lo, slashed(lo, hi, res[0], res[1]))]
 
     total_bars = (notes[-1]["gi"] + max(notes[-1].get("glen", 1), 1)) // bar_slots + 1
-    depth = int(os.environ.get("CHAEBO_CHORD_DEPTH", "2"))  # 2=박 단위(코드 변화를 실제 박 위치에 — 사용자
-    # 지적 2026-07-15: depth1 은 마디 내 코드가 무조건 반마디점(3박)에만 찍힘). 1=반마디(노이즈 적음)로 되돌림.
+    depth = int(os.environ.get("CHAEBO_CHORD_DEPTH", "1"))  # 1=반마디(노이즈 적음 — 2026-07-15 코드청소 기본값).
+    # 2=박 단위(코드 변화를 실제 박에 찍지만 chroma 노이즈로 과분할). env CHAEBO_CHORD_DEPTH 로 조절.
     chords, prev, first = [], None, None
     for bar in range(total_bars):
         lo0 = bar * bar_slots
@@ -1568,8 +1605,9 @@ def main():
     # 비트트래커 첫 박이 살짝 늦게 잡아 'a'로 민 것(측정 2026-07-15: 첫음≈킥 56ms, 둘 다 그리드 박1 직전).
     # ★긴 음만·선두 하나만 — 짧은 당김음(stab)이나 나머지 음은 안 건드린다(당김음은 흔하고 정당 — 검색 확인).
     if (grid_v == 2 and slots is not None and notes
-            and os.environ.get("CHAEBO_LEAD_SNAP", "1") == "1"):  # 기본 켬(사용자 요청 2026-07-15). 선두 음이
-            # 박에서 살짝 벗어나면 가장 가까운 박으로. 당김음이면 사용자가 체크박스로 끔(CHAEBO_LEAD_SNAP=0).
+            and os.environ.get("CHAEBO_LEAD_SNAP", "0") == "1"):  # 기본 끔(2026-07-15 결정: 선두 음 하나만
+            # 박머리로 옮기는 얕은 보정이고, 첫 음이 진짜 당김음/패싱음이면 잘못 끌어옴 → 기본 OFF, 켜는 곡만 명시).
+            # 켜면 선두 음이 박에서 살짝 벗어날 때 가장 가까운 박으로. (근본 해법은 마디 위상 보정 — 별도.)
         beat = bar_slots // 4  # 4/4 v2 = 박당 12슬롯
         li = min(range(len(notes)), key=lambda i: notes[i]["gi"])
         g = notes[li]["gi"]; r = g % beat
@@ -1585,6 +1623,14 @@ def main():
             notes[li]["start"] = round(float(slots[tgt]), 3)
             notes[li]["glen"] = max(1, end - tgt)
             notes[li]["dur"] = round(notes[li]["glen"] * local, 3)
+    # 마디 위상 자동 보정 — 박 간격은 맞는데 1박이 엉뚱한 박에 붙은 경우 통-박 이동으로 교정(실측 곡15
+    # 다운비트 43%->92%, 2026-07-15). 서브박(당김음) 미변경. 자동이 틀리면 '박자 시작점 이동'으로 수동 override.
+    if grid_v == 2 and os.environ.get("CHAEBO_BARPHASE", "1") == "1":
+        notes, slots, _dphi = snap_bar_phase(notes, slots, bar_slots)
+        if _dphi:
+            offset = float(slots[0])
+            if families is not None:  # gi 가 통-박(=beat 배수)만큼 밀렸으니 families 도 그만큼 앞에 채움
+                families = ["S"] * (_dphi // (bar_slots // 4)) + list(families)
     # 인트로(첫 베이스 음 전) 통쉼표 마디 — 곡 전체가 악보에 그려지게(사용자 요청 2026-07-10)
     notes, slots, families, offset, _intro = prepend_intro_bars(
         notes, slots, families, offset, bpm, bar_slots)
