@@ -1150,6 +1150,22 @@ def _chord_templates(key):
     return T, labels
 
 
+def _diatonic_bonus(key, labels):
+    """조성 다이어토닉 3화음에 약한 가중(이질 코드 억제) — 장조 I·ii·iii·IV·V·vi, 단조 i·III·iv·v·VI·VII.
+    실측(2026-07-15): 다이어토닉 비율 80%→96%, Fm·A#m·근음 D 같은 이질/오검 코드 격감(근음의 F 편향은
+    별개로 잔존 — 오디오 코드인식 한계). 가중은 약해서(1.12 vs 0.90) 근거 강한 차용/비화성음은 살아남음.
+    반환: labels 길이 배열."""
+    prior = np.full(len(labels), 0.90)
+    if not key:
+        return np.ones(len(labels))
+    t = int(key.get("tonic", 0)) % 12
+    deg = ([(0, 0), (3, 1), (5, 1), (7, 1), (8, 0), (10, 0)] if key.get("mode") == "minor"
+           else [(0, 0), (2, 1), (4, 1), (5, 0), (7, 0), (9, 1)])  # (근음offset, 0=장·1=단)
+    for off, q in deg:
+        prior[2 * ((t + off) % 12) + q] = 1.12
+    return prior
+
+
 def chroma_chords(stems_dir, notes, slots, bpm, offset, bar_slots, key=None):
     """★코드 초안 — 실제 화성(크로마) 기반(사용자 지적 2026-07-14: 코드 안 맞음). 예전 bass+키다이어토닉
     추정은 근음이 베이스에 종속·비다이어토닉 오류·키 틀리면 전멸(실증: 곡12 전 마디 'C'). 화성 스템
@@ -1178,6 +1194,7 @@ def chroma_chords(stems_dir, notes, slots, bpm, offset, bar_slots, key=None):
     chroma = librosa.feature.chroma_cqt(y=sig, sr=22050, hop_length=hop)
     tpf = hop / 22050.0
     T, labels = _chord_templates(key)
+    dia_prior = _diatonic_bonus(key, labels)  # 다이어토닉 3화음 가중 — 장조 곡의 Fm 류 이질코드 억제(2026-07-15)
 
     def slot_time(g):
         if slots is not None and len(slots) > 1:
@@ -1217,7 +1234,7 @@ def chroma_chords(stems_dir, notes, slots, bpm, offset, bar_slots, key=None):
         n = float(np.linalg.norm(c))
         if n < 1e-6:
             return None
-        k = int((T @ (c / n)).argmax())
+        k = int(((T @ (c / n)) * dia_prior).argmax())
         return labels[k], k // 2   # (라벨, 근음 pitch class)
 
     def slashed(lo, hi, label, root_pc):

@@ -488,9 +488,12 @@ button.meta-badge:hover { border-color: var(--accent); }
         <span class="control-label">음표 고치기</span>
       </label>
       <button type="button" class="btn btn-outline btn-sm" id="btn-undo" disabled title="마지막 편집 취소">되돌리기</button>
-      <span class="control-label" title="곡이 1에서 시작하지 않으면 기준을 칸 단위로 옮겨 맞춰요">박자 시작점</span>
-      <button type="button" class="btn btn-outline btn-sm" id="btn-shift-left" title="박자 기준 한 칸 앞으로">◀</button>
-      <button type="button" class="btn btn-outline btn-sm" id="btn-shift-right" title="박자 기준 한 칸 뒤로">▶</button>
+      <span class="control-label" title="자동 1박 정렬이 틀렸을 때, 1박을 한 박씩 통째로 옮겨요(대개 이걸로 맞춰져요)">한 박</span>
+      <button type="button" class="btn btn-outline btn-sm" id="btn-beat-left" title="1박을 한 박 앞으로">◀</button>
+      <button type="button" class="btn btn-outline btn-sm" id="btn-beat-right" title="1박을 한 박 뒤로">▶</button>
+      <span class="control-label" title="첫 음이 박에서 반 칸 어긋났을 때 16분음표 한 칸씩 미세 조정해요">미세</span>
+      <button type="button" class="btn btn-outline btn-sm" id="btn-shift-left" title="박자 기준 16분 한 칸 앞으로">◀</button>
+      <button type="button" class="btn btn-outline btn-sm" id="btn-shift-right" title="박자 기준 16분 한 칸 뒤로">▶</button>
       <!-- 자동 박자 판정(4/4·12/8) 수동 전환 — 판정이 틀린 곡 대비(캐시 재계산이라 몇 초) -->
       <button type="button" class="btn btn-outline btn-sm" id="btn-meter" title="자동 박자 판정이 틀렸으면 눌러서 전환해요">박자 <span id="meter-label">4/4</span></button>
       <select id="sens-select" class="metro-div-select"

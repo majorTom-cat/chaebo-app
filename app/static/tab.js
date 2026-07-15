@@ -118,11 +118,11 @@
   });
 
   // 박자 시작점 이동 — 1에서 시작하지 않는 곡의 수동 맞춤
-  function shiftPhase(slots) {
+  function shiftPhase(slots, beat) {
     fetch('/api/songs/' + songId + '/tab/shift', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ slots: slots }),
+      body: JSON.stringify({ slots: slots, beat: !!beat }),
     }).then(function (r) {
       if (!r.ok) return r.json().then(function (e) { alert(e.detail || '옮길 수 없어요'); });
       refreshTab();
@@ -130,6 +130,8 @@
   }
   document.getElementById('btn-shift-left').addEventListener('click', function () { shiftPhase(-1); });
   document.getElementById('btn-shift-right').addEventListener('click', function () { shiftPhase(1); });
+  document.getElementById('btn-beat-left').addEventListener('click', function () { shiftPhase(-1, true); });
+  document.getElementById('btn-beat-right').addEventListener('click', function () { shiftPhase(1, true); });
 
   // 박자 수동 전환(4/4⇄12/8) — 자동 판정 오판 대비, 캐시 재계산이라 몇 초
   document.getElementById('btn-meter').addEventListener('click', function () {

@@ -549,7 +549,8 @@ async def get_tab(song_id: int):
 
 
 class TabShift(BaseModel):
-    slots: int  # ±1 — 16분음표 한 칸
+    slots: int  # ±1 — 한 클릭 방향
+    beat: bool = False  # True=한 박(마디칸/4)씩, False=16분 한 칸씩(미세)
 
 
 # 곡별 편집 잠금 — shift/put 은 읽기-수정-쓰기라 연타·동시 저장이 서로를 덮음(적대 리뷰 확정)
@@ -586,8 +587,12 @@ async def _shift_tab_phase(song_id: int, body: TabShift):
     if body.slots not in (-1, 1):
         raise HTTPException(422, "한 번에 한 칸씩만 옮길 수 있어요")
     notes = json.loads(row["notes"])
-    # '한 칸' = 16분 상당: v2(박당 12칸) 4/4 는 3칸, 12/8·구그리드는 1칸
-    unit = 3 if ((row.get("grid_v") or 1) >= 2 and (row.get("meter") or "4/4") != "12/8") else 1
+    # '한 칸' = 16분 상당: v2(박당 12칸) 4/4 는 3칸, 12/8·구그리드는 1칸. beat=True 면 '한 박'(마디칸/4).
+    _gv = (row.get("grid_v") or 1); _mt = (row.get("meter") or "4/4")
+    if body.beat:
+        unit = (48 if (_mt == "12/8" or _gv >= 2) else 16) // 4  # 한 박: v2/12·8=12, 구그리드=4
+    else:
+        unit = 3 if (_gv >= 2 and _mt != "12/8") else 1
     step = body.slots * unit
     if step < 0 and any(nt["gi"] + step < 0 for nt in notes):
         raise HTTPException(409, "더 이상 앞으로 옮길 수 없어요")
