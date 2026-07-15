@@ -1152,15 +1152,21 @@ def chroma_chords(stems_dir, notes, slots, bpm, offset, bar_slots, key=None):
     e_th = float(np.median(frame_energy[frame_energy > 0])) * 0.25 if (frame_energy > 0).any() else 0.0
 
     names = _pc_names(key)  # 슬래시 베이스 표기용 음이름
-    # 실제 베이스 음(pitch class) 조회 — 슬래시 코드(G/B)용. 코드 구간 시작 슬롯의 베이스 음을 본다.
+    # 슬래시 코드(G/B)용 베이스 음 — ★그 구간에서 실제로 '친'(onset) 음 중 가장 긴 것을 베이스로.
+    # (앞 마디에서 이어진 held 꼬리를 베이스로 잡던 버그 교정 — 실증 곡14 마디58: C 이어짐+B 침 → G/C 오표기,
+    #  실제 친 B 로 G/B 여야. 사용자 지적 2026-07-15.) 구간에 친 음이 없으면(전부 held) 이어지는 음으로.
     _bgis = np.array([nt["gi"] for nt in notes]); _bpcs = np.array([nt["midi"] % 12 for nt in notes])
-    _bord = np.argsort(_bgis); _bgis = _bgis[_bord]; _bpcs = _bpcs[_bord]
+    _bglens = np.array([max(int(nt.get("glen", 1)), 1) for nt in notes])
+    _bord = np.argsort(_bgis, kind="stable"); _bgis = _bgis[_bord]; _bpcs = _bpcs[_bord]; _bglens = _bglens[_bord]
 
-    def bass_pc_at(g):
-        j = int(np.searchsorted(_bgis, g + 1)) - 1  # g 근처(이전) 마지막 베이스 음
-        if j < 0 or abs(int(_bgis[j]) - g) > bar_slots:
-            return None
-        return int(_bpcs[j])
+    def bass_pc_at(lo, hi):
+        a = int(np.searchsorted(_bgis, lo)); b = int(np.searchsorted(_bgis, hi))
+        if b > a:  # 구간에 친 음 있음 → 가장 긴(지배적) 음
+            return int(_bpcs[a + int(np.argmax(_bglens[a:b]))])
+        j = a - 1  # 구간에 친 음 없음 → lo 를 덮는 held 음
+        if j >= 0 and int(_bgis[j]) + int(_bglens[j]) > lo:
+            return int(_bpcs[j])
+        return None
 
     def chord_at(t0, t1):
         i0 = max(0, int(t0 / tpf)); i1 = min(chroma.shape[1], int(t1 / tpf))
@@ -1176,9 +1182,9 @@ def chroma_chords(stems_dir, notes, slots, bpm, offset, bar_slots, key=None):
         k = int((T @ (c / n)).argmax())
         return labels[k], k // 2   # (라벨, 근음 pitch class)
 
-    def slashed(lo_slot, label, root_pc):
+    def slashed(lo, hi, label, root_pc):
         # 베이스 타브 표준(사용자 선택 2026-07-15): 베이스가 근음이 아니면 슬래시 코드 G/B 로.
-        bpc = bass_pc_at(lo_slot)
+        bpc = bass_pc_at(lo, hi)
         return f"{label}/{names[bpc]}" if (bpc is not None and bpc != root_pc) else label
 
     # 마디를 재귀 반분할 — 전·후반 코드가 다르면 나눠 마디당 여러 코드(사용자 지적 2026-07-15: 한 마디
@@ -1188,12 +1194,12 @@ def chroma_chords(stems_dir, notes, slots, bpm, offset, bar_slots, key=None):
         if res is None:
             return [(lo, None)]
         if depth <= 0 or (hi - lo) <= max(1, bar_slots // 4):
-            return [(lo, slashed(lo, res[0], res[1]))]
+            return [(lo, slashed(lo, hi, res[0], res[1]))]
         mid = (lo + hi) // 2
         a = chord_at(slot_time(lo), slot_time(mid)); b = chord_at(slot_time(mid), slot_time(hi))
         if a and b and a[0] != b[0]:   # 전·후반 코드 상이 → 분할
             return split_region(lo, mid, depth - 1) + split_region(mid, hi, depth - 1)
-        return [(lo, slashed(lo, res[0], res[1]))]
+        return [(lo, slashed(lo, hi, res[0], res[1]))]
 
     total_bars = (notes[-1]["gi"] + max(notes[-1].get("glen", 1), 1)) // bar_slots + 1
     depth = int(os.environ.get("CHAEBO_CHORD_DEPTH", "1"))  # 1=반마디(최대 2/마디, 노이즈 적음)·2=박(최대 4)
