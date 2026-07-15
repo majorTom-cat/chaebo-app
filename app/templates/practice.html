@@ -503,6 +503,10 @@ button.meta-badge:hover { border-color: var(--accent); }
         <option value="half">빠르기: 절반</option>
         <option value="double">빠르기: 2배</option>
       </select>
+      <label class="control-label" style="cursor:pointer;user-select:none"
+             title="첫 음이 박에서 살짝 벗어나게 잡혔을 때 가장 가까운 박으로 당겨요. 원래 일부러 당겨 친(당김음) 거면 체크를 끄고 '다시 분석'하세요.">
+        <input type="checkbox" id="lead-snap-check" checked style="vertical-align:middle;margin-right:3px"> 첫 음 정박
+      </label>
       <button type="button" class="btn btn-outline btn-sm" id="btn-reanalyze">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.13-3.36L23 10M1 14l5.36 4.36A9 9 0 0020.49 15"/></svg>
         다시 분석

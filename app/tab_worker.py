@@ -1568,14 +1568,16 @@ def main():
     # 비트트래커 첫 박이 살짝 늦게 잡아 'a'로 민 것(측정 2026-07-15: 첫음≈킥 56ms, 둘 다 그리드 박1 직전).
     # ★긴 음만·선두 하나만 — 짧은 당김음(stab)이나 나머지 음은 안 건드린다(당김음은 흔하고 정당 — 검색 확인).
     if (grid_v == 2 and slots is not None and notes
-            and os.environ.get("CHAEBO_LEAD_SNAP", "0") == "1"):  # 기본 끔 — 선두 음이 진짜 다운비트인지
-            # 당김음인지 자동 판별 불가(측정: 첫음≈킥이나 beat1인지 beat2 앤티시페이션인지 애매). 사용자 확인 후 켬.
+            and os.environ.get("CHAEBO_LEAD_SNAP", "1") == "1"):  # 기본 켬(사용자 요청 2026-07-15). 선두 음이
+            # 박에서 살짝 벗어나면 가장 가까운 박으로. 당김음이면 사용자가 체크박스로 끔(CHAEBO_LEAD_SNAP=0).
         beat = bar_slots // 4  # 4/4 v2 = 박당 12슬롯
         li = min(range(len(notes)), key=lambda i: notes[i]["gi"])
         g = notes[li]["gi"]; r = g % beat
-        tgt = g - r if 0 < r <= 3 else (g + (beat - r) if beat - 3 <= r < beat else None)
+        # 선두 음을 '그 음이 속한 박'의 정박(박머리)으로 당김 — 첫 음이 박1 안에 있으면 박1로(사용자
+        # 요청 2026-07-15: 첫 음이 정박=1). 뒤 음들은 안 건드림(당김음 보존). 이미 정박이면(r=0) 무동작.
+        tgt = g - r if r > 0 else None
         if (tgt is not None and 0 <= tgt < len(slots) - 1
-                and notes[li].get("glen", 1) >= beat            # 긴 음만(짧은 당김 stab 제외)
+                and notes[li].get("glen", 1) >= beat // 2       # 8분 이상(아주 짧은 당김 stab만 제외)
                 and not any(n["gi"] == tgt for n in notes)):    # 그 자리에 다른 음 없을 때만
             end = g + notes[li].get("glen", 1)
             local = float(slots[tgt + 1] - slots[tgt])

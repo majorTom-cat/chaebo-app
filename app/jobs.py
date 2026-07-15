@@ -254,6 +254,8 @@ async def _process_tab(song_id: int):
         env_extra["CHAEBO_KEY"] = row["key_override"]  # 키 직접 입력 — 재분석에도 유지
     if row and row.get("crepe_mode"):
         env_extra["CHAEBO_CREPE_MODEL"] = row["crepe_mode"]  # 'full'=정확(느림) — '정확하게 다시 분석'
+    if row and row.get("lead_snap") == 0:
+        env_extra["CHAEBO_LEAD_SNAP"] = "0"  # 사용자가 첫 음 정박 스냅 끔(당김음 판단) — 기본은 켬
     code, tail = await _run(
         [config.PYTHON, "-m", "app.tab_worker", str(bass), str(drums),
          str(out_json), song["title"][:80]],

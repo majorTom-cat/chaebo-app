@@ -60,6 +60,9 @@ MIGRATIONS = [
     "ALTER TABLE transcriptions ADD COLUMN sections TEXT",  # 곡 구간(경계·그룹·보컬힌트, 2026-07-10)
     # 음정 검출 정밀도: 'full'=정확(느림)·NULL/'tiny'=빠름. '정확하게 다시 분석' 버튼용(2026-07-14)
     "ALTER TABLE transcriptions ADD COLUMN crepe_mode TEXT",
+    # 첫 음 정박 스냅: 1/NULL=켬(기본)·0=끔. 첫 음이 박에서 살짝 벗어났을 때 가장 가까운 박으로 당김.
+    # 사용자가 귀로 듣고 당김음이면 끄게(체크박스). (2026-07-15)
+    "ALTER TABLE transcriptions ADD COLUMN lead_snap INTEGER",
 ]
 
 
