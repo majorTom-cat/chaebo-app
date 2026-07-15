@@ -965,8 +965,40 @@ def _pc_names(key):
     return PC_NAMES_FLAT if prefers_flats(key) else PC_NAMES
 
 
-def estimate_key(notes):
-    """반환: (tonic_pc, 'major'|'minor', 표시명 예 'F#m'). 노트 없으면 None."""
+def _chroma_key_profile(stems_dir):
+    """화성 스템(드럼·베이스 제외) chroma 평균 = 키 추정용 12-벡터. 베이스 음분포만으로는 근음·5도에
+    쏠려 딸림음을 으뜸음으로 오검(실증: 곡14 G↔C) — 화성 전체를 함께 봐 상쇄. 스템 없으면 None."""
+    try:
+        import librosa
+    except Exception:  # noqa: BLE001
+        return None
+    sig = None
+    for st in ("guitar", "piano", "other", "vocals"):
+        p = Path(stems_dir) / f"{st}.wav"
+        if not p.exists():
+            continue
+        x, s = sf.read(str(p), dtype="float32")
+        if x.ndim > 1:
+            x = x.mean(axis=1)
+        if s != 22050:
+            x = librosa.resample(x, orig_sr=s, target_sr=22050)
+        sig = x if sig is None else (sig[:min(len(sig), len(x))] + x[:min(len(sig), len(x))])
+    if sig is None or len(sig) < 22050:
+        return None
+    return librosa.feature.chroma_cqt(y=sig, sr=22050, hop_length=2048).mean(axis=1)
+
+
+def _diatonic_fit(prof, tonic, mode):
+    """조표 적합 = 음계 안 질량 − 밖(반음계) 질량. '5도 위(딸림음) 오검'을 F♮/F# 같은 조표로 판별."""
+    scale = {(tonic + i) % 12 for i in ((0, 2, 4, 5, 7, 9, 11) if mode == "major" else (0, 2, 3, 5, 7, 8, 10))}
+    p = prof / (float(prof.sum()) or 1.0)
+    return float(sum(p[i] for i in range(12) if i in scale) - sum(p[i] for i in range(12) if i not in scale))
+
+
+def estimate_key(notes, stems_dir=None):
+    """조성 추정(dict) — 베이스 음분포(길이가중) + (스템 있으면)화성 chroma 결합해 Krumhansl 매칭 후,
+    '5도 위(딸림음 V)를 으뜸음 I로 오검'한 경우를 조표 적합도로 되돌린다. 실증(2026-07-16 교차검증):
+    곡14 G→C·Superstition Dm→Ebm 교정, Oh Darling A·Billie Jean F#m 유지. 노트 없으면 None."""
     if not notes:
         return None
     hist = np.zeros(12)
@@ -974,14 +1006,20 @@ def estimate_key(notes):
         hist[nt["midi"] % 12] += nt.get("dur", 0.2)
     if hist.sum() == 0:
         return None
+    prof = hist / hist.sum()
+    ch = _chroma_key_profile(stems_dir) if stems_dir else None
+    if ch is not None and float(ch.sum()) > 0:
+        prof = prof + ch / ch.sum()   # 베이스 + 화성 증거 결합(단일 방법 편향 상쇄)
     best = None
     for tonic in range(12):
         for mode, profile in (("major", _KRUMHANSL_MAJOR), ("minor", _KRUMHANSL_MINOR)):
-            rotated = np.roll(hist, -tonic)
-            score = float(np.corrcoef(rotated, profile)[0, 1])
+            score = float(np.corrcoef(np.roll(prof, -tonic), profile)[0, 1])
             if best is None or score > best[0]:
                 best = (score, tonic, mode)
     _, tonic, mode = best
+    alt = (tonic - 7) % 12   # 5도 아래 = 오검한 딸림음의 진짜 으뜸음 후보
+    if _diatonic_fit(prof, alt, mode) > _diatonic_fit(prof, tonic, mode) + 0.03:
+        tonic = alt
     names = _pc_names({"tonic": tonic, "mode": mode})
     label = names[tonic] + ("m" if mode == "minor" else "")
     # 표시는 메이저 기준(사용자 지시 2026-07-10) — 마이너면 같은 조표의 상대 장조(F#m→A)
@@ -1017,10 +1055,11 @@ def parse_key_label(label):
             "minor": minor, "manual": True}
 
 
-def effective_key(notes, override_label=None):
-    """키 override('F#m' 등)가 있으면 그것을, 없으면 추정 — 모든 재계산 경로가 이걸 쓴다."""
+def effective_key(notes, override_label=None, stems_dir=None):
+    """키 override('F#m' 등)가 있으면 그것을, 없으면 추정 — 모든 재계산 경로가 이걸 쓴다.
+    stems_dir 주면 화성 chroma까지 결합(정확) — 메인 분석만 전달. 편집 경로는 베이스+5도판별(빠름)."""
     key = parse_key_label(override_label) if override_label else None
-    return key or estimate_key(notes)
+    return key or estimate_key(notes, stems_dir)
 
 
 # 다이어토닉 코드 성질 (장조/자연단조) — 도수 반음 오프셋 → 성질
@@ -1652,7 +1691,8 @@ def main():
     notes, slots, families, offset, _intro = prepend_intro_bars(
         notes, slots, families, offset, bpm, bar_slots)
     prog(92)
-    key = effective_key(notes, os.environ.get("CHAEBO_KEY"))  # 키 직접 입력은 재분석에도 유지
+    key = effective_key(notes, os.environ.get("CHAEBO_KEY"),
+                        stems_dir=Path(bass_path).parent)  # 화성 chroma 결합 키(딸림음 오검 교정)
     # 코드: 화성 크로마 기반(정확) 우선, 실패 시 옛 bass+키 추정 폴백. env 로 끔.
     chords = None
     if os.environ.get("CHAEBO_CHROMA_CHORDS", "1") == "1":
