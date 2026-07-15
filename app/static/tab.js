@@ -351,29 +351,41 @@
     if (!svg || !W || !bass || !bass.length || !tab || !tab.bpm) { if (svg) svg.innerHTML = ''; return; }
     var dur = (player && player.duration && player.duration()) || 0;
     if (!dur) return; // 오디오 로드 전 — peaks 훅/틱에서 다시 그림
-    var n = bass.length, mid = FLOW_WAVE_H / 2;
-    var bmax = 0;
-    for (var m = 0; m < n; m++) { if (bass[m] > bmax) bmax = bass[m]; }  // 베이스 자체 최대로 정규화(전스템 공통 정규화라 베이스는 작게 보임 — 믹서 세로확대와 같은 취지)
-    if (!bmax) bmax = 1;
+    var mid = FLOW_WAVE_H / 2;
     var step = Math.max(2, Math.round(W / 5000)); // 포인트 상한(긴 곡도 SVG 1회 렌더 가볍게)
-    var top = [], bot = [];
-    for (var x = FLOW_PAD; x <= W - FLOW_PAD; x += step) {
-      var t0 = slotTime((x - FLOW_PAD) / subPx());
-      var t1 = slotTime((x + step - FLOW_PAD) / subPx());
-      var lo = Math.min(t0, t1), hi = Math.max(t0, t1);
-      var i0 = Math.max(0, Math.floor(lo / dur * n));
-      var i1 = Math.min(n, Math.max(i0 + 1, Math.ceil(hi / dur * n)));
-      var v = 0;
-      for (var j = i0; j < i1; j++) { if (bass[j] > v) v = bass[j]; } // 구간 max — 어택 보존
-      var h = Math.max(0.4, Math.min(mid - 0.4, (v / bmax) * (mid - 1)));
-      top.push(x + ',' + (mid - h).toFixed(1));
-      bot.push(x + ',' + (mid + h).toFixed(1));
+    // 한 스템(peaks 배열)을 같은 시간축(slotTime)으로 폴리곤 포인트 문자열로 — 각자 최대로 정규화.
+    function polyFor(peaks) {
+      var n = peaks.length, pmax = 0;
+      for (var m = 0; m < n; m++) { if (peaks[m] > pmax) pmax = peaks[m]; }
+      if (!pmax) pmax = 1;
+      var top = [], bot = [];
+      for (var x = FLOW_PAD; x <= W - FLOW_PAD; x += step) {
+        var t0 = slotTime((x - FLOW_PAD) / subPx());
+        var t1 = slotTime((x + step - FLOW_PAD) / subPx());
+        var lo = Math.min(t0, t1), hi = Math.max(t0, t1);
+        var i0 = Math.max(0, Math.floor(lo / dur * n));
+        var i1 = Math.min(n, Math.max(i0 + 1, Math.ceil(hi / dur * n)));
+        var v = 0;
+        for (var j = i0; j < i1; j++) { if (peaks[j] > v) v = peaks[j]; } // 구간 max — 어택 보존
+        var h = Math.max(0.4, Math.min(mid - 0.4, (v / pmax) * (mid - 1)));
+        top.push(x + ',' + (mid - h).toFixed(1));
+        bot.push(x + ',' + (mid + h).toFixed(1));
+      }
+      bot.reverse();
+      return top.join(' ') + ' ' + bot.join(' ');
     }
-    bot.reverse();
     svg.setAttribute('width', W);
     svg.setAttribute('height', FLOW_WAVE_H);
     svg.setAttribute('viewBox', '0 0 ' + W + ' ' + FLOW_WAVE_H);
-    svg.innerHTML = '<polygon points="' + top.join(' ') + ' ' + bot.join(' ') + '"/>';
+    // 드럼 파형을 뒤에 옅게 겹쳐(사용자 요청 2026-07-15: 베이스와 박자 비교) — 같은 시간축이라 어택이
+    // 세로로 나란하면 베이스가 드럼에 맞춰 친 것. 드럼 먼저(뒤), 베이스 위(기본색).
+    var drums = (window.__peaks && window.__peaks.drums) || null;
+    var html = '';
+    if (drums && drums.length) {
+      html += '<polygon points="' + polyFor(drums) + '" fill="rgba(240,150,70,0.30)"/>';
+    }
+    html += '<polygon points="' + polyFor(bass) + '"/>';
+    svg.innerHTML = html;
   }
   window.__drawFlowWave = drawFlowWave; // 믹서 페이지는 practice.js 가 __peaks 를 채운 뒤 이걸 호출
 
