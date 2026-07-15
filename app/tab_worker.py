@@ -1206,7 +1206,8 @@ def chroma_chords(stems_dir, notes, slots, bpm, offset, bar_slots, key=None):
         return [(lo, slashed(lo, hi, res[0], res[1]))]
 
     total_bars = (notes[-1]["gi"] + max(notes[-1].get("glen", 1), 1)) // bar_slots + 1
-    depth = int(os.environ.get("CHAEBO_CHORD_DEPTH", "1"))  # 1=반마디(최대 2/마디, 노이즈 적음)·2=박(최대 4)
+    depth = int(os.environ.get("CHAEBO_CHORD_DEPTH", "2"))  # 2=박 단위(코드 변화를 실제 박 위치에 — 사용자
+    # 지적 2026-07-15: depth1 은 마디 내 코드가 무조건 반마디점(3박)에만 찍힘). 1=반마디(노이즈 적음)로 되돌림.
     chords, prev, first = [], None, None
     for bar in range(total_bars):
         lo0 = bar * bar_slots

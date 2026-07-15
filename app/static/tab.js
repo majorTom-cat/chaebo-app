@@ -336,7 +336,8 @@
     };
     note(9, '코드');
     note(41, '박자');
-    note(183, '파형');
+    note(170, '베이스');  // 파형 위 띠
+    note(196, '드럼');    // 파형 아래 띠
   }
 
   // 베이스 파형 띠(사용자 요청 2026-07-14): 믹서와 같은 peaks 를, 흐름 타브의 칸(grid) 축에 매핑해
@@ -351,10 +352,9 @@
     if (!svg || !W || !bass || !bass.length || !tab || !tab.bpm) { if (svg) svg.innerHTML = ''; return; }
     var dur = (player && player.duration && player.duration()) || 0;
     if (!dur) return; // 오디오 로드 전 — peaks 훅/틱에서 다시 그림
-    var mid = FLOW_WAVE_H / 2;
     var step = Math.max(2, Math.round(W / 5000)); // 포인트 상한(긴 곡도 SVG 1회 렌더 가볍게)
-    // 한 스템(peaks 배열)을 같은 시간축(slotTime)으로 폴리곤 포인트 문자열로 — 각자 최대로 정규화.
-    function polyFor(peaks) {
+    // 한 스템(peaks)을 같은 시간축(slotTime)으로, 지정 띠(midY 중심·halfH 반높이)에 폴리곤으로 — 각자 최대 정규화.
+    function polyFor(peaks, midY, halfH) {
       var n = peaks.length, pmax = 0;
       for (var m = 0; m < n; m++) { if (peaks[m] > pmax) pmax = peaks[m]; }
       if (!pmax) pmax = 1;
@@ -367,9 +367,9 @@
         var i1 = Math.min(n, Math.max(i0 + 1, Math.ceil(hi / dur * n)));
         var v = 0;
         for (var j = i0; j < i1; j++) { if (peaks[j] > v) v = peaks[j]; } // 구간 max — 어택 보존
-        var h = Math.max(0.4, Math.min(mid - 0.4, (v / pmax) * (mid - 1)));
-        top.push(x + ',' + (mid - h).toFixed(1));
-        bot.push(x + ',' + (mid + h).toFixed(1));
+        var h = Math.max(0.4, Math.min(halfH - 0.4, (v / pmax) * (halfH - 1)));
+        top.push(x + ',' + (midY - h).toFixed(1));
+        bot.push(x + ',' + (midY + h).toFixed(1));
       }
       bot.reverse();
       return top.join(' ') + ' ' + bot.join(' ');
@@ -377,14 +377,15 @@
     svg.setAttribute('width', W);
     svg.setAttribute('height', FLOW_WAVE_H);
     svg.setAttribute('viewBox', '0 0 ' + W + ' ' + FLOW_WAVE_H);
-    // 드럼 파형을 뒤에 옅게 겹쳐(사용자 요청 2026-07-15: 베이스와 박자 비교) — 같은 시간축이라 어택이
-    // 세로로 나란하면 베이스가 드럼에 맞춰 친 것. 드럼 먼저(뒤), 베이스 위(기본색).
+    // ★베이스(위 띠)·드럼(아래 띠)을 분리해서(사용자 요청 2026-07-15: 겹치면 둘 다 안 보임 — 아래에 구분).
+    // 같은 시간축이라 위·아래 어택이 세로로 나란하면 베이스가 드럼(킥)에 맞춰 친 것. 가운데 구분선.
+    var H = FLOW_WAVE_H, hb = H / 4 - 1;  // 각 띠 반높이(50 → ~11.5)
+    var html = '<polygon points="' + polyFor(bass, H / 4, hb) + '"/>';  // 베이스 = 위 띠(기본색)
     var drums = (window.__peaks && window.__peaks.drums) || null;
-    var html = '';
     if (drums && drums.length) {
-      html += '<polygon points="' + polyFor(drums) + '" fill="rgba(240,150,70,0.30)"/>';
+      html += '<polygon points="' + polyFor(drums, H * 3 / 4, hb) + '" fill="rgba(230,140,60,0.65)"/>';  // 드럼 = 아래 띠(주황)
     }
-    html += '<polygon points="' + polyFor(bass) + '"/>';
+    html += '<line x1="0" y1="' + (H / 2) + '" x2="' + W + '" y2="' + (H / 2) + '" stroke="rgba(0,0,0,0.14)" stroke-width="1"/>';
     svg.innerHTML = html;
   }
   window.__drawFlowWave = drawFlowWave; // 믹서 페이지는 practice.js 가 __peaks 를 채운 뒤 이걸 호출
