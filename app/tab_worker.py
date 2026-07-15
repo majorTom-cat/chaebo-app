@@ -1151,31 +1151,71 @@ def chroma_chords(stems_dir, notes, slots, bpm, offset, bar_slots, key=None):
     frame_energy = chroma.sum(axis=0)
     e_th = float(np.median(frame_energy[frame_energy > 0])) * 0.25 if (frame_energy > 0).any() else 0.0
 
+    names = _pc_names(key)  # 슬래시 베이스 표기용 음이름
+    # 실제 베이스 음(pitch class) 조회 — 슬래시 코드(G/B)용. 코드 구간 시작 슬롯의 베이스 음을 본다.
+    _bgis = np.array([nt["gi"] for nt in notes]); _bpcs = np.array([nt["midi"] % 12 for nt in notes])
+    _bord = np.argsort(_bgis); _bgis = _bgis[_bord]; _bpcs = _bpcs[_bord]
+
+    def bass_pc_at(g):
+        j = int(np.searchsorted(_bgis, g + 1)) - 1  # g 근처(이전) 마지막 베이스 음
+        if j < 0 or abs(int(_bgis[j]) - g) > bar_slots:
+            return None
+        return int(_bpcs[j])
+
     def chord_at(t0, t1):
         i0 = max(0, int(t0 / tpf)); i1 = min(chroma.shape[1], int(t1 / tpf))
         if i1 - i0 < 1:
             return None
         seg = chroma[:, i0:i1]
-        if float(seg.sum(axis=0).mean()) < e_th:   # 무음/인트로 마디 → 코드 없음(직전 유지)
+        if float(seg.sum(axis=0).mean()) < e_th:   # 무음/인트로 구간 → 코드 없음(직전 유지)
             return None
         c = seg.mean(axis=1)
         n = float(np.linalg.norm(c))
         if n < 1e-6:
             return None
-        return labels[int((T @ (c / n)).argmax())]
+        k = int((T @ (c / n)).argmax())
+        return labels[k], k // 2   # (라벨, 근음 pitch class)
 
-    # 마디별 1코드(초안) — 화성 크로마 매칭. 반마디 분할은 노이즈로 오분할 잦아 뺌(정확 우선).
+    def slashed(lo_slot, label, root_pc):
+        # 베이스 타브 표준(사용자 선택 2026-07-15): 베이스가 근음이 아니면 슬래시 코드 G/B 로.
+        bpc = bass_pc_at(lo_slot)
+        return f"{label}/{names[bpc]}" if (bpc is not None and bpc != root_pc) else label
+
+    # 마디를 재귀 반분할 — 전·후반 코드가 다르면 나눠 마디당 여러 코드(사용자 지적 2026-07-15: 한 마디
+    # 한 코드로 뭉뚱그려짐). 박(1/4마디) 이하로는 안 나눔·같으면 안 나눔(노이즈 오분할 방지). 최대 4/마디.
+    def split_region(lo, hi, depth):
+        res = chord_at(slot_time(lo), slot_time(hi))
+        if res is None:
+            return [(lo, None)]
+        if depth <= 0 or (hi - lo) <= max(1, bar_slots // 4):
+            return [(lo, slashed(lo, res[0], res[1]))]
+        mid = (lo + hi) // 2
+        a = chord_at(slot_time(lo), slot_time(mid)); b = chord_at(slot_time(mid), slot_time(hi))
+        if a and b and a[0] != b[0]:   # 전·후반 코드 상이 → 분할
+            return split_region(lo, mid, depth - 1) + split_region(mid, hi, depth - 1)
+        return [(lo, slashed(lo, res[0], res[1]))]
+
     total_bars = (notes[-1]["gi"] + max(notes[-1].get("glen", 1), 1)) // bar_slots + 1
+    depth = int(os.environ.get("CHAEBO_CHORD_DEPTH", "1"))  # 1=반마디(최대 2/마디, 노이즈 적음)·2=박(최대 4)
     chords, prev, first = [], None, None
     for bar in range(total_bars):
-        lab = chord_at(slot_time(bar * bar_slots), slot_time((bar + 1) * bar_slots))
-        if lab is None:
-            lab = prev  # 무음 마디는 직전 코드 유지(첫 감지 전이면 아래에서 첫 코드로 채움)
-        chords.append({"bar": bar, "pos": 0, "label": lab})
-        if lab is not None:
-            prev = lab
-            if first is None:
-                first = lab
+        lo0 = bar * bar_slots
+        segs = split_region(lo0, lo0 + bar_slots, depth)  # 마디당 여러 코드(사용자 지적)
+        resolved = []
+        for lo, lab in segs:
+            if lab is None:
+                lab = prev  # 무음 구간 → 직전 코드 유지
+            resolved.append((lo, lab))
+            if lab is not None:
+                prev = lab
+                if first is None:
+                    first = lab
+        # 매 마디 첫 코드(pos 0)로 채우고(코드만 보고 진행 가능하게 — 2026-07-10), 마디 안에서 바뀌면 추가.
+        if resolved:
+            chords.append({"bar": bar, "pos": 0, "label": resolved[0][1]})
+            for i in range(1, len(resolved)):
+                if resolved[i][1] != resolved[i - 1][1]:
+                    chords.append({"bar": bar, "pos": resolved[i][0] - lo0, "label": resolved[i][1]})
     # 첫 코드 감지 전(인트로) 마디는 첫 코드로 채움
     for c in chords:
         if c["label"] is None:
@@ -1513,6 +1553,25 @@ def main():
         grid_v = 1
         bar_slots = 16
     notes = assign_frets(notes)
+    # 선두 음(프레이즈 시작)이 박에서 1개-16분 이내로 벗어나면 다운비트로 스냅 — 킥과 함께 들어온 첫 음을
+    # 비트트래커 첫 박이 살짝 늦게 잡아 'a'로 민 것(측정 2026-07-15: 첫음≈킥 56ms, 둘 다 그리드 박1 직전).
+    # ★긴 음만·선두 하나만 — 짧은 당김음(stab)이나 나머지 음은 안 건드린다(당김음은 흔하고 정당 — 검색 확인).
+    if (grid_v == 2 and slots is not None and notes
+            and os.environ.get("CHAEBO_LEAD_SNAP", "0") == "1"):  # 기본 끔 — 선두 음이 진짜 다운비트인지
+            # 당김음인지 자동 판별 불가(측정: 첫음≈킥이나 beat1인지 beat2 앤티시페이션인지 애매). 사용자 확인 후 켬.
+        beat = bar_slots // 4  # 4/4 v2 = 박당 12슬롯
+        li = min(range(len(notes)), key=lambda i: notes[i]["gi"])
+        g = notes[li]["gi"]; r = g % beat
+        tgt = g - r if 0 < r <= 3 else (g + (beat - r) if beat - 3 <= r < beat else None)
+        if (tgt is not None and 0 <= tgt < len(slots) - 1
+                and notes[li].get("glen", 1) >= beat            # 긴 음만(짧은 당김 stab 제외)
+                and not any(n["gi"] == tgt for n in notes)):    # 그 자리에 다른 음 없을 때만
+            end = g + notes[li].get("glen", 1)
+            local = float(slots[tgt + 1] - slots[tgt])
+            notes[li]["gi"] = tgt
+            notes[li]["start"] = round(float(slots[tgt]), 3)
+            notes[li]["glen"] = max(1, end - tgt)
+            notes[li]["dur"] = round(notes[li]["glen"] * local, 3)
     # 인트로(첫 베이스 음 전) 통쉼표 마디 — 곡 전체가 악보에 그려지게(사용자 요청 2026-07-10)
     notes, slots, families, offset, _intro = prepend_intro_bars(
         notes, slots, families, offset, bpm, bar_slots)
