@@ -159,14 +159,15 @@ button.meta-badge:hover { border-color: var(--accent); }
 /* 흐름 타브(시간 비례 뷰) — 자체 렌더: 칸=고정 폭이라 간격 균일·커서 등속 */
 .flow-wrap { position: relative; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md); padding: var(--sp-3); margin-bottom: var(--sp-3); }
 .flow-scroll { overflow-x: auto; overflow-y: hidden; border-radius: var(--r-sm); background: #f5f2ea; }
-.flow-inner { position: relative; height: 214px; }
-/* 베이스 파형 띠 — 흐름 타브 칸(grid) 축에 맞춰 그려, 진행바 하나가 음표·파형을 동시에 관통.
-   시각·정렬은 tab.js drawFlowWave(믹서와 같은 peaks·같은 timeSlot 매핑). */
-.flow-wave { position: absolute; left: 0; top: 158px; height: 50px; display: block; }
-.flow-wave polygon { fill: var(--stem-bass, #4a90d9); opacity: 0.82; }
+.flow-inner { position: relative; height: 264px; }
+/* 파형 띠 — 위=베이스·아래=드럼 두 칸(각 50px). 믹서와 같은 스템 색(사용자 지적 2026-07-15: 겹치지 말고
+   각각 제 크기로·믹서처럼 다른 색). 흐름 타브 칸(grid) 축에 맞춰 그려 진행바가 음표·파형을 동시에 관통. */
+.flow-wave { position: absolute; left: 0; top: 158px; height: 100px; display: block; }
+.flow-wave .wb { fill: var(--stem-bass, #ef6461); opacity: 0.85; }   /* 베이스(위) — 믹서 베이스 색 */
+.flow-wave .wd { fill: var(--stem-drums, #f2a83b); opacity: 0.80; }  /* 드럼(아래) — 믹서 드럼 색 */
 /* 좌측 고정 칸(gutter) — 각 가로줄 의미를 스크롤과 무관하게 항상 좌측에 표시(사용자 요청). */
 .flow-row { display: flex; align-items: flex-start; }
-.flow-gutter { position: relative; flex: 0 0 34px; width: 34px; height: 214px; background: var(--surface);
+.flow-gutter { position: relative; flex: 0 0 34px; width: 34px; height: 264px; background: var(--surface);
   border-right: 1px solid var(--border); z-index: 4; }
 .flow-gutter .g-str { position: absolute; right: 6px; transform: translateY(-50%);
   font-size: 12.5px; font-weight: 800; color: #6b5f45; }

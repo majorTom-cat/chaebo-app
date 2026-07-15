@@ -342,14 +342,14 @@
     };
     note(9, '코드');
     note(41, '박자');
-    note(170, '베이스');  // 파형 위 띠
-    note(196, '드럼');    // 파형 아래 띠
+    note(183, '베이스');  // 파형 위 띠(158~208 중심)
+    note(233, '드럼');    // 파형 아래 띠(208~258 중심)
   }
 
   // 베이스 파형 띠(사용자 요청 2026-07-14): 믹서와 같은 peaks 를, 흐름 타브의 칸(grid) 축에 매핑해
   // 그린다. x→g→시간은 커서와 동일한 slotTime — 그래서 진행바 하나가 파형·음표를 같은 x 에서 관통하고
   // 어택이 바로 위 음표와 세로로 맞는다. peaks 는 곡 [0,duration] 전구간 envelope(v5, 늘어남 버그 없음).
-  var FLOW_WAVE_H = 50;
+  var FLOW_WAVE_H = 100;  // 위 50px 베이스 + 아래 50px 드럼(사용자: 각각 제 크기로·겹치지 말고)
   function drawFlowWave() {
     var svg = document.getElementById('flow-wave');
     var inner = document.getElementById('flow-inner');
@@ -385,11 +385,11 @@
     svg.setAttribute('viewBox', '0 0 ' + W + ' ' + FLOW_WAVE_H);
     // ★베이스(위 띠)·드럼(아래 띠)을 분리해서(사용자 요청 2026-07-15: 겹치면 둘 다 안 보임 — 아래에 구분).
     // 같은 시간축이라 위·아래 어택이 세로로 나란하면 베이스가 드럼(킥)에 맞춰 친 것. 가운데 구분선.
-    var H = FLOW_WAVE_H, hb = H / 4 - 1;  // 각 띠 반높이(50 → ~11.5)
-    var html = '<polygon points="' + polyFor(bass, H / 4, hb) + '"/>';  // 베이스 = 위 띠(기본색)
+    var H = FLOW_WAVE_H, hb = H / 4 - 1;  // 각 띠 반높이(100 → ~24, 원래 50px 진폭 복원)
+    var html = '<polygon class="wb" points="' + polyFor(bass, H / 4, hb) + '"/>';  // 베이스 = 위 띠(믹서 베이스 색)
     var drums = (window.__peaks && window.__peaks.drums) || null;
     if (drums && drums.length) {
-      html += '<polygon points="' + polyFor(drums, H * 3 / 4, hb) + '" fill="rgba(230,140,60,0.65)"/>';  // 드럼 = 아래 띠(주황)
+      html += '<polygon class="wd" points="' + polyFor(drums, H * 3 / 4, hb) + '"/>';  // 드럼 = 아래 띠(믹서 드럼 색)
     }
     html += '<line x1="0" y1="' + (H / 2) + '" x2="' + W + '" y2="' + (H / 2) + '" stroke="rgba(0,0,0,0.14)" stroke-width="1"/>';
     svg.innerHTML = html;
