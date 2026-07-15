@@ -177,6 +177,13 @@ REFINE_RISE = float(os.environ.get("CHAEBO_REFINE_RISE", "0.10"))   # 재타건 
 REFINE_LVL = float(os.environ.get("CHAEBO_REFINE_LVL", "0.06"))     # 그 구간 최소 음량(정규화 0~1)
 REFINE_MINKEEP = float(os.environ.get("CHAEBO_REFINE_MINKEEP", "0.12"))  # 어택 없이도 살릴 최소 길이(초)
 REFINE_SNAP = float(os.environ.get("CHAEBO_REFINE_SNAP", "0.05"))  # 음 시작을 파형 어택에 스냅 허용(초). 0=끔
+# 같은음 연속 병합 판정(둥둥 과분절 완화, 2026-07-15) — 경계에서 진짜 다시 뜯음이면 유지, 지속이면 병합.
+# ★핵심: 다시 뜯으려면 이전 음이 감쇠해 envelope 이 골(valley)로 꺼져야 한다. 지속음(둥~)은 골 없이
+#   계속 높게 유지된다. 그래서 '경계 골이 두 음 peak 의 REFINE_VALLEY 미만으로 꺼졌나'로 판정하면,
+#   빠른 진짜 반복(감쇠 골 있음)은 보존하고 안 꺼진 지속만 병합한다(실음 손실 방지 — 실증 우선).
+#   옛 has_attack(단순 상승>문턱)은 align 이 지속음 안에 찍은 유령 어택에도 걸려 병합을 놓쳤다.
+REFINE_VALLEY = float(os.environ.get("CHAEBO_REFINE_VALLEY", "0.5"))  # 경계 골/peak 비. 낮출수록 병합 보수적(반복 보존↑)
+REFINE_MERGE = os.environ.get("CHAEBO_REFINE_MERGE", "1") == "1"  # 0=옛 병합(has_attack)으로 되돌림
 
 
 def _bass_envelope(x, sr, hop_ms=8):
@@ -219,12 +226,27 @@ def refine_with_envelope(notes, x, sr):
         seg = e[i0:i1]
         return bool(np.max(np.diff(seg)) > REFINE_RISE and seg.max() > REFINE_LVL)
 
+    def is_reattack(gs, ns_start):
+        """두 같은음 사이가 '진짜 다시 뜯음(둥둥)'인지 '이어진 지속(둥~)'인지 — 경계 부근 envelope 골로 판정.
+        다시 뜯으려면 이전 음이 감쇠해 골로 꺼졌다 솟는다(골<peak·REFINE_VALLEY). 지속은 안 꺼지고
+        높게 유지(사용자 지적 2026-07-15: 연음이 둥둥으로 쪼개짐). 안 꺼졌으면 지속으로 병합."""
+        ib = int(ns_start / fd); w = max(1, int(0.10 / fd))
+        a = e[max(0, ib - w):ib + 1]; b = e[ib:min(len(e), ib + w)]
+        if len(a) < 1 or len(b) < 1:
+            return True   # 판정 불가 시 보수적으로 분리 유지(음 손실 방지 우선)
+        peak = max(float(a.max()), float(b.max()))
+        if peak < REFINE_LVL:
+            return False  # 둘 다 조용 → 유령 지속으로 병합
+        trough = float(e[max(0, ib - 2):ib + 3].min())
+        return trough < peak * REFINE_VALLEY   # 골이 깊으면(감쇠) 다시 뜯음 → 분리 유지
+
+    reattack = is_reattack if REFINE_MERGE else (lambda gs, ns: has_attack(gs - 0.02, ns + 0.03))
     ns = sorted(notes, key=lambda nt: nt["start"])
     merged = []
     for nt in ns:
         if merged and merged[-1]["midi"] == nt["midi"]:
             gs = merged[-1]["start"] + merged[-1]["dur"]
-            if not has_attack(gs - 0.02, nt["start"] + 0.03):   # 사이에 재타건 없음 → 지속으로 연장
+            if not reattack(gs, nt["start"]):   # 사이에 재타건 없음 → 지속으로 연장
                 merged[-1]["dur"] = round(nt["start"] + nt["dur"] - merged[-1]["start"], 3)
                 continue
         merged.append(dict(nt))
@@ -246,6 +268,44 @@ def refine_with_envelope(notes, x, sr):
                     nt["start"] = round(near, 3)
                     nt["dur"] = round(max(0.03, end - near), 3)
     return result
+
+
+# CREPE fmin=35Hz 아래 저음 사각 — 이 midi 미만은 CREPE 가 못 봐서(주기성 0%) basic-pitch 로 보강한다.
+LOW_RECOVER_MIDI = int(os.environ.get("CHAEBO_LOW_RECOVER_MIDI", "28"))  # E1=28. 그 아래(C1·B0 등)만 대상.
+
+
+def merge_low_notes(primary, bp_notes, x, sr, low_midi=LOW_RECOVER_MIDI):
+    """CREPE 가 못 보는 초저음을 basic-pitch 검출로 보강(사용자 지적 2026-07-15: 첫 음 C 누락).
+    ★실증(곡14): 첫 음 기본주파수 ~33Hz(C1)을 CREPE(fmin 35Hz)는 주기성 0%로 전멸(full 도 동일),
+    bp 는 midi24 로 검출 → assign_frets 가 연주 옥타브로 접어 C2(3번줄 3프렛). 정합점수 근소차(CREPE
+    0.745 > bp 0.711)로 CREPE 경로가 채택되면 bp 의 저음이 통째로 버려지던 것. 겹치지 않는 빈 구간만
+    메워(CREPE 의 옳은 음은 안 건드림) 초저음을 되살린다. bp 채택 경로면 이미 있어 무효과(멱등).
+    조용한 저역 유령은 gate_quiet 와 같은 음량 문턱으로 배제(노이즈 유입 방지)."""
+    if not bp_notes:
+        return primary
+
+    def note_db(nt):
+        seg = x[int(nt["start"] * sr):int((nt["start"] + nt["dur"]) * sr)]
+        if not len(seg):
+            return -120.0
+        return 20 * float(np.log10(max(float(np.sqrt((seg ** 2).mean())), 1e-9)))
+
+    ref = float(np.median([note_db(n) for n in primary])) if primary else -30.0
+    starts = sorted(n["start"] for n in primary)
+    added = []
+    for n in bp_notes:
+        if n["midi"] >= low_midi:
+            continue
+        if note_db(n) < ref - SENS["gate_db"]:   # gate_quiet 과 동일 문턱 — 조용한 저역 유령 배제
+            continue
+        s, e = n["start"], n["start"] + n["dur"]
+        # primary 에 이 시간대 음이 이미 있으면(겹침) 건너뜀 — CREPE 가 채운 곳은 존중, 빈 구간만 메움
+        if any(s - 0.1 <= ps <= e for ps in starts):
+            continue
+        added.append(dict(n))
+    if not added:
+        return primary
+    return sorted(primary + added, key=lambda nt: nt["start"])
 
 
 def estimate_tempo(drums_path):
@@ -1270,7 +1330,7 @@ def main():
     # 원시 캐시 재사용: 검출(CREPE ~10분/bp ~30초)은 안 변했는데 그리드·조판 수리 때마다 전체
     # 재실행하던 낭비(실증: 하루 6회) 제거. 검출 파이프라인이 바뀌면 RAW_V 를 올려 무효화.
     # 강제 전체 재분석은 CHAEBO_FRESH=1.
-    RAW_V = 4  # v4: 유령 drop 기본 끔(실음 손실 방지)
+    RAW_V = 5  # v5: 초저음(<E1) bp 보강 + 같은음 재타건(valley) 병합 강화(2026-07-15)
     apply_sensitivity(os.environ.get("CHAEBO_SENS", "normal"))
     _crepe_mode = os.environ.get("CHAEBO_CREPE_MODEL", "tiny")  # tiny(빠름)|full(정확)
     cache = None
@@ -1325,6 +1385,9 @@ def main():
                 raw_notes, tune_cents = raw_cr, tune_cr
             else:
                 raw_notes, tune_cents = raw_bp, tune_bp
+        # CREPE 가 채택돼도 못 보는 초저음(<E1)은 bp 검출로 보강 — 빈 구간만(사용자 지적 2026-07-15:
+        # 첫 음 C 누락 = 33Hz 가 CREPE fmin 아래). bp 채택 경로면 멱등(이미 있음).
+        raw_notes = merge_low_notes(raw_notes, raw_bp, x, sr)
         prog(75)
     beat_times_full = list(beat_times)  # 캐시엔 원본 보관(절반/2배 적용을 멱등하게)
     bpm0_orig = bpm0  # 캐시 복원용 — "적용됐을 것"이라고 역산하면 비트 0개 곡(no-op)에서 오염(실증 2026-07-10)
