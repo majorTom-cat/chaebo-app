@@ -509,8 +509,8 @@ async def start_tab(song_id: int, body: TabStart | None = None):
         # 기본 = beat_track(고른 박자) = NULL. plp/beat_this 만 명시 저장.
         fields["beat_engine"] = None if body.beat_engine == "beat_track" else body.beat_engine
     if body and body.detect_engine:
-        if body.detect_engine not in ("bp", "onset", "f0"):
-            raise HTTPException(422, "음정 검출은 onset·bp·f0 중에서 정해주세요")
+        if body.detect_engine not in ("auto", "bp", "onset", "f0"):
+            raise HTTPException(422, "음정 검출은 auto·onset·bp·f0 중에서 정해주세요")
         # 기본 bp = NULL. onset(픽 기반)·f0 만 명시 저장(onset=권장이지만 전역 기본은 bp 유지 —
         # 기존 곡 자동 재분석 방지, 캐시 키가 detect_engine 종속이라).
         fields["detect_engine"] = None if body.detect_engine == "bp" else body.detect_engine

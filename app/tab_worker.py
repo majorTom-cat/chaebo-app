@@ -187,6 +187,86 @@ def detect_notes_onset(x, sr):
     return notes, round(tune * 100, 1)
 
 
+# ── 자동(추천) 모드 — 곡을 측정해 방식·소스를 스스로 고른다(사용자 요청 2026-07-16). 판단이 아니라
+#    '측정 기반'(다성 겹침 비율·베이스 무음 구간)이라 헛발질이 적다. cf. 내 판단 신뢰 낮음 교훈. ──
+def _polyphony_ratio(bp_notes):
+    """basic-pitch 검출에서 '동시에 2음 이상' 울리는 시간 비율 — 화음(다성) 베이스 판정용.
+    베이스는 대개 단음이라 낮다. 높으면(코드 스트로크 등) onset(단음 픽) 대신 폭넓은 bp 가 맞다."""
+    if not bp_notes:
+        return 0.0
+    ev = []
+    for n in bp_notes:
+        ev.append((float(n["start"]), 1))
+        ev.append((float(n["start"]) + float(n["dur"]), -1))
+    ev.sort()
+    active, poly_t, tot_t, last = 0, 0.0, 0.0, None
+    for t, d in ev:
+        if last is not None and active >= 1:
+            tot_t += t - last
+            if active >= 2:
+                poly_t += t - last
+        active += d
+        last = t
+    return poly_t / tot_t if tot_t > 0 else 0.0
+
+
+def _quiet_gaps(x, sr, min_dur=1.2, floor_frac=0.06):
+    """진폭 envelope 이 오래(min_dur↑) 바닥에 붙어 있는 구간 = 베이스가 (거의) 안 울리는 구간.
+    이런 곳에 실제로 베이스 솔로가 있는데 분리에서 기타로 샜을 수 있어, 기타 스템으로 보완 대상."""
+    e, fd = _bass_envelope(x, sr)
+    emax = float(e.max()) or 1.0
+    thr = emax * floor_frac
+    quiet = e < thr
+    gaps, i, n = [], 0, len(e)
+    while i < n:
+        if quiet[i]:
+            j = i
+            while j < n and quiet[j]:
+                j += 1
+            if (j - i) * fd >= min_dur:
+                gaps.append((round(i * fd, 2), round(j * fd, 2)))
+            i = j
+        else:
+            i += 1
+    return gaps
+
+
+def fill_gaps_from_guitar(notes, stems_dir, gaps):
+    """베이스 무음 구간(gaps)을 기타 스템의 onset 검출로 메운다 — 고음 베이스 솔로가 분리에서 기타로
+    샌 경우(측정 확인 2026-07-16 오직주께감사해)를 자동 복구. 구간별 합성이라 솔로 외 구간엔 안 섞인다.
+    기타 그 구간에 실제 에너지가 있을 때만(진짜 소리) 채운다. 반환: (병합 notes, 채운 음 수)."""
+    if not gaps:
+        return notes, 0
+    gpath = Path(stems_dir) / "guitar.wav"
+    if not gpath.exists():
+        return notes, 0
+    gx, gsr = load_mono(str(gpath))
+    ge, gfd = _bass_envelope(gx, gsr)
+    gemax = float(ge.max()) or 1.0
+
+    def guitar_has_energy(t0, t1):
+        a, b = int(t0 / gfd), min(len(ge), int(t1 / gfd))
+        return b > a and float(ge[a:b].max()) > gemax * 0.12
+
+    live = [(t0, t1) for (t0, t1) in gaps if guitar_has_energy(t0, t1)]
+    if not live:
+        return notes, 0
+    gnotes, _ = detect_notes_onset(gx, gsr)  # 기타 스템 onset 검출(track_pitch 포함 — auto 가 느린 이유)
+    gnotes = gate_quiet(gnotes, gx, gsr)
+    starts = sorted(float(n["start"]) for n in notes)
+    added = []
+    for n in gnotes:
+        s = float(n["start"])
+        if not any(t0 - 0.15 <= s <= t1 + 0.15 for (t0, t1) in live):
+            continue
+        if any(abs(ps - s) < 0.08 for ps in starts):  # 이미 (베이스로) 잡힌 음과 겹치면 스킵
+            continue
+        added.append(dict(n))
+    if not added:
+        return notes, 0
+    return sorted(notes + added, key=lambda m: float(m["start"])), len(added)
+
+
 def frame_rms_db(x, sr, n_frames):
     """CREPE 프레임과 같은 격자의 RMS(dB) — 주기성-음량 증거 융합용."""
     hop = int(sr * HOP_SEC)
@@ -1891,7 +1971,23 @@ def main():
         raw_bp, tune_bp = detect_notes_bp(x, sr, Path(out_json).parent)
         raw_bp, score_bp = _prep(raw_bp)
         prog(25)
-        if _detect_engine == "onset":
+        if _detect_engine == "auto":
+            # ★자동(추천, 사용자 요청 2026-07-16): 곡을 측정해 방식·소스를 스스로 고른다(판단 아니라 측정).
+            #   ①방식: 화음(다성) 겹침 비율이 높으면 폭넓게(bp), 아니면 픽 기반(onset, 베이스 대다수).
+            #   ②소스: 베이스가 오래 비는 구간은 기타 스템 onset 으로 보완(고음 솔로가 기타로 샌 경우 자동 복구).
+            poly = _polyphony_ratio(raw_bp)
+            if poly > 0.20:
+                raw_notes, tune_cents = raw_bp, tune_bp   # 화음 베이스 → 폭넓게(bp)
+            else:
+                on_notes, tune_on = detect_notes_onset(x, sr)  # track_pitch 포함(CPU 수 분)
+                prog(60)
+                on_notes = gate_quiet(on_notes, x, sr)
+                on_notes = refine_with_envelope(on_notes, x, sr)
+                raw_notes, tune_cents = on_notes, tune_on
+            gaps = _quiet_gaps(x, sr)
+            raw_notes, _nfill = fill_gaps_from_guitar(raw_notes, Path(bass_path).parent, gaps)
+            prog(72)
+        elif _detect_engine == "onset":
             # ★onset(픽) 기반(사용자 지적 2026-07-16: 어택선 개수=타브 개수). 픽마다 음 1개 → 지속 재검출
             #   과검출을 구조적으로 제거. basic-pitch(raw_bp)는 아래 merge_low_notes 저역 보강만.
             on_notes, tune_on = detect_notes_onset(x, sr)  # track_pitch 포함(CPU 수 분)
@@ -1927,7 +2023,7 @@ def main():
         #   A2(45)까지 bp 로 채우면 onset 이 이미 잡은 저음과 타이밍이 미세하게 달라 중복 추가(+136 실측
         #   2026-07-16), '픽=음 1:1'이 깨진다. 다른 엔진(bp/f0/CREPE)은 종전대로 A2 까지 보강.
         raw_notes = merge_low_notes(raw_notes, raw_bp, x, sr,
-                                    low_midi=33 if _detect_engine == "onset" else LOW_RECOVER_MIDI)
+                                    low_midi=33 if _detect_engine in ("onset", "auto") else LOW_RECOVER_MIDI)
         # 저역 음정 교정 — CREPE·bp 가 30~60Hz 서 내는 반음 오차를 자기상관으로 바로잡음(사용자 지적
         # 2026-07-15: 74마디부터 C→C# 등). merge 로 보강한 음까지 함께 교정되도록 뒤에 둔다.
         raw_notes = refine_low_pitch(raw_notes, x, sr)

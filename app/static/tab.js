@@ -107,7 +107,7 @@
   function openAnalyzeDialog() {
     var t = tab || {};
     amSetRadio('am-beat', t.beat_engine || 'beat_track');   // 기본=고른 박자
-    amSetRadio('am-detect', t.detect_engine || 'onset');    // 권장=픽 기반(어택=음 1:1). NULL(옛 bp곡)도 onset 권장 표시
+    amSetRadio('am-detect', t.detect_engine || 'auto');     // 권장=자동(곡 보고 방식·소스 스스로). NULL(옛곡)도 자동 권장 표시
     amSetRadio('am-source', t.source_stem || 'bass');       // 분석 소스 스템(기본=베이스)
     amSetRadio('am-sens', t.sensitivity || 'normal');
     amSetRadio('am-precision', t.crepe_mode || 'tiny');
@@ -422,6 +422,23 @@
     if (!svg || !W || !bass || !bass.length || !tab || !tab.bpm) { if (svg) svg.innerHTML = ''; return; }
     var dur = (player && player.duration && player.duration()) || 0;
     if (!dur) return; // 오디오 로드 전 — peaks 훅/틱에서 다시 그림
+    // 자동 모드: 베이스가 오래(>1.2s) 조용한 솔로 구간만 기타 파형으로 대체 — 그 구간 음이 기타에서 보완돼
+    //   왔으므로 파형도 기타를 보여야 음·어택과 근거가 맞는다(짧은 음 사이 dip 은 제외해 깜빡임 방지).
+    if (tab.detect_engine === 'auto' && window.__peaks && window.__peaks.bass && window.__peaks.guitar
+        && window.__peaks.bass.length === window.__peaks.guitar.length) {
+      var _b = window.__peaks.bass, _g = window.__peaks.guitar, _bm = 0;
+      for (var _i = 0; _i < _b.length; _i++) if (_b[_i] > _bm) _bm = _b[_i];
+      var _q = _bm * 0.06, _minGap = Math.max(1, Math.round(1.2 / dur * _b.length));
+      var _bl = _b.slice(), _k = 0;
+      while (_k < _b.length) {
+        if (_b[_k] < _q) {
+          var _j = _k; while (_j < _b.length && _b[_j] < _q) _j++;
+          if (_j - _k >= _minGap) for (var _m2 = _k; _m2 < _j; _m2++) _bl[_m2] = _g[_m2] || 0;
+          _k = _j;
+        } else _k++;
+      }
+      bass = _bl;
+    }
     var step = Math.max(2, Math.round(W / 5000)); // 포인트 상한(긴 곡도 SVG 1회 렌더 가볍게)
     // 한 스템(peaks)을 같은 시간축(slotTime)으로, 지정 띠(midY 중심·halfH 반높이)에 폴리곤으로 — 각자 최대 정규화.
     function polyFor(peaks, midY, halfH) {
