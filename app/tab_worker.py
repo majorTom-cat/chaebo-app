@@ -422,15 +422,35 @@ def _plp_beats(oenv, sr, hop, bpm):
 
 def _beat_this_beats(drums_path):
     """Beat This!(ISMIR 2024 SOTA) 를 풀믹스에 돌려 비트 시각. torch 이미 의존·가중치(78MB)는 첫 사용 시
-    File2Beats 가 원출처에서 자동 다운로드(하드규칙 5). 미설치·오프라인·실패면 None → 호출부가 PLP 폴백.
-    사용자 A/B 비교용 선택지(내 판단 대신 사용자가 직접 듣고 고르게)."""
-    try:
+    File2Beats 가 원출처에서 자동 다운로드. **패키지도 첫 사용 시 자동 pip 설치**(빠른 업데이트는 pip 을
+    안 돌려 미설치일 수 있음 — gpu.py 온디맨드 설치와 같은 패턴, 하드규칙 5). 실패·오프라인이면 None →
+    호출부가 beat_track 폴백. 사용자 A/B 비교용(내 판단 대신 사용자가 직접 듣고 고르게)."""
+    import subprocess
+    import importlib
+
+    def _mk():
         from beat_this.inference import File2Beats
+        return File2Beats(checkpoint_path="final0", device="cpu", dbn=False)
+
+    try:
+        f2b = _mk()
+    except ImportError:
+        try:  # 처음 쓸 때 자동 설치(torch 는 이미 있어 작음: beat_this + einops 등). 진행은 분석 진행바로 표시됨.
+            flags = 0x08000000 if os.name == "nt" else 0  # CREATE_NO_WINDOW — 콘솔 창 안 뜨게
+            subprocess.run([sys.executable, "-m", "pip", "install", "--no-warn-script-location", "beat_this"],
+                           check=True, timeout=900,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=flags)
+            importlib.invalidate_caches()
+            f2b = _mk()
+        except Exception:
+            return None
+    except Exception:
+        return None
+    try:
         from app import config as _cfg
         sid = Path(drums_path).parent.name
         mix = _cfg.RAW_DIR / f"{sid}.wav"
         src = str(mix if mix.exists() else drums_path)  # 믹스 우선(BeatThis 는 풀믹스 학습), 없으면 드럼 스템
-        f2b = File2Beats(checkpoint_path="final0", device="cpu", dbn=False)
         beats, _downs = f2b(src)
         bt = np.asarray(beats, dtype=float)
         return bt if len(bt) >= 8 else None
