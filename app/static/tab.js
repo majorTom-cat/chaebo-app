@@ -92,7 +92,9 @@
   function startTab() {
     fetch('/api/songs/' + songId + '/tab', { method: 'POST' }).then(refreshTab);
   }
-  document.getElementById('btn-make-tab').addEventListener('click', startTab);
+  // 첫 분석도 방법 선택 팝업을 연다(사용자 지적 2026-07-16: 타브 없는 곡은 팝업이 안 떠 옛 방식(bp)으로만
+  // 돌던 문제). 팝업은 권장(픽 기반)이 프리필돼 있어 그대로 '분석'하면 추천 방식으로 분석된다.
+  document.getElementById('btn-make-tab').addEventListener('click', openAnalyzeDialog);
   // '다시 분석' → 방법 선택 다이얼로그를 연다(사용자 요청: 모델 선택창). 현재 저장값으로 프리필.
   function amSetRadio(name, val) {
     var el = document.querySelector('input[name="' + name + '"][value="' + val + '"]');
