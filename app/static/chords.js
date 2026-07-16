@@ -111,6 +111,30 @@
     });
     return m;
   }
+  // 코드 라벨을 '베이스가 치는 음' 강조로 포맷(사용자 요청 2026-07-17: 베이스 음 크게·색). 슬래시면 슬래시
+  // 음(F/C 의 C), 없으면 근음(Fm 의 F)이 베이스 → 그 부분을 .cbass 로 감싸 크게·진하게. 성질(m 등)은 그대로.
+  function fmtChord(label) {
+    var parts = String(label).split('/');
+    if (parts.length > 1) {
+      return _esc(parts[0]) + '<span class="cbass">/' + _esc(parts[1]) + '</span>';
+    }
+    var m = parts[0].match(/^([A-G][#b]?)(.*)$/);
+    return m ? '<span class="cbass">' + _esc(m[1]) + '</span>' + _esc(m[2]) : _esc(parts[0]);
+  }
+  function _esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;'); }
+  // 구간 색(같은 그룹=같은 색 → 반복되는 벌스/코러스가 한눈에). 은은한 배경.
+  var SEC_COLORS = ['rgba(240,168,72,.16)', 'rgba(120,150,205,.15)', 'rgba(205,120,140,.15)',
+    'rgba(120,190,150,.15)', 'rgba(190,160,110,.16)', 'rgba(165,140,205,.15)'];
+  function sectionByBar() {
+    var sd = meta && meta.sections;
+    var arr = (sd && sd.sections) || (Array.isArray(sd) ? sd : []);
+    var map = {};
+    arr.forEach(function (s) {
+      var b = timeToBar((s.s || 0) + 0.05);
+      if (b >= 0 && map[b] === undefined) map[b] = { name: s.name || '구간', grp: s.group || 0, vocal: s.has_vocal !== false };
+    });
+    return map;
+  }
   function renderGrid() {
     // 마디 안 여러 코드는 셀을 '위치 비례 칸'으로 실분할(사용자 지시 2026-07-10 — 'Am / Dm' 글자
     // 나열은 어느 박에서 바뀌는지 안 보임). 칸 폭 = 그 코드가 차지하는 슬롯 수
@@ -118,7 +142,13 @@
     var bs = (meta && meta.bar_slots) || 16;
     var html = '';
     var prev = null; // 직전 '칸'의 라벨(마디 경계 넘어 이어짐) — 반복은 옅게
+    var secMap = sectionByBar(); // 구간(인트로/벌스/코러스) 시작 마디 → 라벨(사용자 요청 2026-07-17)
     for (var b = 0; b < barsCount; b++) {
+      if (secMap[b]) {  // 구간 시작 마디 앞에 전폭 헤더 — 같은 그룹(반복 구간)은 같은 색
+        var sc = secMap[b];
+        html += '<div class="cbar-section" style="background:' + SEC_COLORS[sc.grp % SEC_COLORS.length] + '">' +
+          _esc(sc.name) + (sc.vocal ? '' : ' · 연주') + '</div>';
+      }
       var entries = byBar[b] || [];
       var segs = '';
       if (!entries.length) {
@@ -135,7 +165,7 @@
           if (c.manual) cls += ' manual';
           prev = c.label;
           segs += '<span class="cseg" style="flex:' + w + '">' +
-            '<span class="' + cls + '">' + c.label + '</span></span>';
+            '<span class="' + cls + '">' + fmtChord(c.label) + '</span></span>';
         }
       }
       var lyr = lyricByBar[b];

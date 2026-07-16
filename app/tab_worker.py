@@ -1590,6 +1590,22 @@ def chroma_chords(stems_dir, notes, slots, bpm, offset, bar_slots, key=None):
     hop = 2048
     chroma = librosa.feature.chroma_cqt(y=sig, sr=22050, hop_length=hop)
     tpf = hop / 22050.0
+    # ★슬래시 베이스 음은 '실제 베이스 스템' chroma 에서(사용자 선택 2026-07-17: 부정확한 탭 대신 스템 근거).
+    #   베이스 스템은 저음이라 chroma 가 곧 베이스가 치는 음. 자리바꿈(근음 아닌 베이스)을 정확히 슬래시로.
+    bass_chroma = None
+    _bp = Path(stems_dir) / "bass.wav"
+    if _bp.exists():
+        try:
+            bx, bsr = sf.read(str(_bp), dtype="float32")
+            if bx.ndim > 1:
+                bx = bx.mean(axis=1)
+            if bsr != 22050:
+                bx = librosa.resample(bx, orig_sr=bsr, target_sr=22050)
+            bass_chroma = librosa.feature.chroma_cqt(
+                y=bx, sr=22050, hop_length=hop,
+                fmin=librosa.note_to_hz("C1"), n_octaves=4)  # 저역 4옥타브 = 베이스 음역
+        except Exception:  # noqa: BLE001
+            bass_chroma = None
     T, labels = _chord_templates(key)
     dia_prior = _diatonic_bonus(key, labels)  # 다이어토닉 3화음 가중 — 장조 곡의 Fm 류 이질코드 억제(2026-07-15)
 
@@ -1635,8 +1651,17 @@ def chroma_chords(stems_dir, notes, slots, bpm, offset, bar_slots, key=None):
         return labels[k], k // 2   # (라벨, 근음 pitch class)
 
     def slashed(lo, hi, label, root_pc):
-        # 슬래시(G/B)는 베이스가 근음 아니면서 '한 박 이상 지속'된 경우만 — 걷는(패싱) 베이스의 슬래시
-        # 남발 억제(2026-07-15 코드청소). 짧은 패싱음엔 슬래시 안 붙임.
+        # ★슬래시 베이스 음 — 우선 실제 베이스 스템 chroma(정확, 사용자 선택 2026-07-17). 베이스가 근음 아닌
+        #   음을 '뚜렷이'(근음보다 1.3배↑ · 전체의 20%↑) 지속해서 칠 때만 슬래시(패싱·애매 배제).
+        if bass_chroma is not None:
+            i0 = max(0, int(slot_time(lo) / tpf)); i1 = min(bass_chroma.shape[1], int(slot_time(hi) / tpf))
+            if i1 > i0:
+                seg = bass_chroma[:, i0:i1].mean(axis=1)
+                bpc = int(np.argmax(seg)); tot = float(seg.sum()) or 1.0
+                if bpc != root_pc and seg[bpc] >= seg[root_pc] * 1.3 and seg[bpc] / tot >= 0.20:
+                    return f"{label}/{names[bpc]}"
+                return label
+        # 폴백(스템 없음) — 옛 탭 기반: 한 박 이상 지속된 비근음 베이스만
         bpc, bglen = bass_pc_at(lo, hi)
         if bpc is None or bpc == root_pc or bglen < max(1, bar_slots // 4):
             return label
