@@ -504,7 +504,8 @@ async def start_tab(song_id: int, body: TabStart | None = None):
     if body and body.beat_engine:
         if body.beat_engine not in ("plp", "beat_track", "beat_this"):
             raise HTTPException(422, "박자 엔진은 plp, beat_track, beat_this 중 하나로 정해주세요")
-        fields["beat_engine"] = None if body.beat_engine == "plp" else body.beat_engine
+        # 기본 = beat_track(고른 박자) = NULL. plp/beat_this 만 명시 저장.
+        fields["beat_engine"] = None if body.beat_engine == "beat_track" else body.beat_engine
     await db.upsert_transcription(song_id, **fields)
     await jobs.queue.put(("tab", song_id))
     return await db.get_transcription(song_id)

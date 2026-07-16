@@ -62,7 +62,7 @@
         document.getElementById('sens-select').value = t.sensitivity || 'normal';
         document.getElementById('tempo-select').value = t.tempo_override || 'auto';
         document.getElementById('precision-select').value = t.crepe_mode || 'tiny';   // 음정 정밀도(저장값 반영)
-        document.getElementById('beat-engine-select').value = t.beat_engine || 'plp';  // 박자 엔진(저장값 반영)
+        document.getElementById('beat-engine-select').value = t.beat_engine || 'beat_track';  // 박자 엔진(저장값 반영, 기본=고른 박자)
         document.getElementById('lead-snap-check').checked = (t.lead_snap === 1); // 기본 끔(명시적으로 켠 곡만 체크)
         transport.setMeta(t); // 메트로놈·카운트인 활성화(재분석 직후에도 신선하게)
         renderFlow(); // 고정 px 좌표 — 숨김 중에도 안전
@@ -405,7 +405,7 @@
     if (drums && drums.length) {
       html += '<polygon class="wd" points="' + polyFor(drums, H * 3 / 4, hb) + '"/>';  // 드럼 = 아래 띠(믹서 드럼 색)
     }
-    html += '<line x1="0" y1="' + (H / 2) + '" x2="' + W + '" y2="' + (H / 2) + '" stroke="rgba(0,0,0,0.14)" stroke-width="1"/>';
+    // (베이스/드럼 사이 가로 구분선 제거 — 사용자 지적 2026-07-16: 안 쓰이는 가로선. 색으로 이미 구분됨.)
     // ★오른손 어택 표시(사용자 요청 2026-07-16): 각 음 온셋 x(위 프렛번호와 같은 세로선)에 그 지점 베이스
     //   진폭 높이의 얇은 세로선 — 파형에서 '제일 커지는(어택) 지점'을 눈으로 짚어 타브와 잇는다(타브 사용성).
     //   베이스 파형색이 코랄(붉은 계열)이라 순수 빨강은 안 보임 → 대비되는 진한 크림슨.

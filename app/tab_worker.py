@@ -441,11 +441,14 @@ def _beat_this_beats(drums_path):
 def estimate_tempo(drums_path):
     import librosa
 
-    engine = os.environ.get("CHAEBO_BEAT_ENGINE", "plp")  # plp(기본)|beat_track|beat_this
+    # ★기본 = beat_track(고른 박자). 실측(2026-07-16, 나를 향한 주의 사랑): 대부분의 곡은 템포가 일정해
+    #   균일 격자가 맞다. PLP(국소 펄스)를 기본으로 뒀더니(v0.6.67) 안정적 곡의 박이 4배 들쭉날쭉해져
+    #   (변동계수 2.7%→11.1%) 규칙적 8분음표가 불규칙하게 그려졌다(사용자 지적). 그래서 PLP 는 '빠르기
+    #   변하는 곡' 옵션으로만, 기본은 고른 박자로 되돌린다. (구간템포 자동판정은 옥타브 오검으로 불신 — 안 씀.)
+    engine = os.environ.get("CHAEBO_BEAT_ENGINE", "beat_track")  # beat_track(기본)|plp|beat_this
     y, sr = librosa.load(drums_path, sr=22050, mono=True)
     hop = 512
     oenv = librosa.onset.onset_strength(y=y, sr=sr, hop_length=hop)
-    # 전역 beat_track — 템포 '옥타브'(대략 몇 BPM대인지) 확정용. PLP 를 이 근처로 묶어 2배 오검을 막는다.
     tempo, beats = librosa.beat.beat_track(onset_envelope=oenv, sr=sr, hop_length=hop)
     bpm = float(np.atleast_1d(tempo)[0])
     if not np.isfinite(bpm) or bpm <= 0:
@@ -456,20 +459,15 @@ def estimate_tempo(drums_path):
     while bpm > 200:
         bpm /= 2
     bt_global = librosa.frames_to_time(beats, sr=sr, hop_length=hop)
-    # 박자 엔진 선택(사용자 A/B): beat_track=단일템포(가변 추종 없음) · beat_this=신경망 SOTA(풀믹스·다운비트)
-    if engine == "beat_track":
-        return round(bpm, 1), bt_global
-    if engine == "beat_this":
+    if engine == "plp":  # 빠르기 변하는 곡(루바토·빌드업) — 국소 펄스로 추종(안정적 곡엔 오히려 흔들림)
+        bt = _plp_beats(oenv, sr, hop, bpm)
+        if bt is not None and len(bt) >= 8:
+            return round(bpm, 1), bt
+    elif engine == "beat_this":  # 신경망 SOTA(풀믹스·다운비트) — 다운로드 필요
         bt = _beat_this_beats(drums_path)
         if bt is not None:
             return round(bpm, 1), bt
-        # 실패(미설치·다운로드 실패) → 아래 PLP 로 폴백
-    # ★기본(plp): 격자는 beat_times 를 4등분해 만들므로 '격자 품질 = 비트 품질'. 전역 beat_track 은 단일
-    #   템포라 루바토서 초반만 맞고 드리프트(사용자 지적 2026-07-16) → 국소 펄스(PLP)로 비트를 잡는다.
-    beat_times = _plp_beats(oenv, sr, hop, bpm)
-    if beat_times is None or len(beat_times) < 8:
-        beat_times = bt_global  # PLP 실패 → 전역 beat_track 폴백
-    return round(bpm, 1), beat_times
+    return round(bpm, 1), bt_global  # 기본/폴백 = 고른 박자(beat_track)
 
 
 def refine_grid(raw_notes, bpm0, beat_times=None):
@@ -1696,10 +1694,10 @@ def main():
     # 원시 캐시 재사용: 검출(CREPE ~10분/bp ~30초)은 안 변했는데 그리드·조판 수리 때마다 전체
     # 재실행하던 낭비(실증: 하루 6회) 제거. 검출 파이프라인이 바뀌면 RAW_V 를 올려 무효화.
     # 강제 전체 재분석은 CHAEBO_FRESH=1.
-    RAW_V = 7  # v7: 가변 템포 추종 — beat_times 를 전역 beat_track→PLP(국소 펄스)로(2026-07-16)
+    RAW_V = 8  # v8: 기본 박자 엔진을 PLP→beat_track(고른 박자)로 되돌림 — 안정적 곡 흔들림 교정(2026-07-16)
     apply_sensitivity(os.environ.get("CHAEBO_SENS", "normal"))
     _crepe_mode = os.environ.get("CHAEBO_CREPE_MODEL", "tiny")  # tiny(빠름)|full(정확)
-    _beat_engine = os.environ.get("CHAEBO_BEAT_ENGINE", "plp")  # plp(기본)|beat_track|beat_this
+    _beat_engine = os.environ.get("CHAEBO_BEAT_ENGINE", "beat_track")  # beat_track(기본)|plp|beat_this
     cache = None
     if os.environ.get("CHAEBO_FRESH") != "1" and Path(out_json).exists():
         try:
@@ -1715,7 +1713,7 @@ def main():
                 cache = None
             # ★박자 엔진(plp/beat_track/beat_this)이 바뀌면 beat_times 를 다시 — 캐시가 옛 엔진 비트를
             #   재사용하면 A/B 비교가 안 먹힘. beat_times 는 검출과 독립이라 이 키만 바뀌어도 무효화.
-            if cache and cache.get("beat_engine", "plp") != _beat_engine:
+            if cache and cache.get("beat_engine", "beat_track") != _beat_engine:
                 cache = None
         except Exception:  # noqa: BLE001
             cache = None
