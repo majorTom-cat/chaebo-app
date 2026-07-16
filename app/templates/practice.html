@@ -296,6 +296,11 @@ button.meta-badge:hover { border-color: var(--accent); }
   .sheet-card { padding: var(--sp-4); }
   .cbar .chord { font-size: 15px; }
 }
+/* 폰(≤480px): 코드 그리드 4열→2열. 4열이면 3~4코드 마디의 min-content가 열을 밀어 가로넘침(554>390)
+   + 슬래시코드(Gm/C) 셀 클리핑(측정 감사 2026-07-16). 2열이면 마디폭 충분해 둘 다 해소. */
+@media (max-width: 480px) {
+  .chord-grid { grid-template-columns: repeat(2, 1fr); }
+}
 </style>
 </head>
 <body class="wide" data-song-id="{{ song.id }}" data-view="{{ view }}">

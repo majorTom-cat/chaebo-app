@@ -1205,6 +1205,54 @@ def _diatonic_bonus(key, labels):
     return prior
 
 
+def bass_diatonic_chords(notes, slots, bar_slots, key):
+    """대안 코드 엔진(env CHAEBO_CHORD_ENGINE=bassroot) — 근음은 검출 베이스(basic-pitch, 우리가 잘 잡음),
+    성질은 조성 다이어토닉 기본값. 평면 chroma 트라이어드 매칭의 F 편향(배음 누출)을 우회한다.
+    A/B 비교용(2026-07-16 설계재검토, docs/sota-redesign).
+    ★비권장(SOTA 대조로 정정, 설계노트 §8): madmom(SOTA)을 실제 빌드해 돌려보니 곡15도 F 우세 →
+    "F편향"은 버그가 아니라 곡이 실제로 F(subdominant)를 많이 쓰는 것. 이 엔진의 C-우세는 오히려 과교정
+    (베이스 근음이 코드 근음과 항상 같지 않아 편향). 현행 chroma 가 madmom 과 거의 동일(near-SOTA)이라
+    기본 chroma 유지가 옳다. 이 엔진은 실험 기록으로만 남김."""
+    if not notes or not key:
+        return []
+    beat = max(1, bar_slots // 4)
+    names = _pc_names(key)
+    tonic = int(key.get("tonic", 0)); mode = key.get("mode", "major")
+    dia = ({0: "", 2: "m", 4: "m", 5: "", 7: "", 9: "m"} if mode == "major"
+           else {0: "m", 3: "", 5: "m", 7: "m", 8: "", 10: ""})  # 도수offset→3화음 성질(dim 제외)
+    gis = np.array([n["gi"] for n in notes]); pcs = np.array([n["midi"] % 12 for n in notes])
+    glens = np.array([max(int(n.get("glen", 1)), 1) for n in notes])
+    o = np.argsort(gis, kind="stable"); gis, pcs, glens = gis[o], pcs[o], glens[o]
+
+    def root_at(lo, hi):
+        a = int(np.searchsorted(gis, lo)); b = int(np.searchsorted(gis, hi))
+        if b > a:  # 구간에 친 음 → 가장 긴(지배적) 근음
+            return int(pcs[a + int(np.argmax(glens[a:b]))])
+        j = a - 1  # held 음
+        if j >= 0 and int(gis[j]) + int(glens[j]) > lo:
+            return int(pcs[j])
+        return None
+
+    def chord_of(r):
+        off = (r - tonic) % 12
+        return names[r] + dia[off] if off in dia else names[r]  # 비다이어토닉 근음=메이저 표기(차용)
+
+    total_bars = (notes[-1]["gi"] + max(notes[-1].get("glen", 1), 1)) // bar_slots + 1
+    chords, prev = [], None
+    for bar in range(total_bars):
+        first = True
+        for bp in range(bar_slots // beat):
+            r = root_at(bar * bar_slots + bp * beat, bar * bar_slots + (bp + 1) * beat)
+            lab = chord_of(r) if r is not None else prev
+            if lab is None:
+                continue
+            if first:
+                chords.append({"bar": bar, "pos": 0, "label": lab}); first = False; prev = lab
+            elif lab != prev:
+                chords.append({"bar": bar, "pos": bp * beat, "label": lab}); prev = lab
+    return chords
+
+
 def chroma_chords(stems_dir, notes, slots, bpm, offset, bar_slots, key=None):
     """★코드 초안 — 실제 화성(크로마) 기반(사용자 지적 2026-07-14: 코드 안 맞음). 예전 bass+키다이어토닉
     추정은 근음이 베이스에 종속·비다이어토닉 오류·키 틀리면 전멸(실증: 곡12 전 마디 'C'). 화성 스템
@@ -1693,13 +1741,18 @@ def main():
     prog(92)
     key = effective_key(notes, os.environ.get("CHAEBO_KEY"),
                         stems_dir=Path(bass_path).parent)  # 화성 chroma 결합 키(딸림음 오검 교정)
-    # 코드: 화성 크로마 기반(정확) 우선, 실패 시 옛 bass+키 추정 폴백. env 로 끔.
+    # 코드 엔진(A/B): CHAEBO_CHORD_ENGINE=chroma(기본, 화성 크로마) | bassroot(베이스근음+다이어토닉, F편향 우회).
+    # 설계재검토 2026-07-16(docs/sota-redesign): 신경망 SOTA(madmom ACE)는 MSVC 빌드도구 부재로 블록 → 이 토글로 대안.
     chords = None
+    engine = os.environ.get("CHAEBO_CHORD_ENGINE", "chroma")
     if os.environ.get("CHAEBO_CHROMA_CHORDS", "1") == "1":
         try:
-            chords = chroma_chords(Path(bass_path).parent, notes, slots, bpm, offset, bar_slots, key=key)
+            if engine == "bassroot":
+                chords = bass_diatonic_chords(notes, slots, bar_slots, key)
+            else:
+                chords = chroma_chords(Path(bass_path).parent, notes, slots, bpm, offset, bar_slots, key=key)
         except Exception as e:  # noqa: BLE001 — 실패해도 폴백으로 계속
-            print(f"[chroma_chords 실패, 폴백] {e}", flush=True)
+            print(f"[코드엔진({engine}) 실패, 폴백] {e}", flush=True)
             chords = None
     if not chords:
         chords = estimate_chords(notes, key, bar_slots=bar_slots)
