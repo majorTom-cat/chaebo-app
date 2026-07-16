@@ -474,6 +474,7 @@ class TabStart(BaseModel):
     mode: str | None = None  # 'tiny'(빠름·기본)|'full'(정확·느림) — 음정 정밀도(CREPE)
     lead_snap: bool | None = None  # 첫 음 정박 스냅 on/off(기본 켬) — 사용자 귀 검증용 토글
     beat_engine: str | None = None  # 'plp'(기본)|'beat_track'|'beat_this' — 박자 엔진 A/B 비교
+    detect_engine: str | None = None  # 'bp'(기본)|'f0' — 음정 검출 엔진 A/B(단음 F0 분절)
 
 
 @app.post("/api/songs/{song_id}/tab", status_code=202)
@@ -506,6 +507,10 @@ async def start_tab(song_id: int, body: TabStart | None = None):
             raise HTTPException(422, "박자 엔진은 plp, beat_track, beat_this 중 하나로 정해주세요")
         # 기본 = beat_track(고른 박자) = NULL. plp/beat_this 만 명시 저장.
         fields["beat_engine"] = None if body.beat_engine == "beat_track" else body.beat_engine
+    if body and body.detect_engine:
+        if body.detect_engine not in ("bp", "f0"):
+            raise HTTPException(422, "음정 검출은 bp 또는 f0 로 정해주세요")
+        fields["detect_engine"] = None if body.detect_engine == "bp" else body.detect_engine  # 기본 bp = NULL
     await db.upsert_transcription(song_id, **fields)
     await jobs.queue.put(("tab", song_id))
     return await db.get_transcription(song_id)

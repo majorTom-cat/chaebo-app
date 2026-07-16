@@ -69,6 +69,9 @@ MIGRATIONS = [
     # 박자 엔진 선택: NULL/'plp'=기본(국소펄스·가변) | 'beat_track'=단일템포 | 'beat_this'=신경망 SOTA(다운로드).
     # 사용자 A/B 비교용(2026-07-16) — 내 판단 대신 사용자가 직접 고르고 듣게.
     "ALTER TABLE transcriptions ADD COLUMN beat_engine TEXT",
+    # 음정 검출 엔진: NULL/'bp'=basic-pitch(다성) | 'f0'=단음 F0→분절(CREPE-Notes 방식, 과검출 회피).
+    # 사용자 귀 A/B 용(2026-07-16).
+    "ALTER TABLE transcriptions ADD COLUMN detect_engine TEXT",
 ]
 
 

@@ -674,6 +674,11 @@ body.anchoring { cursor: ew-resize; user-select: none; }
         <label class="am-opt"><input type="radio" name="am-beat" value="beat_this"> <b>정밀 (신경망 · Beat This!)</b> <span>가장 똑똑하게 · 다운비트까지 — 처음 쓸 때 준비 파일을 한 번 내려받아요</span></label>
       </div>
       <div class="am-field">
+        <div class="am-flabel">음 검출 방식 <span class="am-note">(음이 실제로 안 친 곳에 자꾸 생기면 '단음')</span></div>
+        <label class="am-opt"><input type="radio" name="am-detect" value="bp" checked> <b>기본</b> <span>여러 음을 폭넓게 잡아요(대부분의 곡)</span></label>
+        <label class="am-opt"><input type="radio" name="am-detect" value="f0"> <b>단음 (한 음씩)</b> <span>베이스처럼 한 번에 한 음인 악기용 — 지속·감쇠 구간의 헛음(유령음)을 줄여요. 조금 더 걸려요</span></label>
+      </div>
+      <div class="am-field">
         <div class="am-flabel">음 개수 <span class="am-note">(타브·어택이 너무 많으면 '단순하게')</span></div>
         <label class="am-opt"><input type="radio" name="am-sens" value="normal" checked> <b>기본</b></label>
         <label class="am-opt"><input type="radio" name="am-sens" value="simple"> <b>단순하게</b> <span>약한·번진 소리를 걸러 음을 적게 그려요</span></label>

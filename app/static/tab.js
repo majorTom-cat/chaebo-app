@@ -105,6 +105,7 @@
   function openAnalyzeDialog() {
     var t = tab || {};
     amSetRadio('am-beat', t.beat_engine || 'beat_track');   // 기본=고른 박자
+    amSetRadio('am-detect', t.detect_engine || 'bp');       // 기본=basic-pitch
     amSetRadio('am-sens', t.sensitivity || 'normal');
     amSetRadio('am-precision', t.crepe_mode || 'tiny');
     amSetRadio('am-tempo', t.tempo_override || 'auto');
@@ -121,6 +122,7 @@
   document.getElementById('am-go').addEventListener('click', function () {
     var body = {
       beat_engine: amGetRadio('am-beat'),          // 'beat_track'|'plp'|'beat_this'
+      detect_engine: amGetRadio('am-detect'),      // 'bp'|'f0' — 음 검출 방식
       sensitivity: amGetRadio('am-sens'),          // 'normal'|'simple'
       mode: amGetRadio('am-precision'),            // 'tiny'|'full'
       tempo: amGetRadio('am-tempo'),               // 'auto'|'half'|'double'

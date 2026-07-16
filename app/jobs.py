@@ -256,6 +256,8 @@ async def _process_tab(song_id: int):
         env_extra["CHAEBO_CREPE_MODEL"] = row["crepe_mode"]  # 'full'=정확(느림) — 음정 정밀도
     if row and row.get("beat_engine"):
         env_extra["CHAEBO_BEAT_ENGINE"] = row["beat_engine"]  # 박자 엔진 선택(beat_track|beat_this), NULL=plp 기본
+    if row and row.get("detect_engine"):
+        env_extra["CHAEBO_DETECT_ENGINE"] = row["detect_engine"]  # 음정 검출 엔진(f0), NULL=bp 기본
     if row and row.get("lead_snap") == 1:
         env_extra["CHAEBO_LEAD_SNAP"] = "1"  # 사용자가 첫 음 정박 스냅 명시적으로 켬 — 기본은 끔(패싱음/당김음 보존)
     code, tail = await _run(

@@ -68,6 +68,66 @@ def track_pitch(x, sr):
     return f0.squeeze(0).cpu().numpy(), per.squeeze(0).cpu().numpy()
 
 
+def segment_notes_crepe(f0, per, x, sr):
+    """단음 F0→분절(CREPE-Notes 방식, 리서치 2026-07-16). 다성 basic-pitch 가 베이스(단음)에서 배음·지속을
+    별개 음으로 과검출하던 걸 구조적으로 회피 — 한 값/프레임인 F0 트랙은 배음 유령·지속 재검출을 애초에
+    안 만든다. ①F0 변화점(피치변화×확신하락)으로 음 경계 ②진폭 velocity 게이트로 감쇠꼬리·무음 유령 제거
+    ③librosa 온셋으로 같은음 반복(재타건) 분리. 저역(<~60Hz)은 기존 merge_low/autocorr 가 뒤에서 보강.
+    '음정 검출: 단음(F0)' 옵션 — 잘 됐는지는 숫자 아니라 사용자 귀 A/B 로 판정(교훈)."""
+    from scipy.signal import butter, filtfilt, find_peaks, hilbert
+    import librosa
+
+    hop = int(sr * HOP_SEC)
+    nf = len(f0)
+    if nf < 4:
+        return [], 0.0
+    midi = 69 + 12 * np.log2(np.maximum(f0, 1e-6) / 440.0)
+    conf = np.clip(np.asarray(per, dtype=float), 0.0, 1.0)
+    voiced = conf > PERIODICITY_LOW
+    tune = float(np.median(midi[voiced] - np.round(midi[voiced]))) if voiced.any() else 0.0
+    # ① 변화점: 피치가 변하고(gradient) 확신이 떨어지는(1-conf) 지점 = 음 경계
+    grad = np.abs(np.gradient(midi)); grad = grad / (grad.max() + 1e-9)
+    change = (1.0 - conf) * grad; change = change / (change.max() + 1e-9)
+    peaks, _ = find_peaks(change, distance=4, prominence=0.02)
+    # ③ librosa 온셋(같은음 반복 분리) — 같은 프레임 격자
+    try:
+        oenv = librosa.onset.onset_strength(y=x, sr=sr, hop_length=hop)
+        onf = librosa.onset.onset_detect(onset_envelope=oenv, sr=sr, hop_length=hop, units="frames", backtrack=True)
+    except Exception:  # noqa: BLE001
+        onf = []
+    bounds = sorted(set([0, nf] + [int(p) for p in peaks] + [int(o) for o in onf if 0 < int(o) < nf]))
+    # ② 진폭 envelope(velocity 게이트) — Hilbert + 저역통과
+    env = np.abs(hilbert(x.astype(float)))
+    try:
+        b, a = butter(4, min(0.99, 50.0 / (sr / 2)), btype="low")
+        env = filtfilt(b, a, env)
+    except Exception:  # noqa: BLE001
+        pass
+    envmax = float(env.max()) + 1e-9
+
+    def seg_maxenv(f_lo, f_hi):
+        s0 = f_lo * hop; s1 = min(f_hi * hop, len(env))
+        return float(env[s0:s1].max()) if s1 > s0 else 0.0
+
+    MIN_DUR_FR = max(1, int(0.06 / HOP_SEC))  # 60ms 최소(베이스)
+    MIN_VEL = 7
+    notes = []
+    for k in range(len(bounds) - 1):
+        f_lo, f_hi = bounds[k], bounds[k + 1]
+        vmask = conf[f_lo:f_hi] > PERIODICITY_LOW
+        vseg = midi[f_lo:f_hi][vmask]
+        if len(vseg) < MIN_DUR_FR:
+            continue
+        vel = int(np.interp(seg_maxenv(f_lo, f_hi), [0.0, envmax], [0, 127]))
+        if vel <= MIN_VEL:  # 감쇠꼬리·무음의 유령
+            continue
+        notes.append({"start": round(f_lo * HOP_SEC, 3),
+                      "dur": round((f_hi - f_lo) * HOP_SEC, 3),
+                      "midi": int(round(float(np.median(vseg)) - tune)),
+                      "conf": round(float(np.median(conf[f_lo:f_hi])), 2)})
+    return notes, round(tune * 100, 1)
+
+
 def frame_rms_db(x, sr, n_frames):
     """CREPE 프레임과 같은 격자의 RMS(dB) — 주기성-음량 증거 융합용."""
     hop = int(sr * HOP_SEC)
@@ -1718,6 +1778,7 @@ def main():
     apply_sensitivity(os.environ.get("CHAEBO_SENS", "normal"))
     _crepe_mode = os.environ.get("CHAEBO_CREPE_MODEL", "tiny")  # tiny(빠름)|full(정확)
     _beat_engine = os.environ.get("CHAEBO_BEAT_ENGINE", "beat_track")  # beat_track(기본)|plp|beat_this
+    _detect_engine_k = os.environ.get("CHAEBO_DETECT_ENGINE", "bp")  # bp(기본)|f0 — 검출 캐시 키
     cache = None
     if os.environ.get("CHAEBO_FRESH") != "1" and Path(out_json).exists():
         try:
@@ -1734,6 +1795,9 @@ def main():
             # ★박자 엔진(plp/beat_track/beat_this)이 바뀌면 beat_times 를 다시 — 캐시가 옛 엔진 비트를
             #   재사용하면 A/B 비교가 안 먹힘. beat_times 는 검출과 독립이라 이 키만 바뀌어도 무효화.
             if cache and cache.get("beat_engine", "beat_track") != _beat_engine:
+                cache = None
+            # 검출 엔진(bp/f0)이 바뀌면 raw_notes(검출 결과)를 다시 — 캐시가 옛 엔진 검출을 재사용하면 A/B 안 먹힘
+            if cache and cache.get("detect_engine", "bp") != _detect_engine_k:
                 cache = None
         except Exception:  # noqa: BLE001
             cache = None
@@ -1759,11 +1823,20 @@ def main():
             raw = refine_with_envelope(raw, x, sr)  # 파형 어택 기준 지속병합·유령제거
             return raw, eighth_ratio(raw, beat_times)
 
-        # 1차: basic-pitch (~30초, 리듬 선명 곡에서 우세 — SP-4b) → 정합 낮으면 CREPE 도 돌려 우세 채택
+        # basic-pitch 는 항상(저역 보강용 raw_bp + 'bp' 엔진 1차). ~30초, 리듬 선명 곡에서 우세(SP-4b).
+        _detect_engine = os.environ.get("CHAEBO_DETECT_ENGINE", "bp")  # bp(기본, 다성)|f0(단음 F0분절)
         raw_bp, tune_bp = detect_notes_bp(x, sr, Path(out_json).parent)
         raw_bp, score_bp = _prep(raw_bp)
         prog(25)
-        if score_bp >= BP_ACCEPT:
+        if _detect_engine == "f0":
+            # ★단음 F0→분절(옵션, 리서치 2026-07-16): 다성 basic-pitch 의 배음·지속 과검출을 구조적으로 회피.
+            #   track_pitch(F0) + segment_notes_crepe. basic-pitch(raw_bp)는 아래 merge_low_notes 저역 보강만.
+            f0, per = track_pitch(x, sr)   # 가장 오래 걸리는 단계(CPU 수 분)
+            prog(70)
+            cr_notes, tune_cr = segment_notes_crepe(f0, per, x, sr)
+            raw_notes, _ = _prep(cr_notes)
+            tune_cents = tune_cr
+        elif score_bp >= BP_ACCEPT:
             raw_notes, tune_cents = raw_bp, tune_bp
         else:
             f0, per = track_pitch(x, sr)   # 가장 오래 걸리는 단계(CPU 수 분)
@@ -1881,7 +1954,7 @@ def main():
                    "families": families,
                    "slots": [round(float(s), 3) for s in slots[:max_gi]] if slots is not None else None,
                    "raw_cache": {"v": RAW_V, "sens": SENS["mode"], "crepe_mode": _crepe_mode,
-                                 "beat_engine": _beat_engine,
+                                 "beat_engine": _beat_engine, "detect_engine": _detect_engine_k,
                                  "raw_notes": raw_notes,
                                  "beat_times": [round(float(b), 4) for b in beat_times_full],
                                  "tune_cents": tune_cents,
