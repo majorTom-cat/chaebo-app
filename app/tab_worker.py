@@ -393,11 +393,41 @@ def merge_low_notes(primary, bp_notes, x, sr, low_midi=LOW_RECOVER_MIDI):
     return sorted(primary + added, key=lambda nt: nt["start"])
 
 
+def _plp_beats(oenv, sr, hop, bpm):
+    """PLP(Predominant Local Pulse) 국소 펄스 피크를 비트로 — 전역 단일 템포 가정을 버려 가변 템포
+    (루바토·빌드업)를 추종한다(설계 리서치 2026-07-16 §1: librosa PLP = 배포 가능한 SOTA 기본, beats-only).
+    전역 bpm 의 0.7~1.4배로 묶어 2배 옥타브 오검을 막고, 스퓨리어스 근접 피크는 강한 쪽만 남긴다."""
+    import librosa
+
+    try:
+        pulse = librosa.beat.plp(onset_envelope=oenv, sr=sr, hop_length=hop,
+                                 tempo_min=max(30.0, bpm * 0.7), tempo_max=min(300.0, bpm * 1.4))
+    except Exception:
+        return None
+    peaks = np.flatnonzero(librosa.util.localmax(pulse))
+    if len(peaks) < 8:
+        return None
+    bt = librosa.frames_to_time(peaks, sr=sr, hop_length=hop)
+    med = float(np.median(np.diff(bt)))
+    if med <= 0:
+        return None
+    keep = [0]
+    for i in range(1, len(bt)):
+        if bt[i] - bt[keep[-1]] >= 0.55 * med:  # 중앙 간격 절반 이상 벌어진 피크만 = 스퓨리어스 제거
+            keep.append(i)
+        elif pulse[peaks[i]] > pulse[peaks[keep[-1]]]:
+            keep[-1] = i  # 너무 촘촘하면 펄스 강한 쪽으로 교체(한 박에 하나)
+    return bt[np.array(keep)]
+
+
 def estimate_tempo(drums_path):
     import librosa
 
     y, sr = librosa.load(drums_path, sr=22050, mono=True)
-    tempo, beats = librosa.beat.beat_track(y=y, sr=sr)
+    hop = 512
+    oenv = librosa.onset.onset_strength(y=y, sr=sr, hop_length=hop)
+    # 전역 beat_track — 템포 '옥타브'(대략 몇 BPM대인지) 확정용. PLP 를 이 근처로 묶어 2배 오검을 막는다.
+    tempo, beats = librosa.beat.beat_track(onset_envelope=oenv, sr=sr, hop_length=hop)
     bpm = float(np.atleast_1d(tempo)[0])
     if not np.isfinite(bpm) or bpm <= 0:
         bpm = 100.0  # 무음·비트 검출 실패 폴백 — 초안은 어차피 수동 보정 전제
@@ -406,7 +436,11 @@ def estimate_tempo(drums_path):
         bpm *= 2
     while bpm > 200:
         bpm /= 2
-    beat_times = librosa.frames_to_time(beats, sr=sr)
+    # ★가변 템포 추종: 격자는 beat_times 를 4등분해 만들므로 '격자 품질 = 비트 품질'. 전역 beat_track 은
+    #   단일 템포라 루바토서 초반만 맞고 드리프트(사용자 지적 2026-07-16) → 국소 펄스(PLP)로 비트를 잡는다.
+    beat_times = _plp_beats(oenv, sr, hop, bpm)
+    if beat_times is None or len(beat_times) < 8:
+        beat_times = librosa.frames_to_time(beats, sr=sr, hop_length=hop)  # PLP 실패 → 전역 beat_track 폴백
     return round(bpm, 1), beat_times
 
 
@@ -1603,7 +1637,7 @@ def main():
     # 원시 캐시 재사용: 검출(CREPE ~10분/bp ~30초)은 안 변했는데 그리드·조판 수리 때마다 전체
     # 재실행하던 낭비(실증: 하루 6회) 제거. 검출 파이프라인이 바뀌면 RAW_V 를 올려 무효화.
     # 강제 전체 재분석은 CHAEBO_FRESH=1.
-    RAW_V = 6  # v6: 저역 음정 자기상관 교정(74마디 C→C# 등) 추가(2026-07-15)
+    RAW_V = 7  # v7: 가변 템포 추종 — beat_times 를 전역 beat_track→PLP(국소 펄스)로(2026-07-16)
     apply_sensitivity(os.environ.get("CHAEBO_SENS", "normal"))
     _crepe_mode = os.environ.get("CHAEBO_CREPE_MODEL", "tiny")  # tiny(빠름)|full(정확)
     cache = None
