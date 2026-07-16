@@ -423,37 +423,50 @@
       html += '<polygon class="wd" points="' + polyFor(drums, H * 3 / 4, hb) + '"/>';  // 드럼 = 아래 띠(믹서 드럼 색)
     }
     // (베이스/드럼 사이 가로 구분선 제거 — 사용자 지적 2026-07-16: 안 쓰이는 가로선. 색으로 이미 구분됨.)
-    // ★오른손 어택 표시(사용자 요청 2026-07-16): 각 음 온셋 x(위 프렛번호와 같은 세로선)에 그 지점 베이스
-    //   진폭 높이의 얇은 세로선 — 파형에서 '제일 커지는(어택) 지점'을 눈으로 짚어 타브와 잇는다(타브 사용성).
-    //   베이스 파형색이 코랄(붉은 계열)이라 순수 빨강은 안 보임 → 대비되는 진한 크림슨.
-    if (tab && tab.notes && tab.notes.length) {
+    // ★오른손 어택 표시 — 파형의 실제 봉우리(진짜 픽)에서 직접 검출한다(음/타브 위치가 아님. 사용자 지적
+    //   2026-07-16: 음 위치로 그리니 파형과 안 맞고 과검출. 파형에서 직접 그리면 정확·개수 맞음). 도드라진
+    //   국소 최대이면서 직전보다 뚜렷이 상승(=어택)한 지점만 — 지속·감쇠의 잔봉우리는 배제. 최소 간격으로 과밀 방지.
+    if (bass && bass.length && dur) {
       var bmax = 0;
       for (var bk = 0; bk < bass.length; bk++) if (bass[bk] > bmax) bmax = bass[bk];
-      if (!bmax) bmax = 1;
-      var ampAt = function (x) { // polyFor 와 같은 방식(작은 창 max) — 폴리곤 상단과 높이 일치
-        var t0 = slotTime((x - step - FLOW_PAD) / subPx()), t1 = slotTime((x + step - FLOW_PAD) / subPx());
-        var lo = Math.min(t0, t1), hi = Math.max(t0, t1);
-        var i0 = Math.max(0, Math.floor(lo / dur * bass.length));
-        var i1 = Math.min(bass.length, Math.max(i0 + 1, Math.ceil(hi / dur * bass.length)));
-        var v = 0;
-        for (var j = i0; j < i1; j++) if (bass[j] > v) v = bass[j];
-        return Math.max(1.5, Math.min(hb - 0.4, (v / bmax) * (hb - 1)));
-      };
-      var atk = '', seenG = {};
-      tab.notes.forEach(function (nt) {
-        if (seenG[nt.gi]) return; // 화음/더블스톱은 한 어택
-        seenG[nt.gi] = 1;
-        // ★어택선은 반드시 프렛(타브)과 같은 x(=음 위치)에 — 둘은 같은 음이라 어긋나면 안 된다(사용자 지적
-        //   2026-07-16). 이전처럼 어택선만 봉우리로 스냅하면 타브와 분리됨. '봉우리에 안 맞는' 문제는 어택선을
-        //   옮겨 가릴 게 아니라 음 타이밍(검출·격자)이 어택에 놓여야 해결(별개 작업).
-        var x = flowX(nt.gi);
-        if (x < FLOW_PAD || x > W - FLOW_PAD) return;
-        var h = ampAt(x);
-        if (h < hb * 0.1) return;  // 거의 무음(분리 놓친 곳·쉼표)엔 마크 안 그림
-        atk += '<line class="wa-atk" x1="' + x.toFixed(1) + '" y1="' + (H / 4 - h).toFixed(1) +
-          '" x2="' + x.toFixed(1) + '" y2="' + (H / 4 + h).toFixed(1) + '"/>';
-      });
-      html += atk;
+      if (bmax > 0) {
+        var n2 = bass.length;
+        var w = Math.max(1, Math.round(0.028 * n2 / dur));   // 상승 측정 창 ~28ms(어택 transient)
+        var gapFr = Math.max(1, Math.round(0.15 * n2 / dur)); // 최소 간격 150ms
+        var floorH = bmax * 0.12;                             // 최소 봉우리 높이
+        // 상승률(어택 강도) = 진폭이 짧은 창에서 얼마나 급히 오르나. 픽은 급상승, 지속·감쇠는 안 오름.
+        var rise = new Array(n2).fill(0), rmax = 0;
+        for (var i = w; i < n2; i++) { var r = bass[i] - bass[i - w]; if (r > 0) { rise[i] = r; if (r > rmax) rmax = r; } }
+        if (rmax > 0) {
+          var thr = rmax * 0.40;   // 상승 강도 문턱(낮추면 여린 픽까지, 높이면 강한 픽만)
+          var cands = [];
+          for (var ii = w + 1; ii < n2 - 1; ii++) {
+            if (rise[ii] < thr) continue;
+            if (!(rise[ii] >= rise[ii - 1] && rise[ii] >= rise[ii + 1])) continue; // 상승률 국소 최대 = 어택 순간
+            var pk = bass[ii];                                // 어택 직후 봉우리 높이(세로선 높이용)
+            for (var q = ii; q < Math.min(n2, ii + w * 3); q++) if (bass[q] > pk) pk = bass[q];
+            if (pk < floorH) continue;
+            cands.push([ii, rise[ii], pk]);
+          }
+          cands.sort(function (a, b) { return b[1] - a[1]; });  // 상승 강한 것 우선
+          var kept = [];
+          for (var ci = 0; ci < cands.length; ci++) {
+            var ok = true;
+            for (var ki = 0; ki < kept.length; ki++) if (Math.abs(kept[ki][0] - cands[ci][0]) < gapFr) { ok = false; break; }
+            if (ok) kept.push(cands[ci]);
+          }
+          var atk = '';
+          for (var kk = 0; kk < kept.length; kk++) {
+            var t = kept[kk][0] / n2 * dur;
+            var x = FLOW_PAD + timeSlot(t) * subPx();
+            if (x < FLOW_PAD || x > W - FLOW_PAD) continue;
+            var h = Math.max(1.5, Math.min(hb - 0.4, (kept[kk][2] / bmax) * (hb - 1)));
+            atk += '<line class="wa-atk" x1="' + x.toFixed(1) + '" y1="' + (H / 4 - h).toFixed(1) +
+              '" x2="' + x.toFixed(1) + '" y2="' + (H / 4 + h).toFixed(1) + '"/>';
+          }
+          html += atk;
+        }
+      }
     }
     svg.innerHTML = html;
   }
