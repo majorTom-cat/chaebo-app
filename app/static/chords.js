@@ -51,9 +51,10 @@
     if (btn) {
       btn.hidden = st === 'ready';
       btn.disabled = st === 'running' || st === 'queued';
-      btn.textContent = (st === 'running' || st === 'queued') ? '가사 받아쓰는 중…'
-        : (st === 'error' ? '가사 다시 받아쓰기' : '가사 받아쓰기');
-      btn.title = st === 'error' ? (ly.error || '지난 번 받아쓰기가 실패했어요') : '보컬 소리에서 가사를 자동으로 받아써요 (곡당 수십 초)';
+      btn.textContent = (st === 'running' || st === 'queued') ? '가사 가져오는 중…'
+        : (st === 'error' ? '가사 다시 가져오기' : '가사 가져오기');
+      btn.title = st === 'error' ? (ly.error || '지난 번 가사 가져오기가 실패했어요')
+        : '인터넷 가사(LRCLIB)를 먼저 찾고, 없으면 보컬 소리에서 받아써요. 정확한 가사는 「전체 가사」에서 붙여넣을 수도 있어요';
     }
     // 진행 중이면 완료까지 셸 메타 폴링(가사는 분석과 별개 잡)
     if (st === 'running' || st === 'queued') {

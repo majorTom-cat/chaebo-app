@@ -345,6 +345,39 @@ async def start_lyrics(song_id: int):
     return {"ok": True}
 
 
+class LyricPaste(BaseModel):
+    text: str
+
+
+@app.post("/api/songs/{song_id}/lyrics/paste")
+async def paste_lyrics(song_id: int, body: LyricPaste):
+    """가사 통째 붙여넣기(사용자 요청 2026-07-17: LRCLIB 없는 워십 등). 웹에서 찾은 정확한 가사를 붙여넣으면
+    보컬 구간(기존 가사 시각 span)에 줄 순서대로 균등 배치 → 정확한 텍스트 + 근사 타이밍(줄별 미세조정은
+    '전체 가사' 모달). ASR 오타 대신 정확한 가사를 바로 넣는 경로."""
+    song = await db.get_song(song_id)
+    if not song or song["status"] != "ready":
+        raise HTTPException(409, "먼저 곡 분리가 끝나야 가사를 넣을 수 있어요")
+    lines = [l.strip() for l in (body.text or "").splitlines() if l.strip()]
+    if not lines:
+        raise HTTPException(422, "붙여넣을 가사가 비어 있어요")
+    row = await db.get_transcription(song_id)
+    cur = json.loads(row.get("lyrics") or "{}") if row else {}
+    old = cur.get("segments") or []
+    dur = float(song.get("duration") or 0)
+    # 보컬 구간 = 기존 가사 시각 span(있으면 실제 노래 구간), 없으면 곡 전체(앞뒤 여백)
+    if old:
+        t0 = float(old[0].get("s", 0)); t1 = float(old[-1].get("e") or old[-1].get("s", 0))
+    else:
+        t0, t1 = (dur * 0.04 if dur else 0.0), (dur * 0.96 if dur else float(len(lines)))
+    span = max(1.0, t1 - t0)
+    n = len(lines)
+    segs = [{"s": round(t0 + span * i / n, 2), "e": round(t0 + span * (i + 1) / n, 2),
+             "text": l[:200], "manual": True} for i, l in enumerate(lines)]
+    await db.upsert_transcription(song_id, lyrics=json.dumps(
+        {"status": "ready", "language": "manual", "source": "pasted", "segments": segs}, ensure_ascii=False))
+    return {"ok": True, "count": n}
+
+
 @app.post("/api/songs/{song_id}/sections", status_code=202)
 async def start_sections(song_id: int):
     """곡 구간 감지 시작(수동/백필) — 경계·반복 그룹·보컬 힌트(라벨은 사용자가 직접)."""

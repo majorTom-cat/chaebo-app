@@ -45,6 +45,10 @@ html { overflow-anchor: none; }
 .lyr-head .icon-btn { margin-left: auto; }
 .lyr-sub { margin: 6px 0 0; font-size: 12px; color: var(--muted); line-height: 1.6; }
 .lyr-list { flex: 1; overflow-y: auto; padding: var(--sp-2) var(--sp-8) var(--sp-4); display: flex; flex-direction: column; }
+.lyr-list[hidden] { display: none; }
+/* 가사 붙여넣기 영역(사용자 요청 2026-07-17) */
+.lyr-paste { flex: 1; overflow-y: auto; padding: var(--sp-2) var(--sp-8) var(--sp-4); }
+.lyr-paste textarea { width: 100%; box-sizing: border-box; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-sm); color: var(--text); font-size: 14px; line-height: 1.6; padding: 10px 12px; resize: vertical; min-height: 220px; margin-top: 8px; }
 .lyr-row { display: flex; align-items: center; gap: var(--sp-4); padding: 3px 0; border-radius: var(--r-sm); }
 .lyr-time { flex-shrink: 0; min-width: 44px; font-size: 11px; font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; text-align: center; background: var(--surface-2); border: 1px solid var(--border); border-radius: 999px; padding: 3px 8px; cursor: pointer; transition: color .12s, border-color .12s; }
 .lyr-time:hover { color: var(--accent); border-color: var(--accent); }
@@ -734,7 +738,12 @@ body.anchoring { cursor: ew-resize; user-select: none; }
         <p class="lyr-sub">고치면 믹서·타브·코드 악보에 함께 반영돼요 · 빈칸으로 지우면 그 줄이 삭제돼요 · 시각을 누르면 그 위치로 이동해요</p>
       </div>
       <div class="lyr-list" id="lyr-list"></div>
+      <div class="lyr-paste" id="lyr-paste" hidden>
+        <p class="lyr-sub">웹에서 찾은 정확한 가사를 통째로 붙여넣으세요 (한 줄에 한 소절). 노래 구간에 순서대로 배치돼요 — 시각은 뒤에서 줄별로 미세조정할 수 있어요.</p>
+        <textarea id="lyr-paste-text" rows="10" placeholder="예)&#10;나를 향한 주의 사랑&#10;강과 바다에 넘치니&#10;내 마음 열매 주님 나에게&#10;참 자유 주셨네"></textarea>
+      </div>
       <div class="lyr-foot">
+        <button type="button" class="btn btn-outline btn-sm" id="lyrics-paste-toggle" title="ASR 대신 정확한 가사를 통째로 넣기">가사 붙여넣기</button>
         <span class="control-label" id="lyr-msg"></span>
         <button type="button" class="btn btn-outline btn-sm" id="lyrics-cancel">닫기</button>
         <button type="button" class="btn btn-primary btn-sm" id="lyrics-save">저장</button>

@@ -327,13 +327,27 @@ async def _process_sections(song_id: int):
 
 
 async def _process_lyrics(song_id: int):
-    """가사 받아쓰기 — 보컬 스템에 faster-whisper(small·CPU) 서브프로세스.
-    결과는 transcriptions.lyrics JSON {status, language, segments:[{s,e,text}]}."""
+    """가사 — ①LRCLIB(사람이 옮긴 정확한 싱크 가사, 유명곡) 먼저 시도 → 있으면 그걸 사용(whisper 스킵).
+    ②없으면 보컬 스템에 faster-whisper(small·CPU) 폴백. 결과 {status, language, segments:[{s,e,text}]}.
+    (사용자 지적 2026-07-17: ASR 가사 품질 나쁨 — LRCLIB 가 벤팅된 정답 경로, docs/licenses.md.)"""
     vocals = stems_dir(song_id) / "vocals.wav"
     if not vocals.exists():
         raise RuntimeError("분리된 보컬이 아직 없어요")
     await db.upsert_transcription(
         song_id, lyrics=json.dumps({"status": "running"}, ensure_ascii=False))
+    # ① LRCLIB — 정확한 싱크 가사(있으면 whisper 안 돌림). 네트워크 blocking → executor. 실패 시 None(폴백).
+    song = await db.get_song(song_id)
+    from app.lyrics_online import fetch_lrclib
+    loop = asyncio.get_event_loop()
+    lrc = await loop.run_in_executor(
+        None, fetch_lrclib, (song or {}).get("title") or "", (song or {}).get("artist"),
+        (song or {}).get("duration"))
+    if lrc and lrc.get("segments"):
+        await db.upsert_transcription(song_id, lyrics=json.dumps(
+            {"status": "ready", "language": "auto", "source": "lrclib",
+             "synced": lrc.get("synced", True), "segments": lrc["segments"]}, ensure_ascii=False))
+        return
+    # ② 폴백: whisper ASR
     out_json = stems_dir(song_id) / "lyrics.json"
     code, tail = await _run(
         [config.PYTHON, "-m", "app.lyrics_worker", str(vocals), str(out_json)],

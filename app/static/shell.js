@@ -262,11 +262,31 @@ window.Shell = (function () {
     var btn = document.getElementById('btn-lyrics-view');
     if (!overlay || !btn) return;
     var list = document.getElementById('lyr-list');
+    var pasteBox = document.getElementById('lyr-paste');
+    var pasteText = document.getElementById('lyr-paste-text');
+    var pasteToggle = document.getElementById('lyrics-paste-toggle');
+    var saveBtn = document.getElementById('lyrics-save');
+    var pasteMode = false;
+    // 붙여넣기 모드: 목록(줄편집) 대신 통짜 텍스트 — 현재 가사를 채워 통째 교체 가능(사용자 요청 2026-07-17).
+    function setPaste(on) {
+      pasteMode = on;
+      if (pasteBox) pasteBox.hidden = !on;
+      list.hidden = on;
+      if (on && pasteText) {
+        var segs = (lastMeta && lastMeta.lyrics && lastMeta.lyrics.segments) || [];
+        if (!pasteText.value.trim()) pasteText.value = segs.map(function (s) { return s.text; }).join('\n');
+      }
+      if (pasteToggle) pasteToggle.textContent = on ? '↩ 줄별 수정' : '가사 붙여넣기';
+      if (saveBtn) saveBtn.textContent = on ? '붙여넣기 적용' : '저장';
+    }
+    if (pasteToggle) pasteToggle.addEventListener('click', function () { setPaste(!pasteMode); });
     on('meta', function (t) {
       var ly = t.lyrics;
       btn.hidden = !(ly && ly.status === 'ready' && ly.segments && ly.segments.length);
     });
     function open() {
+      if (pasteText) pasteText.value = '';
+      setPaste(false);  // 열 때는 항상 줄편집 모드로
       var segs = (lastMeta && lastMeta.lyrics && lastMeta.lyrics.segments) || [];
       list.innerHTML = '';
       segs.forEach(function (seg, i) {
@@ -293,6 +313,18 @@ window.Shell = (function () {
     document.getElementById('lyrics-cancel').addEventListener('click', close);
     overlay.addEventListener('click', function (e) { if (e.target === overlay) close(); });
     document.getElementById('lyrics-save').addEventListener('click', function () {
+      var msg0 = document.getElementById('lyr-msg');
+      if (pasteMode) {  // 붙여넣기 적용 — 통짜 텍스트를 곡에 배치
+        var text = (pasteText && pasteText.value || '').trim();
+        if (!text) { close(); return; }
+        msg0.textContent = '적용 중…';
+        fetch('/api/songs/' + songId + '/lyrics/paste', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: text }),
+        }).then(function (r) { if (!r.ok) throw 0; return refreshMeta(); })
+          .then(function () { close(); })
+          .catch(function () { msg0.textContent = '적용 중 문제가 있었어요 — 다시 시도해주세요'; });
+        return;
+      }
       var segs = (lastMeta && lastMeta.lyrics && lastMeta.lyrics.segments) || [];
       var changes = [];
       list.querySelectorAll('input[data-i]').forEach(function (inp) {
