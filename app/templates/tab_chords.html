@@ -32,6 +32,8 @@ h1 { font-size: 22px; margin: 0 0 4px; text-align: center; }
 .chord.empty { color: #cfc8b4; font-size: 13px; font-weight: 500; }
 @page { margin: 12mm; }
 @media print { .hint { display: none; } body { background: #fff; } }
+/* 폰 화면으로 전체보기 시 4열이 넘쳐 — 화면에선 2마디씩(측정 감사 2026-07-16). 인쇄는 종이폭(>480px)이라 4열 유지 */
+@media screen and (max-width: 480px) { .grid { grid-template-columns: repeat(2, 1fr); } }
 </style>
 </head>
 <body>

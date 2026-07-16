@@ -167,7 +167,7 @@ async def licenses_page():
         "<meta charset='utf-8'><title>라이선스 고지 — chaebo</title>"
         "<body style='background:#0f1115;color:#e8eaf0;font-family:sans-serif;margin:0;padding:24px'>"
         "<a href='/settings' style='color:#f0a848'>← 설정으로</a>"
-        "<pre style='white-space:pre-wrap;font-size:12px;line-height:1.6;max-width:1000px'>"
+        "<pre style='white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px;line-height:1.6;max-width:1000px'>"
         + _html.escape(text) + "</pre>")
 
 
@@ -599,16 +599,19 @@ async def _shift_tab_phase(song_id: int, body: TabShift):
     grid = 60.0 / row["bpm"] / 4
     slots = json.loads(row["slots"]) if row.get("slots") else None
     if slots:
-        # 동적 그리드: 기준 이동 = 슬롯 배열을 밀거나 앞에 외삽 추가
+        # 동적 그리드: 노트가 +step 이동하면 파형(slots 시간축)도 같은 방향으로 가야 어택에 붙어 있다.
+        # (실측 2026-07-16: 반대로 밀어 노트 +88px / 파형 -90px 로 분리 — '파형만 옮김' 진범. uniform
+        #  분기는 올바르게 결합돼 있어 song 15(slots)만 노출됐다.) step>0 → 앞에 슬롯 외삽 추가(배열
+        #  우측 이동=파형 우측 이동), step<0 → 앞에서 제거(좌측). 이러면 slots[gi_new]=옛 slots[gi]=T 보존.
         for _ in range(abs(step)):
             if step > 0:
-                slots = slots[1:]
-            else:
                 slots = [round(2 * slots[0] - slots[1], 3)] + slots
+            else:
+                slots = slots[1:]
         new_offset = slots[0]
         for nt in notes:
             nt["gi"] += step
-            nt["start"] = slots[nt["gi"]] if nt["gi"] < len(slots) else nt["start"]
+            nt["start"] = slots[nt["gi"]] if 0 <= nt["gi"] < len(slots) else nt["start"]
     else:
         new_offset = (row.get("beat_offset") or 0) - step * grid
         for nt in notes:
@@ -629,13 +632,24 @@ async def _shift_tab_phase(song_id: int, body: TabShift):
         for cur, nxt in zip(notes, notes[1:]):
             if cur["glen"] > nxt["gi"] - cur["gi"]:
                 cur["glen"] = max(1, nxt["gi"] - cur["gi"])
-    key, chords, tex = _tex_from_notes(
-        row, song, notes, row.get("key_override"), json.loads(row.get("chords") or "[]"), bar_slots, families)
+    # ★코드는 재추정하지 말고 '기존 코드를 step 만큼 위치 이동' — 재추정(estimate_chords)은 전 마디 'C' 로
+    #   뭉개져 shift/미세 때마다 코드가 파괴됐다(실측 2026-07-16: F·Dm·F·Am → 전부 C). 노트가 step 만큼
+    #   움직였으니 코드도 같은 step 만큼 옮기면 정렬 유지 + 좋은 chroma 코드 보존. 키는 shift 로 안 바뀜.
+    from app.tab_worker import to_alphatex
+    shifted_chords = []
+    for c in json.loads(row.get("chords") or "[]"):
+        g = c["bar"] * bar_slots + c.get("pos", 0) + step
+        if g < 0:
+            continue  # 앞으로 밀려난 코드(마디 0 이전)는 버림
+        shifted_chords.append({**c, "bar": g // bar_slots, "pos": g % bar_slots})
+    key = json.loads(row["key_json"]) if row.get("key_json") else None
+    tex = to_alphatex(notes, row["bpm"], song["title"][:80], key=key,
+                      chords=shifted_chords, meter=meter, families=families)
     await db.upsert_transcription(
         song_id, notes=json.dumps(notes, ensure_ascii=False), tex=tex,
         beat_offset=new_offset,
-        key_json=json.dumps(key, ensure_ascii=False),
-        chords=json.dumps(chords, ensure_ascii=False),
+        key_json=row.get("key_json"),
+        chords=json.dumps(shifted_chords, ensure_ascii=False),
         slots=json.dumps(slots, ensure_ascii=False) if slots else None)
     return {"ok": True}
 

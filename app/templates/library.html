@@ -25,7 +25,7 @@
 }
 
 /* 위 여백 확대 — 우상단 ✎/× 버튼이 곡 시간과 겹치던 것(사용자 실증 2026-07-10) */
-.song-card { position: relative; display: block; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md); padding: var(--sp-6) var(--sp-4) var(--sp-4); text-decoration: none; color: var(--text); }
+.song-card { position: relative; display: block; min-width: 0; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md); padding: var(--sp-6) var(--sp-4) var(--sp-4); text-decoration: none; color: var(--text); }
 a.song-card:hover { border-color: var(--accent); }
 /* 곡 삭제(REQ-LIB-002) — 시안 01엔 자리가 없어 REQ 근거로 추가(카드 우상단, 은은하게) */
 /* ✎/× 는 마우스 오버에만 노출(사용자 지시 2026-07-10) — 평소엔 완전히 숨김 */
@@ -42,7 +42,7 @@ a.song-card:hover { border-color: var(--accent); }
 .song-desc { font-size: 12px; color: var(--muted); margin: -6px 0 var(--sp-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 textarea.text-input { resize: vertical; font-family: inherit; line-height: 1.5; }
 .song-card-top { display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-2); margin-bottom: var(--sp-3); }
-.song-title { font-size: 15px; font-weight: 600; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.song-title { flex: 1; min-width: 0; font-size: 15px; font-weight: 600; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .song-duration { font-size: 12px; color: var(--muted); flex-shrink: 0; }
 
 /* 키·BPM 캡션 — ready 카드에서만(감지 완료 후) REQ-KEY-001 */

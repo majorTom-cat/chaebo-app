@@ -11,6 +11,9 @@ body { margin: 0; background: #fff; font-family: sans-serif; }
   padding: 10px 16px; display: flex; align-items: center; gap: 12px; }
 .print-hint button { font-size: 13px; padding: 5px 12px; cursor: pointer; }
 #alphaTab { width: 190mm; margin: 0 auto; }
+/* 폰 화면으로 열면 190mm 악보가 문서를 넘치게 함(측정 감사 2026-07-16) — 화면에선 자체 가로 스크롤로 가둔다.
+   인쇄는 종이폭(190mm)이라 이 규칙 안 걸림(print media 제외) → 인쇄 레이아웃 불변. */
+@media screen { .score-scroll { max-width: 100%; overflow-x: auto; } }
 @page { margin: 10mm; }
 @media print { .print-hint { display: none; } }
 </style>
@@ -21,7 +24,7 @@ body { margin: 0; background: #fff; font-family: sans-serif; }
   <button type="button" onclick="window.print()">다시 인쇄 창 열기</button>
   <button type="button" onclick="window.close()">닫기</button>
 </p>
-<div id="alphaTab"></div>
+<div class="score-scroll"><div id="alphaTab"></div></div>
 <script src="/static/vendor/alphatab/alphaTab.min.js"></script>
 <script>
 fetch('/api/songs/{{ song.id }}/tab').then(function (r) { return r.json(); }).then(function (t) {
