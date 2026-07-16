@@ -100,6 +100,15 @@ body.wide .topbar-inner, body.wide .page { max-width: 1500px; }
 .toggle-thumb { position: absolute; top: 1px; left: 1px; width: 14px; height: 14px; border-radius: 50%; background: var(--muted); transition: transform .15s, background .15s; }
 .countin-toggle input:checked ~ .toggle-track, .count-toggle input:checked ~ .toggle-track { background: rgba(240, 168, 72, 0.25); border-color: var(--accent); }
 .countin-toggle input:checked ~ .toggle-track .toggle-thumb, .count-toggle input:checked ~ .toggle-track .toggle-thumb { transform: translateX(14px); background: var(--accent); }
+/* 토글이 여러 개라 한눈에 헷갈림(사용자 요청 2026-07-16) — 기능색으로 구분. 켜짐 색 = 그 기능이 화면에 그리는 색 계열.
+   박자세기=파랑 · 가사=초록 · 어택표시=크림슨(세로선과 동색) · 음표 고치기는 편집 '모드'라 앱 강조색(주황) 유지. */
+#count-check:checked ~ .toggle-track { background: rgba(91, 124, 196, 0.22); border-color: #5b7cc4; }
+#count-check:checked ~ .toggle-track .toggle-thumb { background: #5b7cc4; }
+#lyrics-check:checked ~ .toggle-track { background: rgba(63, 157, 84, 0.22); border-color: #3f9d54; }
+#lyrics-check:checked ~ .toggle-track .toggle-thumb { background: #3f9d54; }
+#attack-check:checked ~ .toggle-track { background: rgba(181, 32, 58, 0.22); border-color: #b5203a; }
+#attack-check:checked ~ .toggle-track .toggle-thumb { background: #b5203a; }
+.tools-divider { display: inline-block; width: 1px; height: 18px; background: var(--muted); opacity: 0.45; margin: 0 5px; vertical-align: middle; }
 
 .loop-control { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
 /* A/B 지정됨 표시 — 눌러도 반응이 안 보이던 것(사용자 실증 2026-07-09) */

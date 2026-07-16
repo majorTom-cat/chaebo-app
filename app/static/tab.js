@@ -392,6 +392,34 @@
       html += '<polygon class="wd" points="' + polyFor(drums, H * 3 / 4, hb) + '"/>';  // 드럼 = 아래 띠(믹서 드럼 색)
     }
     html += '<line x1="0" y1="' + (H / 2) + '" x2="' + W + '" y2="' + (H / 2) + '" stroke="rgba(0,0,0,0.14)" stroke-width="1"/>';
+    // ★오른손 어택 표시(사용자 요청 2026-07-16): 각 음 온셋 x(위 프렛번호와 같은 세로선)에 그 지점 베이스
+    //   진폭 높이의 얇은 세로선 — 파형에서 '제일 커지는(어택) 지점'을 눈으로 짚어 타브와 잇는다(타브 사용성).
+    //   베이스 파형색이 코랄(붉은 계열)이라 순수 빨강은 안 보임 → 대비되는 진한 크림슨.
+    if (tab && tab.notes && tab.notes.length) {
+      var bmax = 0;
+      for (var bk = 0; bk < bass.length; bk++) if (bass[bk] > bmax) bmax = bass[bk];
+      if (!bmax) bmax = 1;
+      var ampAt = function (x) { // polyFor 와 같은 방식(작은 창 max) — 폴리곤 상단과 높이 일치
+        var t0 = slotTime((x - step - FLOW_PAD) / subPx()), t1 = slotTime((x + step - FLOW_PAD) / subPx());
+        var lo = Math.min(t0, t1), hi = Math.max(t0, t1);
+        var i0 = Math.max(0, Math.floor(lo / dur * bass.length));
+        var i1 = Math.min(bass.length, Math.max(i0 + 1, Math.ceil(hi / dur * bass.length)));
+        var v = 0;
+        for (var j = i0; j < i1; j++) if (bass[j] > v) v = bass[j];
+        return Math.max(1.5, Math.min(hb - 0.4, (v / bmax) * (hb - 1)));
+      };
+      var atk = '', seenG = {};
+      tab.notes.forEach(function (nt) {
+        if (seenG[nt.gi]) return; // 화음/더블스톱은 한 어택
+        seenG[nt.gi] = 1;
+        var x = flowX(nt.gi);
+        if (x < FLOW_PAD || x > W - FLOW_PAD) return;
+        var h = ampAt(x);
+        atk += '<line class="wa-atk" x1="' + x.toFixed(1) + '" y1="' + (H / 4 - h).toFixed(1) +
+          '" x2="' + x.toFixed(1) + '" y2="' + (H / 4 + h).toFixed(1) + '"/>';
+      });
+      html += atk;
+    }
     svg.innerHTML = html;
   }
   window.__drawFlowWave = drawFlowWave; // 믹서 페이지는 practice.js 가 __peaks 를 채운 뒤 이걸 호출
@@ -774,6 +802,10 @@
   document.getElementById('lyrics-check').addEventListener('change', function (e) {
     document.getElementById('at-overlay').classList.toggle('hide-lyrics', !e.target.checked);
     saveShared({ lyricsOn: e.target.checked });
+  });
+  document.getElementById('attack-check').addEventListener('change', function (e) {
+    document.getElementById('flow-inner').classList.toggle('hide-attacks', !e.target.checked);
+    saveShared({ attackOn: e.target.checked }); // 어택 세로선 표시 토글 저장·복원
   });
 
   /* ---- 가사(받아쓰기 초안) — 단어를 '마디 안 실제 시각 위치'에(사용자 지시 2026-07-11:
@@ -1398,6 +1430,9 @@
         var lyricsOn = sharedState.lyricsOn !== false;
         document.getElementById('lyrics-check').checked = lyricsOn;
         document.getElementById('at-overlay').classList.toggle('hide-lyrics', !lyricsOn);
+        var attackOn = sharedState.attackOn !== false;
+        document.getElementById('attack-check').checked = attackOn;
+        document.getElementById('flow-inner').classList.toggle('hide-attacks', !attackOn);
         window.__stateRestored = true; // 배터리: 토글 조작 전 이 플래그 대기
       });
       Shell.ready.then(function () {

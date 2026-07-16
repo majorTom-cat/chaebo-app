@@ -165,6 +165,8 @@ button.meta-badge:hover { border-color: var(--accent); }
 .flow-wave { position: absolute; left: 0; top: 158px; height: 100px; display: block; }
 .flow-wave .wb { fill: var(--stem-bass, #ef6461); opacity: 0.85; }   /* 베이스(위) — 믹서 베이스 색 */
 .flow-wave .wd { fill: var(--stem-drums, #f2a83b); opacity: 0.80; }  /* 드럼(아래) — 믹서 드럼 색 */
+.flow-wave .wa-atk { stroke: #8a0d1a; stroke-width: 1.4; opacity: 0.92; }  /* 오른손 어택 표시(진한 크림슨 세로선) */
+.flow-inner.hide-attacks .wa-atk { display: none; }  /* '어택 표시' 토글 끄면 세로선 숨김 */
 /* 좌측 고정 칸(gutter) — 각 가로줄 의미를 스크롤과 무관하게 항상 좌측에 표시(사용자 요청). */
 .flow-row { display: flex; align-items: flex-start; }
 .flow-gutter { position: relative; flex: 0 0 34px; width: 34px; height: 264px; background: var(--surface);
@@ -487,6 +489,12 @@ button.meta-badge:hover { border-color: var(--accent); }
         <span class="toggle-track"><span class="toggle-thumb"></span></span>
         <span class="control-label">가사</span>
       </label>
+      <label class="count-toggle" title="파형에서 오른손 어택(픽) 지점을 진폭 높이의 세로선으로 표시 — 어느 봉우리가 어느 음인지 눈으로 이어져요">
+        <input type="checkbox" id="attack-check" checked>
+        <span class="toggle-track"><span class="toggle-thumb"></span></span>
+        <span class="control-label">어택 표시</span>
+      </label>
+      <span class="tools-divider" aria-hidden="true"></span>
       <label class="count-toggle">
         <input type="checkbox" id="edit-check">
         <span class="toggle-track"><span class="toggle-thumb"></span></span>
