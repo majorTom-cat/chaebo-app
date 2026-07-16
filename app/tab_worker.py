@@ -601,6 +601,37 @@ def eighth_ratio(raw_notes, beat_times):
     return float(sum(1 for n in q if n["gi"] % 2 == 0) / len(q))
 
 
+def warp_slots(base_slots, anchors):
+    """수동 박자 앵커: base_slots(gi→절대시각)를 anchors[(gi,t),...] 를 지나도록 '구간별 선형 재스케일'.
+    각 구간(인접 앵커/양끝 사이)의 내부 슬롯을 원래 상대위치대로 유지하며 [t0,t1] 로 늘리거나 줄인다 —
+    자동 격자의 국소 템포 변동은 보존하면서 사용자가 찍은 실박 지점만 정확히 통과(설계: Ableton 워프마커).
+    가변 템포 자동추종(PLP)이 못 잡는 잔여 드리프트의 결정적 보정(리서치 2026-07-16 §2)."""
+    s = [float(v) for v in base_slots]
+    n = len(s)
+    if n < 2:
+        return s
+    # 고정점 = 시작 + 앵커(gi 클램프) + 끝. gi 로 정렬·중복제거(뒤 우선).
+    fixed = {0: s[0], n - 1: s[n - 1]}
+    for g, t in anchors:
+        gi = max(0, min(n - 1, int(g)))
+        fixed[gi] = float(t)
+    pts = sorted(fixed.items())
+    out = list(s)
+    for (g0, t0), (g1, t1) in zip(pts, pts[1:]):
+        if g1 <= g0:
+            continue
+        b0, b1 = s[g0], s[g1]
+        span = (b1 - b0) if (b1 - b0) > 1e-9 else 1e-9
+        for gi in range(g0, g1 + 1):
+            frac = (s[gi] - b0) / span  # 원래 구간 내 상대 위치(내부 템포 변동 보존)
+            out[gi] = t0 + (t1 - t0) * frac
+    # 단조 증가 보장(수치·역전 방지)
+    for i in range(1, n):
+        if out[i] <= out[i - 1]:
+            out[i] = out[i - 1] + 1e-4
+    return out
+
+
 def detect_meter(beat_times, raw_notes):
     """콤파운드 미터(12/8·셔플) 감지 — 비트 추적기는 이런 곡에서 셋잇단 펄스에 잠금(실증: 곡7
     172bpm=57×3). 펄스가 빠르고(≥140) 어택 강세가 3묶음 주기로 몰리면 12/8. 스파이크 3/3 정답

@@ -180,6 +180,15 @@ button.meta-badge:hover { border-color: var(--accent); }
 .flow-chord { position: absolute; top: 2px; font-size: 12.5px; font-weight: 800; color: #241f16; }
 .flow-chord.fc-same { color: #a89c7d; font-weight: 600; } /* 앞 마디와 같은 코드 — 변화가 눈에 띄게 */
 .flow-bar-num { position: absolute; top: 20px; font-size: 10px; color: #a3946e; font-variant-numeric: tabular-nums; }
+/* 수동 박자 앵커(드래그) — 마디선 손잡이를 실박으로 끌어 격자 워프(가변 템포 잔여 드리프트 보정) */
+.flow-bar-grip { position: absolute; top: 33px; width: 11px; height: 14px; margin-left: -5px; border-radius: 3px;
+  background: rgba(92, 86, 66, 0.22); border: 1px solid rgba(92, 86, 66, 0.4); cursor: ew-resize; z-index: 4; }
+.flow-bar-grip:hover { background: rgba(226, 121, 63, 0.55); border-color: var(--accent); }
+.flow-bar-grip.fbg-anchored { background: rgba(181, 32, 58, 0.6); border-color: #b5203a; }
+.flow-bar-line.fbl-anchored { width: 2px; background: #b5203a; }
+.flow-anchor-ghost { position: absolute; top: 20px; bottom: 6px; width: 0; margin-left: -1px;
+  border-left: 2px dashed #b5203a; z-index: 6; pointer-events: none; }
+body.anchoring { cursor: ew-resize; user-select: none; }
 .flow-count { position: absolute; top: 34px; transform: translateX(-50%); font-size: 11px; font-variant-numeric: tabular-nums; }
 .flow-count.fc-attack { font-weight: 800; color: #241f16; }
 .flow-count.fc-quiet { font-weight: 500; color: #b6ab90; }
@@ -507,6 +516,7 @@ button.meta-badge:hover { border-color: var(--accent); }
       <span class="control-label" title="첫 음이 박에서 반 칸 어긋났을 때 16분음표 한 칸씩 미세 조정해요">미세</span>
       <button type="button" class="btn btn-outline btn-sm" id="btn-shift-left" title="박자 기준 16분 한 칸 앞으로">◀</button>
       <button type="button" class="btn btn-outline btn-sm" id="btn-shift-right" title="박자 기준 16분 한 칸 뒤로">▶</button>
+      <button type="button" class="btn btn-outline btn-sm" id="btn-anchor-clear" title="흐름 타브에서 마디선 손잡이를 실제 박(파형 어택선)으로 끌면 그 지점부터 격자가 실연주에 맞춰져요 — 이 버튼은 그렇게 맞춘 걸 모두 지우고 자동 격자로 되돌려요">박자 앵커 지우기</button>
       <!-- 자동 박자 판정(4/4·12/8) 수동 전환 — 판정이 틀린 곡 대비(캐시 재계산이라 몇 초) -->
       <button type="button" class="btn btn-outline btn-sm" id="btn-meter" title="자동 박자 판정이 틀렸으면 눌러서 전환해요">박자 <span id="meter-label">4/4</span></button>
       <select id="sens-select" class="metro-div-select"

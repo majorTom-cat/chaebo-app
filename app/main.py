@@ -538,9 +538,11 @@ async def get_tab(song_id: int):
                     tab_file.read_text(encoding="utf-8")).get("offset") or 0
         await db.upsert_transcription(song_id, **fields)
         row = await db.get_transcription(song_id)
-    for field in ("notes", "key_json", "chords", "slots", "lyrics", "sections"):
+    for field in ("notes", "key_json", "chords", "slots", "lyrics", "sections", "tab_anchors"):
         if row.get(field):
             row[field] = json.loads(row[field])
+    # 수동 박자 앵커가 걸린 슬롯(gi) 목록 — 프론트가 마디선 표식용
+    row["anchors"] = [int(g) for g, _ in (row.get("tab_anchors") or {}).get("anchors", [])]
     row["offset"] = row.get("beat_offset") or 0  # 클라이언트 계약명
     row["meter"] = row.get("meter") or "4/4"
     row["grid_v"] = row.get("grid_v") or 1
@@ -551,6 +553,13 @@ async def get_tab(song_id: int):
 class TabShift(BaseModel):
     slots: int  # ±1 — 한 클릭 방향
     beat: bool = False  # True=한 박(마디칸/4)씩, False=16분 한 칸씩(미세)
+
+
+class TabAnchor(BaseModel):
+    gi: int | None = None      # 앵커 놓을 격자 슬롯(보통 마디 시작 = bar*bar_slots)
+    t: float | None = None     # 그 슬롯이 실제 발생하는 오디오 시각(초)
+    remove: int | None = None  # 이 gi 의 앵커 제거
+    clear: bool = False        # 모든 앵커 제거(자동 격자로 복귀)
 
 
 # 곡별 편집 잠금 — shift/put 은 읽기-수정-쓰기라 연타·동시 저장이 서로를 덮음(적대 리뷰 확정)
@@ -652,6 +661,51 @@ async def _shift_tab_phase(song_id: int, body: TabShift):
         chords=json.dumps(shifted_chords, ensure_ascii=False),
         slots=json.dumps(slots, ensure_ascii=False) if slots else None)
     return {"ok": True}
+
+
+@app.post("/api/songs/{song_id}/tab/anchor")
+async def anchor_tab(song_id: int, body: TabAnchor):
+    """수동 박자 앵커 — 마디선을 실박(파형 어택)으로 끌어 격자를 구간별 워프. 가변 템포 자동추종(PLP)이
+    못 잡는 잔여 드리프트의 결정적 보정(설계 리서치 2026-07-16). gi 는 불변이라 표기·코드·tex 그대로,
+    슬롯 시각만 리매핑 → 파형·재생커서만 실연주에 맞춰짐."""
+    async with _tab_lock(song_id):
+        return await _anchor_tab(song_id, body)
+
+
+async def _anchor_tab(song_id: int, body: TabAnchor):
+    from app.tab_worker import warp_slots
+    row = await db.get_transcription(song_id)
+    if not row or row["status"] != "ready":
+        raise HTTPException(409, "타브 초안이 아직 없어요")
+    cur_slots = json.loads(row["slots"]) if row.get("slots") else None
+    if not cur_slots or len(cur_slots) < 2:
+        raise HTTPException(409, "이 곡은 박자 격자가 없어 앵커를 쓸 수 없어요")
+    st = json.loads(row.get("tab_anchors") or "null") or {}
+    base = st.get("base") or list(cur_slots)  # 첫 앵커 때 현재 슬롯을 원본으로 스냅샷
+    anchors = {int(g): float(t) for g, t in st.get("anchors", [])}
+    if body.clear:
+        anchors = {}
+    elif body.remove is not None:
+        anchors.pop(int(body.remove), None)
+    elif body.gi is not None and body.t is not None:
+        gi = max(0, min(len(base) - 1, int(body.gi)))
+        anchors[gi] = float(body.t)
+    else:
+        raise HTTPException(422, "gi·t 또는 remove·clear 중 하나가 필요해요")
+    new_slots = warp_slots(base, sorted(anchors.items())) if anchors else list(base)
+    notes = json.loads(row["notes"])
+    for nt in notes:  # gi 불변 — 슬롯 시각만 리매핑
+        gi = nt["gi"]
+        if 0 <= gi < len(new_slots):
+            nt["start"] = round(float(new_slots[gi]), 3)
+    store = {"base": base, "anchors": [[g, anchors[g]] for g in sorted(anchors)]}
+    await db.upsert_transcription(
+        song_id,
+        notes=json.dumps(notes, ensure_ascii=False),
+        slots=json.dumps(new_slots, ensure_ascii=False),
+        beat_offset=float(new_slots[0]),
+        tab_anchors=json.dumps(store, ensure_ascii=False) if anchors else None)
+    return {"ok": True, "anchors": store["anchors"], "count": len(anchors)}
 
 
 class TabNotes(BaseModel):

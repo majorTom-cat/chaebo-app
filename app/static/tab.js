@@ -244,17 +244,31 @@
       el.style.left = (flowX(ch.bar * BAR + (ch.pos || 0)) + 4) + 'px';
       frag.appendChild(el);
     });
+    var anchorSet = {};
+    (tab.anchors || []).forEach(function (g) { anchorSet[g] = 1; });
     for (var bi = 0; bi <= totalBars; bi++) {
+      var giBar = bi * BAR;
+      var anchored = !!anchorSet[giBar];
       var bl = document.createElement('div');
-      bl.className = 'flow-bar-line';
-      bl.style.left = flowX(bi * BAR) + 'px';
+      bl.className = 'flow-bar-line' + (anchored ? ' fbl-anchored' : '');
+      bl.style.left = flowX(giBar) + 'px';
       frag.appendChild(bl);
       if (bi < totalBars) {
         var bn = document.createElement('div');
         bn.className = 'flow-bar-num';
         bn.textContent = bi + 1;
-        bn.style.left = (flowX(bi * BAR) + 4) + 'px';
+        bn.style.left = (flowX(giBar) + 4) + 'px';
         frag.appendChild(bn);
+        // 드래그 그립 — 이 마디 시작을 실제 박(파형 어택)으로 끌어 격자 워프. 첫 마디(gi0)는 시작 고정점이라 제외.
+        if (bi > 0) {
+          var grip = document.createElement('div');
+          grip.className = 'flow-bar-grip' + (anchored ? ' fbg-anchored' : '');
+          grip.style.left = flowX(giBar) + 'px';
+          grip.dataset.gi = giBar;
+          grip.title = anchored ? '박자 앵커 — 다시 끌어 옮기거나 아래 ‘박자 앵커 지우기’ 로 해제'
+            : '끌어서 이 마디를 실제 박(파형 어택선)에 맞추기';
+          frag.appendChild(grip);
+        }
       }
       if (bi === totalBars) break;
       // 카운트 — 4/4: 적응형 세분(어택 있는 세분만 확장) · 12/8: 펄스마다 1 la li(사용자 확정 표기)
@@ -452,6 +466,7 @@
   document.getElementById('flow-inner').addEventListener('click', function (e) {
     if (!tab || !tab.bpm) return;
     if (e.target.closest('.correction-popover')) return; // 팝오버 내부 클릭은 통과
+    if (e.target.closest('.flow-bar-grip')) return; // 박자 앵커 그립은 드래그 전용 — seek 안 함
     var rect = document.getElementById('flow-inner').getBoundingClientRect();
     if (editMode) {
       var gi = snapAllowed(Math.round((e.clientX - rect.left - FLOW_PAD) / subPx()));
@@ -470,6 +485,53 @@
     player.seek(Math.max(0, Math.min(duration || player.duration() || 0, t)));
     document.getElementById('time-now').textContent = fmt(player.currentTime());
     updateCursor();
+  });
+
+  /* 수동 박자 앵커(드래그) — 마디선 그립을 잡아 파형의 실제 박(어택선) 위로 끌면 그 마디 시작을 그 오디오
+     시각에 고정하고 격자를 구간별 워프(가변 템포 잔여 드리프트 보정). gi 불변 → 표기·코드 그대로, 파형·커서만 맞춰짐. */
+  function postAnchor(body) {
+    return fetch('/api/songs/' + songId + '/tab/anchor', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    }).then(function (r) {
+      if (!r.ok) return r.json().then(function (j) { throw new Error(j.detail || '앵커 실패'); });
+      return r.json();
+    }).then(function () { refreshTab(); }).catch(function (err) { alert(err.message); });
+  }
+  var _anchorDrag = null;
+  document.getElementById('flow-inner').addEventListener('mousedown', function (e) {
+    var grip = e.target.closest('.flow-bar-grip');
+    if (!grip || !tab) return;
+    e.preventDefault();
+    var inner = document.getElementById('flow-inner');
+    var ghost = document.createElement('div');
+    ghost.className = 'flow-anchor-ghost';
+    ghost.style.left = flowX(+grip.dataset.gi) + 'px';
+    inner.appendChild(ghost);
+    _anchorDrag = { gi: +grip.dataset.gi, startX: flowX(+grip.dataset.gi), ghost: ghost, inner: inner };
+    document.body.classList.add('anchoring');
+  });
+  document.addEventListener('mousemove', function (e) {
+    if (!_anchorDrag) return;
+    var rect = _anchorDrag.inner.getBoundingClientRect();
+    var x = Math.max(FLOW_PAD, e.clientX - rect.left);
+    _anchorDrag.ghost.style.left = x + 'px';
+  });
+  document.addEventListener('mouseup', function (e) {
+    if (!_anchorDrag) return;
+    var d = _anchorDrag; _anchorDrag = null;
+    document.body.classList.remove('anchoring');
+    var rect = d.inner.getBoundingClientRect();
+    var x = Math.max(FLOW_PAD, e.clientX - rect.left);
+    d.ghost.remove();
+    if (Math.abs(x - d.startX) < 4) return; // 거의 안 움직였으면 취소(오조작 방지)
+    var t = slotTime((x - FLOW_PAD) / subPx()); // 드롭 지점의 실제 오디오 시각
+    postAnchor({ gi: d.gi, t: Math.round(t * 1000) / 1000 });
+  });
+  var _clr = document.getElementById('btn-anchor-clear');
+  if (_clr) _clr.addEventListener('click', function () {
+    if (tab && tab.anchors && tab.anchors.length && confirm('박자 앵커를 모두 지우고 자동 격자로 되돌릴까요?')) {
+      postAnchor({ clear: true });
+    }
   });
 
   /* 재조판 동안 옛 조판을 그대로 덮어둠 — 진행형 재렌더가 화면을 꿀렁이게 하던 것 차단.

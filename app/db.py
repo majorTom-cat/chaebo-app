@@ -63,6 +63,9 @@ MIGRATIONS = [
     # 첫 음 정박 스냅: 1/NULL=켬(기본)·0=끔. 첫 음이 박에서 살짝 벗어났을 때 가장 가까운 박으로 당김.
     # 사용자가 귀로 듣고 당김음이면 끄게(체크박스). (2026-07-15)
     "ALTER TABLE transcriptions ADD COLUMN lead_snap INTEGER",
+    # 수동 박자 앵커: {"base":[슬롯시각...], "anchors":[[gi,t],...]} — 사용자가 마디선을 실박으로 끌어
+    # 격자를 구간별 워프(가변 템포 잔여 드리프트 보정, 2026-07-16). base 는 첫 앵커 때 슬롯 스냅샷.
+    "ALTER TABLE transcriptions ADD COLUMN tab_anchors TEXT",
 ]
 
 
