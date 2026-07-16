@@ -105,7 +105,7 @@
   function openAnalyzeDialog() {
     var t = tab || {};
     amSetRadio('am-beat', t.beat_engine || 'beat_track');   // 기본=고른 박자
-    amSetRadio('am-detect', t.detect_engine || 'bp');       // 기본=basic-pitch
+    amSetRadio('am-detect', t.detect_engine || 'onset');    // 권장=픽 기반(어택=음 1:1). NULL(옛 bp곡)도 onset 권장 표시
     amSetRadio('am-sens', t.sensitivity || 'normal');
     amSetRadio('am-precision', t.crepe_mode || 'tiny');
     amSetRadio('am-tempo', t.tempo_override || 'auto');
@@ -425,75 +425,32 @@
       html += '<polygon class="wd" points="' + polyFor(drums, H * 3 / 4, hb) + '"/>';  // 드럼 = 아래 띠(믹서 드럼 색)
     }
     // (베이스/드럼 사이 가로 구분선 제거 — 사용자 지적 2026-07-16: 안 쓰이는 가로선. 색으로 이미 구분됨.)
-    // ★오른손 어택 표시 — 파형의 실제 봉우리(진짜 픽)에서 직접 검출한다(음/타브 위치가 아님. 사용자 지적
-    //   2026-07-16: 음 위치로 그리니 파형과 안 맞고 과검출. 파형에서 직접 그리면 정확·개수 맞음). 도드라진
-    //   국소 최대이면서 직전보다 뚜렷이 상승(=어택)한 지점만 — 지속·감쇠의 잔봉우리는 배제. 최소 간격으로 과밀 방지.
-    if (bass && bass.length && dur) {
+    // ★오른손 어택 표시 — 음(픽)마다 세로선 1개를 그 음 위치(flowX(gi))에 그린다. onset 기반 검출에선
+    //   '픽 하나 = 음 하나'라 어택선 개수 = 타브 개수(사용자 지적 2026-07-16: 둘은 같은 사건, 개수가 같아야).
+    //   선이 프렛과 정확히 같은 x → '어택=타브 위치'. 높이 = 그 순간 파형 진폭(세게 친 만큼 길다).
+    if (bass && bass.length && dur && tab && tab.notes) {
       var bmax = 0;
       for (var bk = 0; bk < bass.length; bk++) if (bass[bk] > bmax) bmax = bass[bk];
       if (bmax > 0) {
-        var n2 = bass.length;
-        var w = Math.max(1, Math.round(0.028 * n2 / dur));   // 상승 측정 창 ~28ms(어택 transient)
-        var gapFr = Math.max(1, Math.round(0.15 * n2 / dur)); // 최소 간격 150ms
-        var floorH = bmax * 0.12;                             // 최소 봉우리 높이
-        // 상승률(어택 강도) = 진폭이 짧은 창에서 얼마나 급히 오르나. 픽은 급상승, 지속·감쇠는 안 오름.
-        var rise = new Array(n2).fill(0), rmax = 0;
-        for (var i = w; i < n2; i++) { var r = bass[i] - bass[i - w]; if (r > 0) { rise[i] = r; if (r > rmax) rmax = r; } }
-        if (rmax > 0) {
-          var thr = rmax * 0.40;   // 상승 강도 문턱(낮추면 여린 픽까지, 높이면 강한 픽만)
-          var cands = [];
-          for (var ii = w + 1; ii < n2 - 1; ii++) {
-            if (rise[ii] < thr) continue;
-            if (!(rise[ii] >= rise[ii - 1] && rise[ii] >= rise[ii + 1])) continue; // 상승률 국소 최대 = 어택 순간
-            var pk = bass[ii];                                // 어택 직후 봉우리 높이(세로선 높이용)
-            for (var q = ii; q < Math.min(n2, ii + w * 3); q++) if (bass[q] > pk) pk = bass[q];
-            if (pk < floorH) continue;
-            cands.push([ii, rise[ii], pk]);
-          }
-          cands.sort(function (a, b) { return b[1] - a[1]; });  // 상승 강한 것 우선
-          var kept = [];
-          for (var ci = 0; ci < cands.length; ci++) {
-            var ok = true;
-            for (var ki = 0; ki < kept.length; ki++) if (Math.abs(kept[ki][0] - cands[ci][0]) < gapFr) { ok = false; break; }
-            if (ok) kept.push(cands[ci]);
-          }
-          var atk = '', atkXs = [];
-          for (var kk = 0; kk < kept.length; kk++) {
-            var t = kept[kk][0] / n2 * dur;
-            var x = FLOW_PAD + timeSlot(t) * subPx();
-            if (x < FLOW_PAD || x > W - FLOW_PAD) continue;
-            atkXs.push(x);
-            var h = Math.max(1.5, Math.min(hb - 0.4, (kept[kk][2] / bmax) * (hb - 1)));
-            atk += '<line class="wa-atk" x1="' + x.toFixed(1) + '" y1="' + (H / 4 - h).toFixed(1) +
-              '" x2="' + x.toFixed(1) + '" y2="' + (H / 4 + h).toFixed(1) + '"/>';
-          }
-          html += atk;
-          snapFretsToAttacks(atkXs);  // ★타브(프렛·지속바)를 실제 어택선 위로 당김(사용자 요청 2026-07-16)
+        var n2 = bass.length, atk = '';
+        var span = Math.max(1, Math.round(0.03 * n2 / dur));  // 진폭 표본 ±30ms
+        for (var ni = 0; ni < tab.notes.length; ni++) {
+          var nt = tab.notes[ni];
+          var xg = flowX(nt.gi);
+          if (xg < FLOW_PAD || xg > W - FLOW_PAD) continue;
+          var idx = Math.round(slotTime(nt.gi) / dur * n2);   // 그 음 시각의 파형 표본 위치
+          var av = 0;
+          for (var q = Math.max(0, idx - span); q < Math.min(n2, idx + span); q++) if (bass[q] > av) av = bass[q];
+          var h = Math.max(1.5, Math.min(hb - 0.4, (av / bmax) * (hb - 1)));
+          atk += '<line class="wa-atk" x1="' + xg.toFixed(1) + '" y1="' + (H / 4 - h).toFixed(1) +
+            '" x2="' + xg.toFixed(1) + '" y2="' + (H / 4 + h).toFixed(1) + '"/>';
         }
+        html += atk;
       }
     }
     svg.innerHTML = html;
   }
 
-  // 프렛·지속바를 가까운 어택선(실제 픽)으로 스냅. 격자 위치(data-gx)에서 항상 재계산 → 멱등(재호출해도 안 밀림).
-  // 한 슬롯(16분) 이내 어택이 있으면 그 위로, 없으면(=파형에 대응 픽 없음: 유령음 후보/여린음) 격자 위치 유지.
-  function snapFretsToAttacks(atkXs) {
-    if (!atkXs || !atkXs.length) return;
-    atkXs.sort(function (a, b) { return a - b; });
-    var tol = subPx() * 1.0; // 스냅 허용 반경 ≈ 16분 한 칸
-    function nearest(x) {
-      var best = null, bd = tol;
-      for (var a = 0; a < atkXs.length; a++) { var d = Math.abs(atkXs[a] - x); if (d <= bd) { bd = d; best = atkXs[a]; } else if (atkXs[a] - x > tol) break; }
-      return best;
-    }
-    var els = document.querySelectorAll('#flow-inner .flow-fret, #flow-inner .flow-sustain');
-    for (var e = 0; e < els.length; e++) {
-      var el = els[e], gx = parseFloat(el.dataset.gx);
-      if (isNaN(gx)) continue;
-      var s = nearest(gx);
-      el.style.left = (s !== null ? s : gx) + 'px';
-    }
-  }
   window.__drawFlowWave = drawFlowWave; // 믹서 페이지는 practice.js 가 __peaks 를 채운 뒤 이걸 호출
 
   // 타브 페이지는 믹서 뷰 init 이 안 돌아 __peaks 가 비어 있다(실측). 여기서 직접 받아 그린다(같은

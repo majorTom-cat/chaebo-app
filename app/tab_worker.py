@@ -128,6 +128,65 @@ def segment_notes_crepe(f0, per, x, sr):
     return notes, round(tune * 100, 1)
 
 
+def detect_notes_onset(x, sr):
+    """onset(픽) 기반 검출 — 진폭 envelope 의 어택(픽)마다 음 1개, 피치는 그 순간 F0(torchcrepe) 중앙값.
+    ★사용자 지적(2026-07-16): '어택선 개수 = 타브 개수'여야 한다. 다성 basic-pitch/F0분절은 '지속되는 한
+    음을 유지·감쇠에서 여러 번 재검출'해 과검출(유령 44%+)했다. onset 기반은 픽(진폭 상승)마다 딱 1음을
+    만들어 픽=음=어택선을 구조적으로 1:1로 묶는다. 지속음은 다음 픽까지 한 음으로 유지된다.
+    감도(prominence)로 픽 민감도 조절(simple=보수적). 저역(<35Hz)은 뒤 merge_low_notes 가 보강."""
+    e, fd = _bass_envelope(x, sr)
+    n = len(e)
+    if n < 4:
+        return [], 0.0
+    # 진폭 envelope 살짝 평활(24ms) — 미세 리플 제거, 픽당 봉우리 1개
+    w = max(1, int(round(0.024 / fd)))
+    env = np.convolve(e, np.ones(w) / w, mode="same") if w > 1 else e
+    prom = float(os.environ.get("CHAEBO_ONSET_PROM", "0.17" if SENS["mode"] == "simple" else "0.12"))
+    floor = float(os.environ.get("CHAEBO_ONSET_FLOOR", "0.08"))
+    gap = max(1, int(round(float(os.environ.get("CHAEBO_ONSET_GAP", "0.14")) / fd)))
+    look = max(1, int(round(0.17 / fd)))
+    # 봉우리(국소최대)+prominence(직전 골에서의 상승폭) — 진짜 픽만. 봉우리(=최대진폭)에 위치.
+    cand = []
+    for i in range(1, n - 1):
+        v = env[i]
+        if v < floor or not (v > env[i - 1] and v >= env[i + 1]):
+            continue
+        if v - env[max(0, i - look):i + 1].min() < prom:
+            continue
+        cand.append((i, v))
+    cand.sort(key=lambda c: -c[1])  # 강한 픽 우선
+    kept = []
+    for i, v in cand:
+        if all(abs(k - i) >= gap for k in kept):
+            kept.append(i)
+    kept.sort()
+    if not kept:
+        return [], 0.0
+    ont = [k * fd for k in kept]
+    f0, per = track_pitch(x, sr)  # CPU 수 분 — 가장 오래 걸리는 단계
+    ph = HOP_SEC
+    nf0 = len(f0)
+    midi_all = 69 + 12 * np.log2(np.maximum(f0, 1e-6) / 440.0)
+    conf = np.clip(np.asarray(per, dtype=float), 0.0, 1.0)
+    voiced = conf > PERIODICITY_LOW
+    tune = float(np.median(midi_all[voiced] - np.round(midi_all[voiced]))) if voiced.any() else 0.0
+    dur_total = len(x) / sr
+    notes = []
+    for k in range(len(ont)):
+        t0 = ont[k]
+        t1 = ont[k + 1] if k + 1 < len(ont) else min(dur_total, t0 + 2.0)
+        a = int((t0 + 0.03) / ph)  # 어택 30ms 스킵(불안정 transient 뒤 안정 F0)
+        b = min(nf0, max(a + 1, int(t1 / ph)))
+        segc = conf[a:b]
+        vm = segc > PERIODICITY_LOW
+        if int(vm.sum()) < 2:  # 무성 onset(피치 없음) — 픽은 있으나 음정 불명(타악·잡음) → 제외
+            continue
+        m = float(np.median(midi_all[a:b][vm])) - tune
+        notes.append({"start": round(t0, 3), "dur": round(t1 - t0, 3),
+                      "midi": int(round(m)), "conf": round(float(np.median(segc[vm])), 2)})
+    return notes, round(tune * 100, 1)
+
+
 def frame_rms_db(x, sr, n_frames):
     """CREPE 프레임과 같은 격자의 RMS(dB) — 주기성-음량 증거 융합용."""
     hop = int(sr * HOP_SEC)
@@ -1824,11 +1883,22 @@ def main():
             return raw, eighth_ratio(raw, beat_times)
 
         # basic-pitch 는 항상(저역 보강용 raw_bp + 'bp' 엔진 1차). ~30초, 리듬 선명 곡에서 우세(SP-4b).
-        _detect_engine = os.environ.get("CHAEBO_DETECT_ENGINE", "bp")  # bp(기본, 다성)|f0(단음 F0분절)
+        _detect_engine = os.environ.get("CHAEBO_DETECT_ENGINE", "bp")  # bp(기본,다성)|onset(픽기반)|f0(F0분절)
         raw_bp, tune_bp = detect_notes_bp(x, sr, Path(out_json).parent)
         raw_bp, score_bp = _prep(raw_bp)
         prog(25)
-        if _detect_engine == "f0":
+        if _detect_engine == "onset":
+            # ★onset(픽) 기반(사용자 지적 2026-07-16: 어택선 개수=타브 개수). 픽마다 음 1개 → 지속 재검출
+            #   과검출을 구조적으로 제거. basic-pitch(raw_bp)는 아래 merge_low_notes 저역 보강만.
+            on_notes, tune_on = detect_notes_onset(x, sr)  # track_pitch 포함(CPU 수 분)
+            prog(70)
+            # ★_prep(align_to_onsets)는 이미 픽당 1음인 걸 librosa 온셋마다 재분절해 개수를 부풀린다
+            #   (763→935 실측 2026-07-16). onset 경로는 재분절 제외 — 조용한 유령 제거 + 같은음 지속병합만.
+            on_notes = gate_quiet(on_notes, x, sr)
+            on_notes = refine_with_envelope(on_notes, x, sr)
+            raw_notes = on_notes
+            tune_cents = tune_on
+        elif _detect_engine == "f0":
             # ★단음 F0→분절(옵션, 리서치 2026-07-16): 다성 basic-pitch 의 배음·지속 과검출을 구조적으로 회피.
             #   track_pitch(F0) + segment_notes_crepe. basic-pitch(raw_bp)는 아래 merge_low_notes 저역 보강만.
             f0, per = track_pitch(x, sr)   # 가장 오래 걸리는 단계(CPU 수 분)
@@ -1849,7 +1919,11 @@ def main():
                 raw_notes, tune_cents = raw_bp, tune_bp
         # CREPE 가 채택돼도 못 보는 초저음(<E1)은 bp 검출로 보강 — 빈 구간만(사용자 지적 2026-07-15:
         # 첫 음 C 누락 = 33Hz 가 CREPE fmin 아래). bp 채택 경로면 멱등(이미 있음).
-        raw_notes = merge_low_notes(raw_notes, raw_bp, x, sr)
+        # ★onset 엔진은 이미 저역 픽을 잡으므로 초저역(<C1, MIDI33 = CREPE fmin 아래)만 보강한다 —
+        #   A2(45)까지 bp 로 채우면 onset 이 이미 잡은 저음과 타이밍이 미세하게 달라 중복 추가(+136 실측
+        #   2026-07-16), '픽=음 1:1'이 깨진다. 다른 엔진(bp/f0/CREPE)은 종전대로 A2 까지 보강.
+        raw_notes = merge_low_notes(raw_notes, raw_bp, x, sr,
+                                    low_midi=33 if _detect_engine == "onset" else LOW_RECOVER_MIDI)
         # 저역 음정 교정 — CREPE·bp 가 30~60Hz 서 내는 반음 오차를 자기상관으로 바로잡음(사용자 지적
         # 2026-07-15: 74마디부터 C→C# 등). merge 로 보강한 음까지 함께 교정되도록 뒤에 둔다.
         raw_notes = refine_low_pitch(raw_notes, x, sr)

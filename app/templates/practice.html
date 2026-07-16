@@ -674,9 +674,10 @@ body.anchoring { cursor: ew-resize; user-select: none; }
         <label class="am-opt"><input type="radio" name="am-beat" value="beat_this"> <b>정밀 (신경망 · Beat This!)</b> <span>가장 똑똑하게 · 다운비트까지 — 처음 쓸 때 준비 파일을 한 번 내려받아요</span></label>
       </div>
       <div class="am-field">
-        <div class="am-flabel">음 검출 방식 <span class="am-note">(음이 실제로 안 친 곳에 자꾸 생기면 '단음')</span></div>
-        <label class="am-opt"><input type="radio" name="am-detect" value="bp" checked> <b>기본</b> <span>여러 음을 폭넓게 잡아요(대부분의 곡)</span></label>
-        <label class="am-opt"><input type="radio" name="am-detect" value="f0"> <b>단음 (한 음씩)</b> <span>베이스처럼 한 번에 한 음인 악기용 — 지속·감쇠 구간의 헛음(유령음)을 줄여요. 조금 더 걸려요</span></label>
+        <div class="am-flabel">음 검출 방식 <span class="am-note">(음이 실제로 안 친 곳에 자꾸 생기면 '픽 기반')</span></div>
+        <label class="am-opt"><input type="radio" name="am-detect" value="onset" checked> <b>픽 기반 (권장)</b> <span>실제로 튕긴 곳마다 음 하나 — 어택 표시선과 타브가 개수·위치 모두 딱 맞고, 지속·감쇠의 헛음(유령음)이 가장 적어요. 베이스에 가장 정확해요</span></label>
+        <label class="am-opt"><input type="radio" name="am-detect" value="bp"> <b>여러 음 폭넓게</b> <span>음을 폭넓게 잡아요(코드·복잡한 곡). 헛음이 좀 더 생길 수 있어요</span></label>
+        <label class="am-opt"><input type="radio" name="am-detect" value="f0"> <b>단음 (한 음씩)</b> <span>F0 방식으로 한 음씩. 조금 더 걸려요</span></label>
       </div>
       <div class="am-field">
         <div class="am-flabel">음 개수 <span class="am-note">(타브·어택이 너무 많으면 '단순하게')</span></div>
