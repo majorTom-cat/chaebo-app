@@ -32,8 +32,9 @@
   Shell.on('meta', function (t) {
     if (!tab || t.status !== 'ready') return;
     if (t.lyrics && JSON.stringify(t.lyrics) !== JSON.stringify(tab.lyrics)) {
-      tab.lyrics = t.lyrics; // 가사만 바뀜(tex 불변) — 오버레이만 다시
-      placeLyrics();
+      tab.lyrics = t.lyrics; // 가사만 바뀜(tex 불변)
+      placeLyrics();  // 전체 타브 가사
+      renderFlow();   // ★흐름 타브 가사도 다시(사용자 지적 2026-07-17: 나중에 도착/변경된 가사가 흐름에 반영 안 됨)
     }
     if (!t.tex || t.tex === tab.tex) return;
     tab = t;
