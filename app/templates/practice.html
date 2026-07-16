@@ -530,6 +530,17 @@ body.anchoring { cursor: ew-resize; user-select: none; }
         <option value="half">빠르기: 절반</option>
         <option value="double">빠르기: 2배</option>
       </select>
+      <select id="precision-select" class="metro-div-select"
+              aria-label="음정 정밀도" title="음이 틀리거나 놓친 곡은 '정확'으로 다시 분석해 보세요 — 대신 곡당 몇 분~십몇 분 더 걸려요">
+        <option value="tiny">음정: 빠름</option>
+        <option value="full">음정: 정확(느림)</option>
+      </select>
+      <select id="beat-engine-select" class="metro-div-select"
+              aria-label="박자 엔진" title="박자 격자를 어떤 방법으로 딸지 골라서 비교해 보세요 — 기본=빠르기 변화를 따라감 · 단일 빠르기=곡 전체를 한 빠르기로 · 정밀(신경망)=처음 쓸 때 준비 파일을 내려받고 다운비트까지 잡아요">
+        <option value="plp">박자: 기본</option>
+        <option value="beat_track">박자: 단일 빠르기</option>
+        <option value="beat_this">박자: 정밀(신경망)</option>
+      </select>
       <label class="control-label" style="cursor:pointer;user-select:none"
              title="기본 꺼짐. 켠 뒤 '다시 분석'을 눌러야 적용돼요 — 첫 음을 가장 가까운 박으로 당겨요. 첫 음이 원래 당겨 친 음(당김음)이면 켜지 마세요. (대개 자동 마디 정렬이 알아서 맞춰요.)">
         <input type="checkbox" id="lead-snap-check" style="vertical-align:middle;margin-right:3px"> 첫 음 정박
@@ -537,10 +548,6 @@ body.anchoring { cursor: ew-resize; user-select: none; }
       <button type="button" class="btn btn-outline btn-sm" id="btn-reanalyze">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.13-3.36L23 10M1 14l5.36 4.36A9 9 0 0020.49 15"/></svg>
         다시 분석
-      </button>
-      <button type="button" class="btn btn-outline btn-sm" id="btn-reanalyze-accurate" title="음정을 더 정확하게 다시 분석해요. 대신 시간이 더 걸려요(곡당 몇 분~십몇 분). 음이 틀리거나 놓친 곡에 쓰세요.">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/><circle cx="12" cy="12" r="4"/></svg>
-        정확하게 다시 분석
       </button>
       <button type="button" class="btn btn-outline btn-sm" id="btn-print" title="브라우저 인쇄 창에서 'PDF로 저장'을 고르면 파일로 저장돼요">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>

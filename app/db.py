@@ -66,6 +66,9 @@ MIGRATIONS = [
     # 수동 박자 앵커: {"base":[슬롯시각...], "anchors":[[gi,t],...]} — 사용자가 마디선을 실박으로 끌어
     # 격자를 구간별 워프(가변 템포 잔여 드리프트 보정, 2026-07-16). base 는 첫 앵커 때 슬롯 스냅샷.
     "ALTER TABLE transcriptions ADD COLUMN tab_anchors TEXT",
+    # 박자 엔진 선택: NULL/'plp'=기본(국소펄스·가변) | 'beat_track'=단일템포 | 'beat_this'=신경망 SOTA(다운로드).
+    # 사용자 A/B 비교용(2026-07-16) — 내 판단 대신 사용자가 직접 고르고 듣게.
+    "ALTER TABLE transcriptions ADD COLUMN beat_engine TEXT",
 ]
 
 

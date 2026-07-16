@@ -471,8 +471,9 @@ class TabStart(BaseModel):
     meter: str | None = None  # '4/4'|'12/8'|'auto' — 자동 박자 판정이 틀렸을 때 수동 고정
     sensitivity: str | None = None  # 'normal'|'simple' — 밀집 믹스에서 과밀 타브 억제
     tempo: str | None = None  # 'auto'|'half'|'double' — 템포 배수 오검출 수동 교정
-    mode: str | None = None  # 'tiny'(빠름·기본)|'full'(정확·느림) — '정확하게 다시 분석'
+    mode: str | None = None  # 'tiny'(빠름·기본)|'full'(정확·느림) — 음정 정밀도(CREPE)
     lead_snap: bool | None = None  # 첫 음 정박 스냅 on/off(기본 켬) — 사용자 귀 검증용 토글
+    beat_engine: str | None = None  # 'plp'(기본)|'beat_track'|'beat_this' — 박자 엔진 A/B 비교
 
 
 @app.post("/api/songs/{song_id}/tab", status_code=202)
@@ -500,6 +501,10 @@ async def start_tab(song_id: int, body: TabStart | None = None):
         fields["crepe_mode"] = "full" if body.mode == "full" else None
     if body and body.lead_snap is not None:
         fields["lead_snap"] = 1 if body.lead_snap else 0  # 체크박스 값 고정(끄면 0, 켜면 1)
+    if body and body.beat_engine:
+        if body.beat_engine not in ("plp", "beat_track", "beat_this"):
+            raise HTTPException(422, "박자 엔진은 plp, beat_track, beat_this 중 하나로 정해주세요")
+        fields["beat_engine"] = None if body.beat_engine == "plp" else body.beat_engine
     await db.upsert_transcription(song_id, **fields)
     await jobs.queue.put(("tab", song_id))
     return await db.get_transcription(song_id)

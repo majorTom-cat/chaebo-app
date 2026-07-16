@@ -25,6 +25,7 @@ resampy            # basic-pitch 의존 — ISC
 onnxruntime        # basic-pitch onnx 백엔드 — MIT (licenses.md #16b)
 torchcrepe         # 채보 2차 검출(CREPE) — MIT (licenses.md 부록)
 librosa            # 템포·비트·구간 경계 — ISC (licenses.md 부록)
+beat_this          # 박자 엔진 선택지(가변 템포·다운비트, 사용자 A/B 비교용) — MIT 코드+가중치 (licenses.md #5d). torch 이미 의존·가중치는 첫 사용 시 다운로드
 scipy              # librosa 의존·구간 세그먼테이션 — BSD
 scikit-learn       # 구간 클러스터링(KMeans) — BSD
 faster-whisper     # 가사 받아쓰기 — MIT (licenses.md rev6)

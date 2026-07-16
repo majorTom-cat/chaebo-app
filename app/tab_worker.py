@@ -420,9 +420,28 @@ def _plp_beats(oenv, sr, hop, bpm):
     return bt[np.array(keep)]
 
 
+def _beat_this_beats(drums_path):
+    """Beat This!(ISMIR 2024 SOTA) 를 풀믹스에 돌려 비트 시각. torch 이미 의존·가중치(78MB)는 첫 사용 시
+    File2Beats 가 원출처에서 자동 다운로드(하드규칙 5). 미설치·오프라인·실패면 None → 호출부가 PLP 폴백.
+    사용자 A/B 비교용 선택지(내 판단 대신 사용자가 직접 듣고 고르게)."""
+    try:
+        from beat_this.inference import File2Beats
+        from app import config as _cfg
+        sid = Path(drums_path).parent.name
+        mix = _cfg.RAW_DIR / f"{sid}.wav"
+        src = str(mix if mix.exists() else drums_path)  # 믹스 우선(BeatThis 는 풀믹스 학습), 없으면 드럼 스템
+        f2b = File2Beats(checkpoint_path="final0", device="cpu", dbn=False)
+        beats, _downs = f2b(src)
+        bt = np.asarray(beats, dtype=float)
+        return bt if len(bt) >= 8 else None
+    except Exception:
+        return None
+
+
 def estimate_tempo(drums_path):
     import librosa
 
+    engine = os.environ.get("CHAEBO_BEAT_ENGINE", "plp")  # plp(기본)|beat_track|beat_this
     y, sr = librosa.load(drums_path, sr=22050, mono=True)
     hop = 512
     oenv = librosa.onset.onset_strength(y=y, sr=sr, hop_length=hop)
@@ -436,11 +455,20 @@ def estimate_tempo(drums_path):
         bpm *= 2
     while bpm > 200:
         bpm /= 2
-    # ★가변 템포 추종: 격자는 beat_times 를 4등분해 만들므로 '격자 품질 = 비트 품질'. 전역 beat_track 은
-    #   단일 템포라 루바토서 초반만 맞고 드리프트(사용자 지적 2026-07-16) → 국소 펄스(PLP)로 비트를 잡는다.
+    bt_global = librosa.frames_to_time(beats, sr=sr, hop_length=hop)
+    # 박자 엔진 선택(사용자 A/B): beat_track=단일템포(가변 추종 없음) · beat_this=신경망 SOTA(풀믹스·다운비트)
+    if engine == "beat_track":
+        return round(bpm, 1), bt_global
+    if engine == "beat_this":
+        bt = _beat_this_beats(drums_path)
+        if bt is not None:
+            return round(bpm, 1), bt
+        # 실패(미설치·다운로드 실패) → 아래 PLP 로 폴백
+    # ★기본(plp): 격자는 beat_times 를 4등분해 만들므로 '격자 품질 = 비트 품질'. 전역 beat_track 은 단일
+    #   템포라 루바토서 초반만 맞고 드리프트(사용자 지적 2026-07-16) → 국소 펄스(PLP)로 비트를 잡는다.
     beat_times = _plp_beats(oenv, sr, hop, bpm)
     if beat_times is None or len(beat_times) < 8:
-        beat_times = librosa.frames_to_time(beats, sr=sr, hop_length=hop)  # PLP 실패 → 전역 beat_track 폴백
+        beat_times = bt_global  # PLP 실패 → 전역 beat_track 폴백
     return round(bpm, 1), beat_times
 
 
@@ -1671,6 +1699,7 @@ def main():
     RAW_V = 7  # v7: 가변 템포 추종 — beat_times 를 전역 beat_track→PLP(국소 펄스)로(2026-07-16)
     apply_sensitivity(os.environ.get("CHAEBO_SENS", "normal"))
     _crepe_mode = os.environ.get("CHAEBO_CREPE_MODEL", "tiny")  # tiny(빠름)|full(정확)
+    _beat_engine = os.environ.get("CHAEBO_BEAT_ENGINE", "plp")  # plp(기본)|beat_track|beat_this
     cache = None
     if os.environ.get("CHAEBO_FRESH") != "1" and Path(out_json).exists():
         try:
@@ -1683,6 +1712,10 @@ def main():
             # ★음정 모드(tiny/full)가 바뀌면 재검출 — 안 그러면 '정확하게 다시 분석'이 tiny 캐시를 그대로
             #   써서 안 먹혔음(사용자 지적 2026-07-14: 정밀분석 안 먹힘). crepe_mode 를 캐시 키에 포함.
             if cache and cache.get("crepe_mode", "tiny") != _crepe_mode:
+                cache = None
+            # ★박자 엔진(plp/beat_track/beat_this)이 바뀌면 beat_times 를 다시 — 캐시가 옛 엔진 비트를
+            #   재사용하면 A/B 비교가 안 먹힘. beat_times 는 검출과 독립이라 이 키만 바뀌어도 무효화.
+            if cache and cache.get("beat_engine", "plp") != _beat_engine:
                 cache = None
         except Exception:  # noqa: BLE001
             cache = None
@@ -1830,6 +1863,7 @@ def main():
                    "families": families,
                    "slots": [round(float(s), 3) for s in slots[:max_gi]] if slots is not None else None,
                    "raw_cache": {"v": RAW_V, "sens": SENS["mode"], "crepe_mode": _crepe_mode,
+                                 "beat_engine": _beat_engine,
                                  "raw_notes": raw_notes,
                                  "beat_times": [round(float(b), 4) for b in beat_times_full],
                                  "tune_cents": tune_cents,
