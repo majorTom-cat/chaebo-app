@@ -229,7 +229,7 @@
 
   function renderFlow() {
     var inner = document.getElementById('flow-inner');
-    inner.querySelectorAll('.flow-bar-line, .flow-bar-num, .flow-count, .flow-string, .flow-fret, .flow-sustain, .flow-chord')
+    inner.querySelectorAll('.flow-bar-line, .flow-bar-num, .flow-count, .flow-string, .flow-fret, .flow-sustain, .flow-chord, .flow-lyric')
       .forEach(function (el) { el.remove(); });
     if (!tab || !tab.notes || !tab.notes.length) return;
 
@@ -347,6 +347,30 @@
       f.style.top = y + 'px';
       frag.appendChild(f);
     });
+    // 가사(받아쓰기 초안) — 드럼 파형 밑 레인에 단어를 실제 시각(timeSlot) 위치로(사용자 요청 2026-07-16:
+    // 전체 타브처럼 흐름 타브에도). 전체 타브 가사와 같은 lyrics-check 토글(hide-lyrics)로 함께 켜고 끈다.
+    var ly = tab && tab.lyrics;
+    if (ly && ly.status === 'ready' && ly.segments && ly.segments.length) {
+      var lyMaxX = FLOW_PAD + totalBars * BAR * subPx();
+      var placeLyric = function (wtext, wt) {
+        var x = flowX(timeSlot(wt));
+        if (x < FLOW_PAD || x > lyMaxX) return;      // 그리드 밖(곡 전/후) 스킵 — 끝에 몰림 방지
+        var d = document.createElement('div');
+        d.className = 'flow-lyric';
+        d.textContent = wtext;
+        d.style.left = x + 'px';
+        frag.appendChild(d);
+      };
+      ly.segments.forEach(function (seg) {
+        if (seg.words && seg.words.length && !seg.manual) {
+          seg.words.forEach(function (w) { placeLyric(w.w, w.s + 0.01); });
+          return;
+        }
+        var words = String(seg.text || '').split(/\s+/).filter(Boolean);  // 폴백(단어 시각 없음): 균등 배치
+        var span = Math.max(0.2, seg.e - seg.s);
+        words.forEach(function (word, k) { placeLyric(word, seg.s + span * (k + 0.15) / words.length); });
+      });
+    }
     inner.appendChild(frag);
     window.__flowReady = true;
     drawFlowWave(); // 베이스 파형 띠 — 폭 확정 뒤(같은 grid 축)
@@ -377,6 +401,7 @@
     note(41, '박자');
     note(183, '베이스');  // 파형 위 띠(158~208 중심)
     note(233, '드럼');    // 파형 아래 띠(208~258 중심)
+    note(272, '가사');    // 드럼 파형 밑 가사 레인(264~)
   }
 
   // 베이스 파형 띠(사용자 요청 2026-07-14): 믹서와 같은 peaks 를, 흐름 타브의 칸(grid) 축에 매핑해
@@ -878,6 +903,7 @@
   });
   document.getElementById('lyrics-check').addEventListener('change', function (e) {
     document.getElementById('at-overlay').classList.toggle('hide-lyrics', !e.target.checked);
+    document.getElementById('flow-inner').classList.toggle('hide-lyrics', !e.target.checked); // 흐름 타브 가사도 함께
     saveShared({ lyricsOn: e.target.checked });
   });
   document.getElementById('attack-check').addEventListener('change', function (e) {
@@ -1507,6 +1533,7 @@
         var lyricsOn = sharedState.lyricsOn !== false;
         document.getElementById('lyrics-check').checked = lyricsOn;
         document.getElementById('at-overlay').classList.toggle('hide-lyrics', !lyricsOn);
+        document.getElementById('flow-inner').classList.toggle('hide-lyrics', !lyricsOn); // 흐름 타브 가사 초기 상태
         var attackOn = sharedState.attackOn !== false;
         document.getElementById('attack-check').checked = attackOn;
         document.getElementById('flow-inner').classList.toggle('hide-attacks', !attackOn);
