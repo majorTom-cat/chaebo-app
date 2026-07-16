@@ -334,6 +334,7 @@
         var su = document.createElement('div');
         su.className = 'flow-sustain';
         su.style.left = flowX(nt.gi) + 'px';
+        su.dataset.gx = flowX(nt.gi);   // 격자 원위치(스냅 멱등용)
         su.style.width = (nt.glen * subPx() - 6) + 'px';
         su.style.top = y + 'px';
         frag.appendChild(su);
@@ -342,6 +343,7 @@
       f.className = 'flow-fret' + (nt.conf < CONF_TH ? ' fc-low' : '');
       f.textContent = nt.fret;
       f.style.left = flowX(nt.gi) + 'px';
+      f.dataset.gx = flowX(nt.gi);      // 격자 원위치(스냅 멱등용)
       f.style.top = y + 'px';
       frag.appendChild(f);
     });
@@ -455,20 +457,42 @@
             for (var ki = 0; ki < kept.length; ki++) if (Math.abs(kept[ki][0] - cands[ci][0]) < gapFr) { ok = false; break; }
             if (ok) kept.push(cands[ci]);
           }
-          var atk = '';
+          var atk = '', atkXs = [];
           for (var kk = 0; kk < kept.length; kk++) {
             var t = kept[kk][0] / n2 * dur;
             var x = FLOW_PAD + timeSlot(t) * subPx();
             if (x < FLOW_PAD || x > W - FLOW_PAD) continue;
+            atkXs.push(x);
             var h = Math.max(1.5, Math.min(hb - 0.4, (kept[kk][2] / bmax) * (hb - 1)));
             atk += '<line class="wa-atk" x1="' + x.toFixed(1) + '" y1="' + (H / 4 - h).toFixed(1) +
               '" x2="' + x.toFixed(1) + '" y2="' + (H / 4 + h).toFixed(1) + '"/>';
           }
           html += atk;
+          snapFretsToAttacks(atkXs);  // ★타브(프렛·지속바)를 실제 어택선 위로 당김(사용자 요청 2026-07-16)
         }
       }
     }
     svg.innerHTML = html;
+  }
+
+  // 프렛·지속바를 가까운 어택선(실제 픽)으로 스냅. 격자 위치(data-gx)에서 항상 재계산 → 멱등(재호출해도 안 밀림).
+  // 한 슬롯(16분) 이내 어택이 있으면 그 위로, 없으면(=파형에 대응 픽 없음: 유령음 후보/여린음) 격자 위치 유지.
+  function snapFretsToAttacks(atkXs) {
+    if (!atkXs || !atkXs.length) return;
+    atkXs.sort(function (a, b) { return a - b; });
+    var tol = subPx() * 1.0; // 스냅 허용 반경 ≈ 16분 한 칸
+    function nearest(x) {
+      var best = null, bd = tol;
+      for (var a = 0; a < atkXs.length; a++) { var d = Math.abs(atkXs[a] - x); if (d <= bd) { bd = d; best = atkXs[a]; } else if (atkXs[a] - x > tol) break; }
+      return best;
+    }
+    var els = document.querySelectorAll('#flow-inner .flow-fret, #flow-inner .flow-sustain');
+    for (var e = 0; e < els.length; e++) {
+      var el = els[e], gx = parseFloat(el.dataset.gx);
+      if (isNaN(gx)) continue;
+      var s = nearest(gx);
+      el.style.left = (s !== null ? s : gx) + 'px';
+    }
   }
   window.__drawFlowWave = drawFlowWave; // 믹서 페이지는 practice.js 가 __peaks 를 채운 뒤 이걸 호출
 
