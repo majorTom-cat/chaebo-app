@@ -54,7 +54,7 @@ ALLOWED_EXTS = {".mp3", ".wav", ".flac", ".m4a"}
 STEMS = ["vocals", "drums", "bass", "guitar", "piano", "other"]
 
 # 런타임 표시·업데이트 비교용 버전(설치기 버전은 chaebo.iss/readme 별도 — 릴리스마다 함께 올린다).
-APP_VERSION = "0.6.70"
+APP_VERSION = "0.6.71"
 
 # 소리-화면 싱크 '공식 세대'(사용자 지적 2026-07-13: 싱크 구현이 바뀌면 옛 보정값이 stale 해진다).
 # 표시시계 공식(heardTime·워크릿 _latency·drift 수식 등)이 바뀔 때마다 이 값을 올린다. 저장된

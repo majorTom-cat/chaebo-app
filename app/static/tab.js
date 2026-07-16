@@ -59,11 +59,7 @@
         readyBox.hidden = false;
         showBpm();
         document.getElementById('meter-label').textContent = t.meter || '4/4';
-        document.getElementById('sens-select').value = t.sensitivity || 'normal';
-        document.getElementById('tempo-select').value = t.tempo_override || 'auto';
-        document.getElementById('precision-select').value = t.crepe_mode || 'tiny';   // 음정 정밀도(저장값 반영)
-        document.getElementById('beat-engine-select').value = t.beat_engine || 'beat_track';  // 박자 엔진(저장값 반영, 기본=고른 박자)
-        document.getElementById('lead-snap-check').checked = (t.lead_snap === 1); // 기본 끔(명시적으로 켠 곡만 체크)
+        // 분석 설정(감도·빠르기·음정·박자엔진·첫음정박)은 '다시 분석' 다이얼로그에서 현재값으로 프리필(아래).
         transport.setMeta(t); // 메트로놈·카운트인 활성화(재분석 직후에도 신선하게)
         renderFlow(); // 고정 px 좌표 — 숨김 중에도 안전
         if (Shell.active() === 'tab') renderScore();
@@ -97,24 +93,43 @@
     fetch('/api/songs/' + songId + '/tab', { method: 'POST' }).then(refreshTab);
   }
   document.getElementById('btn-make-tab').addEventListener('click', startTab);
-  function reanalyze() {  // 도구줄 드롭다운(감도·빠르기·음정 정밀도·박자 엔진)을 모두 반영해 재분석
-    fetch('/api/songs/' + songId + '/tab', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        sensitivity: document.getElementById('sens-select').value,
-        tempo: document.getElementById('tempo-select').value,
-        mode: document.getElementById('precision-select').value,        // 'tiny'|'full' — 음정 정밀도(CREPE)
-        beat_engine: document.getElementById('beat-engine-select').value, // 'plp'|'beat_track'|'beat_this'
-        lead_snap: document.getElementById('lead-snap-check').checked,
-      }),
-    }).then(refreshTab);
+  // '다시 분석' → 방법 선택 다이얼로그를 연다(사용자 요청: 모델 선택창). 현재 저장값으로 프리필.
+  function amSetRadio(name, val) {
+    var el = document.querySelector('input[name="' + name + '"][value="' + val + '"]');
+    if (el) el.checked = true;
   }
-  document.getElementById('btn-reanalyze').addEventListener('click', function () {
-    var msg = '처음부터 다시 분석할까요? 직접 고친 내용은 사라져요.';
-    if (document.getElementById('precision-select').value === 'full') msg += '\n(음정 정확 모드는 곡당 몇 분~십몇 분 더 걸려요.)';
-    if (document.getElementById('beat-engine-select').value === 'beat_this') msg += '\n(박자 정밀 엔진은 처음 쓸 때 준비 파일을 내려받아 조금 더 걸려요.)';
-    if (!confirm(msg)) return;
-    reanalyze();
+  function amGetRadio(name) {
+    var el = document.querySelector('input[name="' + name + '"]:checked');
+    return el ? el.value : null;
+  }
+  function openAnalyzeDialog() {
+    var t = tab || {};
+    amSetRadio('am-beat', t.beat_engine || 'beat_track');   // 기본=고른 박자
+    amSetRadio('am-sens', t.sensitivity || 'normal');
+    amSetRadio('am-precision', t.crepe_mode || 'tiny');
+    amSetRadio('am-tempo', t.tempo_override || 'auto');
+    document.getElementById('am-lead-snap').checked = (t.lead_snap === 1);
+    document.getElementById('analyze-modal').hidden = false;
+  }
+  function closeAnalyzeDialog() { document.getElementById('analyze-modal').hidden = true; }
+  document.getElementById('btn-reanalyze').addEventListener('click', openAnalyzeDialog);
+  document.getElementById('am-cancel').addEventListener('click', closeAnalyzeDialog);
+  document.getElementById('am-close').addEventListener('click', closeAnalyzeDialog);
+  document.getElementById('analyze-modal').addEventListener('click', function (e) {
+    if (e.target.id === 'analyze-modal') closeAnalyzeDialog(); // 바깥 클릭 닫기
+  });
+  document.getElementById('am-go').addEventListener('click', function () {
+    var body = {
+      beat_engine: amGetRadio('am-beat'),          // 'beat_track'|'plp'|'beat_this'
+      sensitivity: amGetRadio('am-sens'),          // 'normal'|'simple'
+      mode: amGetRadio('am-precision'),            // 'tiny'|'full'
+      tempo: amGetRadio('am-tempo'),               // 'auto'|'half'|'double'
+      lead_snap: document.getElementById('am-lead-snap').checked,
+    };
+    closeAnalyzeDialog();
+    fetch('/api/songs/' + songId + '/tab', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    }).then(refreshTab);
   });
 
   // 박자 시작점 이동 — 1에서 시작하지 않는 곡의 수동 맞춤

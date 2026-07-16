@@ -20,6 +20,22 @@ html { overflow-anchor: none; }
 .switcher-row { display: flex; align-items: center; gap: var(--sp-3); margin: 0 0 var(--sp-4); }
 .lyr-overlay { position: fixed; inset: 0; background: rgba(10, 12, 16, 0.7); backdrop-filter: blur(2px); z-index: 300; display: flex; align-items: center; justify-content: center; padding: var(--sp-8); }
 .lyr-overlay[hidden] { display: none !important; }
+/* 분석 방법 선택 다이얼로그 */
+.am-box { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg, 14px); width: min(560px, 94vw); max-height: 88vh; overflow-y: auto; padding: var(--sp-6) var(--sp-6) var(--sp-5); box-shadow: 0 20px 60px rgba(0,0,0,.45); }
+.am-head { display: flex; align-items: center; justify-content: space-between; }
+.am-head h2 { margin: 0; font-size: 18px; }
+.am-sub { margin: 4px 0 var(--sp-5); font-size: 12.5px; color: var(--muted); }
+.am-field { margin-bottom: var(--sp-5); }
+.am-flabel { font-size: 13px; font-weight: 700; margin-bottom: 6px; color: var(--text); }
+.am-flabel .am-note { font-weight: 400; color: var(--muted); font-size: 11.5px; }
+.am-opt { display: block; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 6px; cursor: pointer; font-size: 13px; }
+.am-opt:hover { border-color: var(--accent); }
+.am-opt input { margin-right: 7px; vertical-align: middle; }
+.am-opt b { font-weight: 700; }
+.am-opt span { color: var(--muted); font-size: 12px; }
+.am-opt.am-inline { display: inline-block; margin-right: 8px; }
+.am-opt.am-check { margin-top: -4px; }
+.am-foot { display: flex; justify-content: flex-end; gap: var(--sp-3); margin-top: var(--sp-4); }
 .lyr-modal { width: 680px; max-width: 100%; max-height: 78vh; display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; box-shadow: 0 28px 80px rgba(0,0,0,0.65); overflow: hidden; }
 .lyr-head { padding: var(--sp-6) var(--sp-8) var(--sp-4); }
 .lyr-head-row { display: flex; align-items: center; gap: var(--sp-3); }
@@ -519,32 +535,6 @@ body.anchoring { cursor: ew-resize; user-select: none; }
       <button type="button" class="btn btn-outline btn-sm" id="btn-anchor-clear" title="흐름 타브에서 마디선 손잡이를 실제 박(파형 어택선)으로 끌면 그 지점부터 격자가 실연주에 맞춰져요 — 이 버튼은 그렇게 맞춘 걸 모두 지우고 자동 격자로 되돌려요">박자 앵커 지우기</button>
       <!-- 자동 박자 판정(4/4·12/8) 수동 전환 — 판정이 틀린 곡 대비(캐시 재계산이라 몇 초) -->
       <button type="button" class="btn btn-outline btn-sm" id="btn-meter" title="자동 박자 판정이 틀렸으면 눌러서 전환해요">박자 <span id="meter-label">4/4</span></button>
-      <select id="sens-select" class="metro-div-select"
-              aria-label="분석 감도" title="타브가 너무 복잡하면 '단순하게'로 다시 분석해 보세요 — 약한 소리·번진 소리를 걸러내요">
-        <option value="normal">감도: 기본</option>
-        <option value="simple">감도: 단순하게</option>
-      </select>
-      <select id="tempo-select" class="metro-div-select"
-              aria-label="빠르기 보정" title="BPM 이 실제 느낌보다 2배로 나왔으면 '절반'으로 다시 분석해 보세요">
-        <option value="auto">빠르기: 자동</option>
-        <option value="half">빠르기: 절반</option>
-        <option value="double">빠르기: 2배</option>
-      </select>
-      <select id="precision-select" class="metro-div-select"
-              aria-label="음정 정밀도" title="음이 틀리거나 놓친 곡은 '정확'으로 다시 분석해 보세요 — 대신 곡당 몇 분~십몇 분 더 걸려요">
-        <option value="tiny">음정: 빠름</option>
-        <option value="full">음정: 정확(느림)</option>
-      </select>
-      <select id="beat-engine-select" class="metro-div-select"
-              aria-label="박자 엔진" title="박자 격자를 어떤 방법으로 딸지 골라서 비교해 보세요 — 고른 박자(기본)=한 빠르기로 일정하게(대부분의 곡에 맞아요) · 빠르기 변하는 곡=연주가 느려졌다 빨라지는 곡용(대신 박이 조금 흔들릴 수 있어요) · 정밀(신경망)=처음 쓸 때 준비 파일을 내려받고 다운비트까지 잡아요">
-        <option value="beat_track">박자: 고른 박자(기본)</option>
-        <option value="plp">박자: 빠르기 변하는 곡</option>
-        <option value="beat_this">박자: 정밀(신경망)</option>
-      </select>
-      <label class="control-label" style="cursor:pointer;user-select:none"
-             title="기본 꺼짐. 켠 뒤 '다시 분석'을 눌러야 적용돼요 — 첫 음을 가장 가까운 박으로 당겨요. 첫 음이 원래 당겨 친 음(당김음)이면 켜지 마세요. (대개 자동 마디 정렬이 알아서 맞춰요.)">
-        <input type="checkbox" id="lead-snap-check" style="vertical-align:middle;margin-right:3px"> 첫 음 정박
-      </label>
       <button type="button" class="btn btn-outline btn-sm" id="btn-reanalyze">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.13-3.36L23 10M1 14l5.36 4.36A9 9 0 0020.49 15"/></svg>
         다시 분석
@@ -665,6 +655,46 @@ body.anchoring { cursor: ew-resize; user-select: none; }
   <p class="sheet-note">옅은 코드 = 앞 마디와 같음 · 'Fm / Db' = 한 마디에 두 코드(반마디씩) · 재생하면 현재 마디가 주황으로 따라가요</p>
 
   </section>
+
+  <!-- 분석 방법 선택 — '다시 분석'을 누르면 뜨는 창. 같은 곡을 방법 바꿔가며 분석해 비교(사용자 요청). -->
+  <div class="lyr-overlay" id="analyze-modal" hidden>
+    <div class="am-box" role="dialog" aria-modal="true" aria-label="분석 방법 선택">
+      <div class="am-head">
+        <h2>어떻게 분석할까요?</h2>
+        <button type="button" class="icon-btn" id="am-close" aria-label="닫기">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <p class="am-sub">같은 곡을 방법을 바꿔가며 분석해 비교해 보세요. 직접 고친 내용은 사라져요.</p>
+      <div class="am-field">
+        <div class="am-flabel">박자(비트) 따는 방법</div>
+        <label class="am-opt"><input type="radio" name="am-beat" value="beat_track" checked> <b>고른 박자</b> <span>한 빠르기로 일정하게 — 대부분의 곡에 맞아요</span></label>
+        <label class="am-opt"><input type="radio" name="am-beat" value="plp"> <b>빠르기 변하는 곡</b> <span>느려졌다 빨라지는 곡용 — 박이 조금 흔들릴 수 있어요</span></label>
+        <label class="am-opt"><input type="radio" name="am-beat" value="beat_this"> <b>정밀 (신경망 · Beat This!)</b> <span>가장 똑똑하게 · 다운비트까지 — 처음 쓸 때 준비 파일을 한 번 내려받아요</span></label>
+      </div>
+      <div class="am-field">
+        <div class="am-flabel">음 개수 <span class="am-note">(타브·어택이 너무 많으면 '단순하게')</span></div>
+        <label class="am-opt"><input type="radio" name="am-sens" value="normal" checked> <b>기본</b></label>
+        <label class="am-opt"><input type="radio" name="am-sens" value="simple"> <b>단순하게</b> <span>약한·번진 소리를 걸러 음을 적게 그려요</span></label>
+      </div>
+      <div class="am-field">
+        <div class="am-flabel">음정 정밀도</div>
+        <label class="am-opt"><input type="radio" name="am-precision" value="tiny" checked> <b>빠름</b> <span>기본</span></label>
+        <label class="am-opt"><input type="radio" name="am-precision" value="full"> <b>정확</b> <span>음이 틀리거나 놓친 곡에 — 곡당 몇 분 더 걸려요</span></label>
+      </div>
+      <div class="am-field">
+        <div class="am-flabel">빠르기(BPM) 보정</div>
+        <label class="am-opt am-inline"><input type="radio" name="am-tempo" value="auto" checked> 자동</label>
+        <label class="am-opt am-inline"><input type="radio" name="am-tempo" value="half"> 절반</label>
+        <label class="am-opt am-inline"><input type="radio" name="am-tempo" value="double"> 2배</label>
+      </div>
+      <label class="am-opt am-check"><input type="checkbox" id="am-lead-snap"> 첫 음을 가장 가까운 박으로 당기기 <span>(당겨 친 음이 아니면)</span></label>
+      <div class="am-foot">
+        <button type="button" class="btn btn-outline btn-sm" id="am-cancel">취소</button>
+        <button type="button" class="btn btn-primary btn-sm" id="am-go">이 방법으로 다시 분석</button>
+      </div>
+    </div>
+  </div>
 
   <!-- 전체 가사 모달 — 믹서·타브·코드가 공유하는 하나의 가사(줄 단위 수정, 빈칸=삭제) -->
   <div class="lyr-overlay" id="lyrics-modal" hidden>
