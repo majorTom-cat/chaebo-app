@@ -1838,6 +1838,7 @@ def main():
     _crepe_mode = os.environ.get("CHAEBO_CREPE_MODEL", "tiny")  # tiny(빠름)|full(정확)
     _beat_engine = os.environ.get("CHAEBO_BEAT_ENGINE", "beat_track")  # beat_track(기본)|plp|beat_this
     _detect_engine_k = os.environ.get("CHAEBO_DETECT_ENGINE", "bp")  # bp(기본)|f0 — 검출 캐시 키
+    _source_stem_k = os.environ.get("CHAEBO_SOURCE_STEM", "bass")     # bass(기본)|guitar — 소스 스템 캐시 키
     cache = None
     if os.environ.get("CHAEBO_FRESH") != "1" and Path(out_json).exists():
         try:
@@ -1857,6 +1858,9 @@ def main():
                 cache = None
             # 검출 엔진(bp/f0)이 바뀌면 raw_notes(검출 결과)를 다시 — 캐시가 옛 엔진 검출을 재사용하면 A/B 안 먹힘
             if cache and cache.get("detect_engine", "bp") != _detect_engine_k:
+                cache = None
+            # 소스 스템(bass/guitar)이 바뀌면 재검출 — 같은 tab.json 파일을 재사용하므로 키에 포함해야 함
+            if cache and cache.get("source_stem", "bass") != _source_stem_k:
                 cache = None
         except Exception:  # noqa: BLE001
             cache = None
@@ -2029,6 +2033,7 @@ def main():
                    "slots": [round(float(s), 3) for s in slots[:max_gi]] if slots is not None else None,
                    "raw_cache": {"v": RAW_V, "sens": SENS["mode"], "crepe_mode": _crepe_mode,
                                  "beat_engine": _beat_engine, "detect_engine": _detect_engine_k,
+                                 "source_stem": _source_stem_k,
                                  "raw_notes": raw_notes,
                                  "beat_times": [round(float(b), 4) for b in beat_times_full],
                                  "tune_cents": tune_cents,

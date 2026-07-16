@@ -72,6 +72,9 @@ MIGRATIONS = [
     # 음정 검출 엔진: NULL/'bp'=basic-pitch(다성) | 'f0'=단음 F0→분절(CREPE-Notes 방식, 과검출 회피).
     # 사용자 귀 A/B 용(2026-07-16).
     "ALTER TABLE transcriptions ADD COLUMN detect_engine TEXT",
+    # 분석 소스 스템: NULL/'bass'=베이스 스템 | 'guitar'=기타 스템(고음 베이스 솔로가 분리에서 기타로
+    # 라우팅될 때, 기타 스템을 대신 채보해 베이스 타브로 렌더. 사용자 요청 2026-07-16).
+    "ALTER TABLE transcriptions ADD COLUMN source_stem TEXT",
 ]
 
 

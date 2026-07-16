@@ -106,6 +106,7 @@
     var t = tab || {};
     amSetRadio('am-beat', t.beat_engine || 'beat_track');   // 기본=고른 박자
     amSetRadio('am-detect', t.detect_engine || 'onset');    // 권장=픽 기반(어택=음 1:1). NULL(옛 bp곡)도 onset 권장 표시
+    amSetRadio('am-source', t.source_stem || 'bass');       // 분석 소스 스템(기본=베이스)
     amSetRadio('am-sens', t.sensitivity || 'normal');
     amSetRadio('am-precision', t.crepe_mode || 'tiny');
     amSetRadio('am-tempo', t.tempo_override || 'auto');
@@ -122,7 +123,8 @@
   document.getElementById('am-go').addEventListener('click', function () {
     var body = {
       beat_engine: amGetRadio('am-beat'),          // 'beat_track'|'plp'|'beat_this'
-      detect_engine: amGetRadio('am-detect'),      // 'bp'|'f0' — 음 검출 방식
+      detect_engine: amGetRadio('am-detect'),      // 'bp'|'onset'|'f0' — 음 검출 방식
+      source_stem: amGetRadio('am-source'),        // 'bass'|'guitar' — 분석 소스 스템
       sensitivity: amGetRadio('am-sens'),          // 'normal'|'simple'
       mode: amGetRadio('am-precision'),            // 'tiny'|'full'
       tempo: amGetRadio('am-tempo'),               // 'auto'|'half'|'double'
@@ -399,7 +401,7 @@
     };
     note(9, '코드');
     note(41, '박자');
-    note(183, '베이스');  // 파형 위 띠(158~208 중심)
+    note(183, (tab && tab.source_stem === 'guitar') ? '기타' : '베이스');  // 파형 위 띠(분석 소스 스템)
     note(233, '드럼');    // 파형 아래 띠(208~258 중심)
     note(272, '가사');    // 드럼 파형 밑 가사 레인(264~)
   }
@@ -411,7 +413,9 @@
   function drawFlowWave() {
     var svg = document.getElementById('flow-wave');
     var inner = document.getElementById('flow-inner');
-    var bass = (window.__peaks && window.__peaks.bass) || null;
+    // 위 띠 = 분석 소스 스템(기본 베이스; 고음 솔로를 기타 스템으로 채보한 곡이면 기타 파형) — 음·어택과 같은 근거
+    var srcStem = (tab && tab.source_stem) || 'bass';
+    var bass = (window.__peaks && (window.__peaks[srcStem] || window.__peaks.bass)) || null;
     var W = inner ? (parseFloat(inner.style.width) || inner.offsetWidth) : 0;
     if (!svg || !W || !bass || !bass.length || !tab || !tab.bpm) { if (svg) svg.innerHTML = ''; return; }
     var dur = (player && player.duration && player.duration()) || 0;

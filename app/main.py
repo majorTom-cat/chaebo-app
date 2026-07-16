@@ -475,6 +475,7 @@ class TabStart(BaseModel):
     lead_snap: bool | None = None  # 첫 음 정박 스냅 on/off(기본 켬) — 사용자 귀 검증용 토글
     beat_engine: str | None = None  # 'plp'(기본)|'beat_track'|'beat_this' — 박자 엔진 A/B 비교
     detect_engine: str | None = None  # 'onset'(권장,픽기반 픽=음1:1)|'bp'(폭넓게)|'f0'(F0분절) — 음 검출 A/B
+    source_stem: str | None = None  # 'bass'(기본)|'guitar' — 고음 베이스 솔로가 기타 스템으로 분리된 곡용
 
 
 @app.post("/api/songs/{song_id}/tab", status_code=202)
@@ -513,6 +514,10 @@ async def start_tab(song_id: int, body: TabStart | None = None):
         # 기본 bp = NULL. onset(픽 기반)·f0 만 명시 저장(onset=권장이지만 전역 기본은 bp 유지 —
         # 기존 곡 자동 재분석 방지, 캐시 키가 detect_engine 종속이라).
         fields["detect_engine"] = None if body.detect_engine == "bp" else body.detect_engine
+    if body and body.source_stem:
+        if body.source_stem not in ("bass", "guitar"):
+            raise HTTPException(422, "분석 소스는 bass 또는 guitar 로 정해주세요")
+        fields["source_stem"] = None if body.source_stem == "bass" else body.source_stem  # 기본 bass = NULL
     await db.upsert_transcription(song_id, **fields)
     await jobs.queue.put(("tab", song_id))
     return await db.get_transcription(song_id)

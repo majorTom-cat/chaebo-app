@@ -685,6 +685,11 @@ body.anchoring { cursor: ew-resize; user-select: none; }
         <label class="am-opt"><input type="radio" name="am-detect" value="f0"> <b>단음 (한 음씩)</b> <span>F0 방식으로 한 음씩. 조금 더 걸려요</span></label>
       </div>
       <div class="am-field">
+        <div class="am-flabel">분석할 소리 <span class="am-note">(베이스 솔로가 안 잡히면 '기타 소리'로)</span></div>
+        <label class="am-opt"><input type="radio" name="am-source" value="bass" checked> <b>베이스 소리</b> <span>보통은 이거예요</span></label>
+        <label class="am-opt"><input type="radio" name="am-source" value="guitar"> <b>기타 소리</b> <span>고음으로 올라가는 베이스 솔로가 분리 때 기타 쪽으로 새서 파형·타브가 안 잡힐 때 — 기타 소리를 대신 채보해 베이스 타브로 그려요</span></label>
+      </div>
+      <div class="am-field">
         <div class="am-flabel">음 개수 <span class="am-note">(타브·어택이 너무 많으면 '단순하게')</span></div>
         <label class="am-opt"><input type="radio" name="am-sens" value="normal" checked> <b>기본</b></label>
         <label class="am-opt"><input type="radio" name="am-sens" value="simple"> <b>단순하게</b> <span>약한·번진 소리를 걸러 음을 적게 그려요</span></label>

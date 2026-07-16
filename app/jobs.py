@@ -229,7 +229,14 @@ async def _worker():
 async def _process_tab(song_id: int):
     """타브 초안 — CREPE 파이프라인 서브프로세스 (CPU 수 분, 서버와 격리)."""
     song = await db.get_song(song_id)
-    bass = stems_dir(song_id) / "bass.wav"
+    row0 = await db.get_transcription(song_id)
+    # 분석 소스 스템 — 기본 bass. 고음 베이스 솔로가 분리에서 기타로 라우팅된 곡은 'guitar' 로 채보
+    # (사용자 요청 2026-07-16). 검출·파형 근거가 그 스템이 된다. 없으면 bass 로 폴백.
+    src_stem = (row0.get("source_stem") if row0 else None) or "bass"
+    bass = stems_dir(song_id) / f"{src_stem}.wav"
+    if not bass.exists():
+        bass = stems_dir(song_id) / "bass.wav"
+        src_stem = "bass"
     drums = stems_dir(song_id) / "drums.wav"
     if not bass.exists() or not drums.exists():
         raise RuntimeError("분리된 베이스/드럼이 아직 없어요")
@@ -258,6 +265,8 @@ async def _process_tab(song_id: int):
         env_extra["CHAEBO_BEAT_ENGINE"] = row["beat_engine"]  # 박자 엔진 선택(beat_track|beat_this), NULL=plp 기본
     if row and row.get("detect_engine"):
         env_extra["CHAEBO_DETECT_ENGINE"] = row["detect_engine"]  # 음정 검출 엔진(f0), NULL=bp 기본
+    if src_stem != "bass":
+        env_extra["CHAEBO_SOURCE_STEM"] = src_stem  # 캐시 키 종속 — 소스 바꾸면 재검출(tab.json 같은 파일 재사용 방지)
     if row and row.get("lead_snap") == 1:
         env_extra["CHAEBO_LEAD_SNAP"] = "1"  # 사용자가 첫 음 정박 스냅 명시적으로 켬 — 기본은 끔(패싱음/당김음 보존)
     code, tail = await _run(
