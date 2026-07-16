@@ -441,11 +441,21 @@
       tab.notes.forEach(function (nt) {
         if (seenG[nt.gi]) return; // 화음/더블스톱은 한 어택
         seenG[nt.gi] = 1;
-        var x = flowX(nt.gi);
-        if (x < FLOW_PAD || x > W - FLOW_PAD) return;
-        var h = ampAt(x);
-        atk += '<line class="wa-atk" x1="' + x.toFixed(1) + '" y1="' + (H / 4 - h).toFixed(1) +
-          '" x2="' + x.toFixed(1) + '" y2="' + (H / 4 + h).toFixed(1) + '"/>';
+        var x0 = flowX(nt.gi);
+        if (x0 < FLOW_PAD || x0 > W - FLOW_PAD) return;
+        // ★실제 어택(진폭 봉우리)으로 스냅 — 음이 고른 박자 격자에 스냅돼 봉우리보다 살짝 늦다(실측 +12ms).
+        //   어택은 음보다 조금 앞이라 뒤쪽으로 더 넓게 찾는다.
+        var bestX = x0, bestH = ampAt(x0);
+        for (var dx = -16; dx <= 6; dx += 2) {
+          var xx = x0 + dx;
+          if (xx < FLOW_PAD || xx > W - FLOW_PAD) continue;
+          var hh = ampAt(xx);
+          if (hh > bestH) { bestH = hh; bestX = xx; }
+        }
+        // 거의 무음 구간(분리가 놓친 곳·쉼표)엔 마크 안 그림. (decay 유령음 자체는 과검출 문제 — '감도 단순하게'로 줄임)
+        if (bestH < hb * 0.1) return;
+        atk += '<line class="wa-atk" x1="' + bestX.toFixed(1) + '" y1="' + (H / 4 - bestH).toFixed(1) +
+          '" x2="' + bestX.toFixed(1) + '" y2="' + (H / 4 + bestH).toFixed(1) + '"/>';
       });
       html += atk;
     }

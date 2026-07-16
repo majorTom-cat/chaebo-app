@@ -21,21 +21,22 @@ html { overflow-anchor: none; }
 .lyr-overlay { position: fixed; inset: 0; background: rgba(10, 12, 16, 0.7); backdrop-filter: blur(2px); z-index: 300; display: flex; align-items: center; justify-content: center; padding: var(--sp-8); }
 .lyr-overlay[hidden] { display: none !important; }
 /* 분석 방법 선택 다이얼로그 */
-.am-box { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg, 14px); width: min(560px, 94vw); max-height: 88vh; overflow-y: auto; padding: var(--sp-6) var(--sp-6) var(--sp-5); box-shadow: 0 20px 60px rgba(0,0,0,.45); }
-.am-head { display: flex; align-items: center; justify-content: space-between; }
-.am-head h2 { margin: 0; font-size: 18px; }
-.am-sub { margin: 4px 0 var(--sp-5); font-size: 12.5px; color: var(--muted); }
-.am-field { margin-bottom: var(--sp-5); }
-.am-flabel { font-size: 13px; font-weight: 700; margin-bottom: 6px; color: var(--text); }
-.am-flabel .am-note { font-weight: 400; color: var(--muted); font-size: 11.5px; }
-.am-opt { display: block; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 6px; cursor: pointer; font-size: 13px; }
-.am-opt:hover { border-color: var(--accent); }
-.am-opt input { margin-right: 7px; vertical-align: middle; }
-.am-opt b { font-weight: 700; }
-.am-opt span { color: var(--muted); font-size: 12px; }
-.am-opt.am-inline { display: inline-block; margin-right: 8px; }
-.am-opt.am-check { margin-top: -4px; }
-.am-foot { display: flex; justify-content: flex-end; gap: var(--sp-3); margin-top: var(--sp-4); }
+.am-box { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; width: min(540px, 94vw); max-height: 88vh; overflow-y: auto; padding: 22px 24px 20px; box-shadow: 0 24px 70px rgba(0, 0, 0, .5); }
+.am-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1px; }
+.am-head h2 { margin: 0; font-size: 19px; font-weight: 800; }
+.am-sub { margin: 3px 0 18px; font-size: 12.5px; color: var(--muted); }
+.am-field { margin-bottom: 16px; }
+.am-flabel { font-size: 12px; font-weight: 700; margin-bottom: 8px; color: var(--muted); }
+.am-flabel .am-note { font-weight: 400; }
+.am-opt { display: block; padding: 10px 12px; border: 1.5px solid var(--border); border-radius: 10px; margin-bottom: 7px; cursor: pointer; font-size: 13px; transition: border-color .12s, background .12s; }
+.am-opt:hover { border-color: var(--muted); }
+.am-opt input { accent-color: var(--accent); width: 15px; height: 15px; margin-right: 8px; vertical-align: middle; }
+.am-opt b { font-weight: 700; vertical-align: middle; }
+.am-opt > span { display: block; color: var(--muted); font-size: 11.5px; margin: 3px 0 0 23px; line-height: 1.35; }
+.am-opt:has(input:checked) { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.am-opt.am-inline { display: inline-block; margin-right: 7px; }
+.am-opt.am-check { margin-top: 2px; }
+.am-foot { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
 .lyr-modal { width: 680px; max-width: 100%; max-height: 78vh; display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; box-shadow: 0 28px 80px rgba(0,0,0,0.65); overflow: hidden; }
 .lyr-head { padding: var(--sp-6) var(--sp-8) var(--sp-4); }
 .lyr-head-row { display: flex; align-items: center; gap: var(--sp-3); }
