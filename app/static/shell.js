@@ -340,8 +340,15 @@ window.Shell = (function () {
         msg0.textContent = '적용 중…';
         fetch('/api/songs/' + songId + '/lyrics/paste', {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: text }),
-        }).then(function (r) { if (!r.ok) throw 0; return refreshMeta(); })
-          .then(function () { close(); })
+        }).then(function (r) { if (!r.ok) throw 0; return r.json(); })
+          .then(function (res) {
+            if (res && res.pending) {
+              // 골격(ASR)이 없어 받아쓰기부터 — 완료되면 자동으로 얹힌다(가사 폴링이 반영). 모달은 안내 후 닫음.
+              msg0.textContent = '먼저 받아쓰기로 즉흥(애드립)을 잡는 중이에요 — 잠시 뒤 자동으로 반영돼요';
+              return refreshMeta().then(function () { setTimeout(close, 1800); });
+            }
+            return refreshMeta().then(close);
+          })
           .catch(function () { msg0.textContent = '적용 중 문제가 있었어요 — 다시 시도해주세요'; });
         return;
       }

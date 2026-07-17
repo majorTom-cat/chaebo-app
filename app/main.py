@@ -349,45 +349,17 @@ class LyricPaste(BaseModel):
     text: str
 
 
-def _kchars(s):
-    return {c for c in (s or "") if "가" <= c <= "힣"}  # 한글 음절만(공백·기호·오타영향 줄임)
-
-
-def _best_run(cands):
-    """공식 줄 인덱스 후보 중 '연속된' 최장 구간을 고른다(한 ASR 세그가 여러 공식 줄을 뭉친 경우 그 줄들)."""
-    if not cands:
-        return []
-    best, cur = [cands[0]], [cands[0]]
-    for i in cands[1:]:
-        if i == cur[-1] + 1:
-            cur.append(i)
-        else:
-            if len(cur) > len(best):
-                best = cur
-            cur = [i]
-    return cur if len(cur) > len(best) else best
-
-
-def _split_span_by_lines(s0, e0, lines):
-    """뭉친 세그먼트의 시간범위 [s0,e0]를 공식 줄들에 '글자수 비례'로 균등 분배 → 각 줄 (텍스트, 시작, 끝).
-    받아쓰기 오타에 강건(글자매칭 의존 안 함) — 옛 방식은 오타 심한 줄이 시간을 거의 못 받아(0.5s) 단어가
-    겹쳐 보였다(사용자 지적 2026-07-17: 가사 겹침). 줄 길이 비례라 각 줄이 부르는 만큼 폭을 갖는다."""
-    lens = [max(1, len(_kchars(l))) for l in lines]
-    tot = sum(lens) or 1
-    span = max(0.4, e0 - s0)
-    res, t = [], s0
-    for line, ln in zip(lines, lens):
-        te = t + span * ln / tot
-        res.append((line, t, te))
-        t = te
-    return res
+# 붙여넣기 배치 로직(_kchars·_best_run·_split_span_by_lines·오버레이)은 app/lyrics_paste.py 로 이관 —
+# 웹(paste_lyrics)과 잡(_process_lyrics '똑똑한 붙여넣기')이 같은 순수 함수를 쓰게 해 두 벌 드리프트 방지.
 
 
 @app.post("/api/songs/{song_id}/lyrics/paste")
 async def paste_lyrics(song_id: int, body: LyricPaste):
-    """가사 통째 붙여넣기(사용자 요청 2026-07-17: LRCLIB 없는 워십 등). 웹에서 찾은 정확한 가사를 붙여넣으면
-    보컬 구간(기존 가사 시각 span)에 줄 순서대로 균등 배치 → 정확한 텍스트 + 근사 타이밍(줄별 미세조정은
-    '전체 가사' 모달). ASR 오타 대신 정확한 가사를 바로 넣는 경로."""
+    """공식 가사 붙여넣기 — ASR 골격(즉흥·반복 타임라인) 위에 얹어 정확한 텍스트+타이밍+애드립 보존.
+    ★골격이 없으면(유명곡이라 LRCLIB로 받아쓰기를 건너뛴 경우 등) whisper 받아쓰기를 먼저 자동으로 돌려
+    즉흥(애드립)을 잡은 뒤 그 위에 얹는다(사용자 요청 2026-07-18: 붙여넣기를 똑똑하게). 골격 없이 통짜로
+    붙이면 애드립 0 + 타이밍이 곡 전체에 균등 분산돼 오히려 어긋나던 것(실증)."""
+    from app.lyrics_paste import build_paste_result, has_usable_base
     song = await db.get_song(song_id)
     if not song or song["status"] != "ready":
         raise HTTPException(409, "먼저 곡 분리가 끝나야 가사를 넣을 수 있어요")
@@ -398,120 +370,20 @@ async def paste_lyrics(song_id: int, body: LyricPaste):
     cur = json.loads(row.get("lyrics") or "{}") if row else {}
     old = cur.get("segments") or []
     dur = float(song.get("duration") or 0)
-    n = len(lines)
-    src = "pasted"
-    # ★덧입히기(사용자 지적 2026-07-17: 라이브 즉흥 가사는 공식에 없어 통째 붙이면 안 맞음). 받아쓰기 타임라인
-    #   (라이브 전체·반복·즉흥까지 위치로 잡아둠) 위에 각 세그먼트마다 '글자 겹침' 최고 공식 줄을 매칭 —
-    #   잘 맞으면(≥0.5) 정확한 공식 글로 교체, 안 맞으면(=즉흥) 받아쓰기 초안 유지+표시(improv). 반복 자동 처리.
-    # ★★ASR 골격(base)을 보존한다(사용자 지적 2026-07-17: 한 번 붙여넣으면 ASR이 교체돼 다시 붙여넣기가
-    #   옛 붙여넣기 위에 얹혀 타이밍 틀리고 즉흥이 빔). base 우선, 없으면 현재가 ASR 원본이면 그걸 base로.
-    base = cur.get("base")
-    if not base and cur.get("source") not in ("lrclib", "pasted", "overlay") and len(old) >= 5:
-        base = old
-    if base and len(base) >= 5:
-        old = base  # 항상 원본 ASR 위에 덧입힘
-        off = [(_kchars(l), l) for l in lines]  # (글자집합, 공식줄) — 인덱스=원문 순서
-        segs = []
-        placed = {}  # 공식줄 인덱스 -> 배치된 시작시각들(누락 복구·중복판단용)
-
-        def _emit(i, s, e):
-            segs.append({"s": round(s, 2), "e": round(max(e, s + 0.4), 2),
-                         "text": off[i][1][:200], "manual": True})
-            placed.setdefault(i, []).append(s)
-
-        for o in old:
-            # ♪ placeholder(에너지로 찾은 애드립 자리) — 공식에 없는 라이브 즉흥, 매칭 대상 아님(직접 입력 안내)
-            if o.get("placeholder"):
-                s0 = round(float(o.get("s", 0)), 2)
-                e0 = round(float(o.get("e") or o.get("s", 0)) or (s0 + 2.0), 2)
-                segs.append({"s": s0, "e": e0, "text": "♪", "improv": True, "placeholder": True})
-                continue
-            s0 = round(float(o.get("s", 0)), 2)
-            e0 = round(float(o.get("e") or o.get("s", 0)) or (s0 + 2.0), 2)
-            ac = _kchars(o.get("text", ""))
-            # 이 ASR 세그에 '많이 담긴' 공식 줄들(≥0.55) — 워십 절은 두 줄을 한 악구로 불러 뭉치기 쉽다
-            conts = [(i, (len(ac & oc) / len(oc)) if oc else 0.0) for i, (oc, l) in enumerate(off)]
-            cand = [i for i, c in conts if c >= 0.55]
-            run = _best_run(cand)  # 연속한 공식 줄 구간(뭉친 줄들). 반복은 단일(재사용) 자동 처리.
-            if len(run) >= 2:
-                # ★뭉친 세그 → 글자수 비례로 줄마다 시간 나눠 배치(사용자 버그: '산과 바다에 넘치니' 누락 +
-                #   짧은 시간에 단어 겹침). 균등 분배라 각 줄이 부르는 만큼 폭을 갖고 안 겹친다.
-                for (line, ws, we), i in zip(_split_span_by_lines(s0, e0, [off[j][1] for j in run]), run):
-                    _emit(i, ws, we)
-            elif run:
-                _emit(run[0], s0, e0)
-            else:  # 즉흥 — 공식에 없음 → 받아쓰기 유지(초안), 표시
-                segs.append({"s": s0, "e": e0, "text": (o.get("text", "") or "")[:200], "improv": True})
-        # ★누락 공식 줄 복구(사용자 버그: 붙여넣은 줄 일부 무시). ASR 초안이 심하게 뭉개져 매칭 못한 줄도
-        #   사라지지 않게 — 원문 순서상 이웃 사이에 끼워 넣는다. 단, 반복되는 코러스를 이웃으로 잡으면
-        #   그 '가장 이른 등장'으로 떨어져 엉뚱한 이른 마디에 놓인다(사용자 지적: 브리지가 25마디에 나타남).
-        #   → 딱 한 번만 배치된 '유일한' 이웃만 앵커로 써 국소 위치를 잡는다(복구줄도 배치되면 유일 앵커가 됨).
-        def _uniq_before(i):
-            for j in range(i - 1, -1, -1):
-                if len(placed.get(j, [])) == 1:
-                    return placed[j][0]
-            return None
-
-        def _uniq_after(i):
-            for j in range(i + 1, len(off)):
-                if len(placed.get(j, [])) == 1:
-                    return placed[j][0]
-            return None
-
-        for i in range(len(off)):
-            if i in placed or not off[i][0]:
-                continue
-            b, f = _uniq_before(i), _uniq_after(i)
-            if b is not None and f is not None and b <= f:
-                t = (b + f) / 2
-            elif f is not None:
-                t = f - 0.5
-            elif b is not None:
-                t = b + 0.5
-            else:  # 유일 이웃이 없으면(전부 반복) 마지막 수단 — 이른 자리 대신 곡 뒤쪽(오배치보다 눈에 띄게)
-                any_t = [x for v in placed.values() for x in v]
-                t = (max(any_t) + 1.0) if any_t else 0.0
-            _emit(i, max(0.0, t), max(0.0, t) + 0.5)
-        segs.sort(key=lambda s: s["s"])
-        src = "overlay"
-    else:
-        # 받아쓰기 없음/부실 → 붙여넣은 줄마다 고유 시각(보간). 받아쓰기 시각 앵커, 부실하면 곡 전체 균등.
-        anchors = sorted({round(float(o.get("s", 0)), 2) for o in old}) if old else []
-        if old:
-            le = round(float(old[-1].get("e") or old[-1].get("s", 0)), 2)
-            if not anchors or le > anchors[-1]:
-                anchors.append(le)
-        use_anchors = len(anchors) >= 3 and (not dur or (anchors[-1] - anchors[0]) >= dur * 0.3)
-        if not use_anchors:
-            lo = (dur * 0.05) if dur else (anchors[0] if anchors else 0.0)
-            hi = (dur * 0.95) if dur else (lo + max(1, n) * 3.0)
-            anchors = [round(lo, 2), round(hi, 2)]
-        A = len(anchors)
-
-        def _interp(frac):
-            x = frac * (A - 1)
-            k = min(A - 2, int(x))
-            return anchors[k] + (anchors[k + 1] - anchors[k]) * (x - k)
-
-        segs = []
-        prev = None
-        for i, l in enumerate(lines):
-            s = _interp(i / n)
-            e = _interp((i + 1) / n)
-            if prev is not None and s <= prev + 0.05:
-                s = prev + 0.3
-            if e <= s:
-                e = s + 1.2
-            segs.append({"s": round(s, 2), "e": round(e, 2), "text": l[:200], "manual": True})
-            prev = s
-    result = {"status": "ready", "language": "manual", "source": src, "segments": segs}
-    if src == "overlay" and base:  # ASR 골격 보존 — 다시 붙여넣어도 항상 원본 ASR 위에 얹히게(♪·단어시각 포함)
-        result["base"] = [{"s": o.get("s"), "e": o.get("e"), "text": o.get("text", ""),
-                           "words": o.get("words", []),  # 단어 시각 유지 — 재-붙여넣기 때 뭉친 절 재분할에 필요
-                           **({"placeholder": True} if o.get("placeholder") else {})} for o in base]
-    await db.upsert_transcription(song_id, lyrics=json.dumps(result, ensure_ascii=False))
-    await _regen_score_lyrics(song_id, result)  # 악보(오선 아래) 가사도 갱신
-    return {"ok": True, "count": len(segs), "source": src}
+    base = has_usable_base(cur)
+    if base:
+        # 골격 있음 → 즉시 오버레이(빠름, 종전 경로 유지)
+        result = build_paste_result(lines, old, base, dur)
+        await db.upsert_transcription(song_id, lyrics=json.dumps(result, ensure_ascii=False))
+        await _regen_score_lyrics(song_id, result)  # 악보(오선 아래) 가사도 갱신
+        return {"ok": True, "count": len(result["segments"]), "source": result["source"]}
+    # 골격 없음 → whisper 받아쓰기를 먼저 돌리고(즉흥 잡기), 완료되면 이 붙여넣기를 그 위에 얹는다(비동기).
+    # pending_old 로 이전 세그(예: LRCLIB 시각)를 보관 — ASR가 부실하면 그 앵커에 보간 폴백(가사 유실 방지).
+    await db.upsert_transcription(song_id, lyrics=json.dumps(
+        {"status": "running", "pending_paste": body.text, "force_asr": True, "pending_old": old},
+        ensure_ascii=False))
+    await jobs.queue.put(("lyrics", song_id))
+    return {"ok": True, "pending": True, "count": 0, "source": "asr-then-overlay"}
 
 
 async def _regen_score_lyrics(song_id: int, lyrics: dict):

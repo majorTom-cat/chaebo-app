@@ -339,35 +339,56 @@ async def _process_sections(song_id: int):
 async def _process_lyrics(song_id: int):
     """가사 — ①LRCLIB(사람이 옮긴 정확한 싱크 가사, 유명곡) 먼저 시도 → 있으면 그걸 사용(whisper 스킵).
     ②없으면 보컬 스템에 faster-whisper(small·CPU) 폴백. 결과 {status, language, segments:[{s,e,text}]}.
-    (사용자 지적 2026-07-17: ASR 가사 품질 나쁨 — LRCLIB 가 벤팅된 정답 경로, docs/licenses.md.)"""
+    ★똑똑한 붙여넣기(pending_paste): 골격 없는 붙여넣기가 whisper 를 먼저 요청한 것 — LRCLIB 를 건너뛰고
+    (force_asr) whisper 로 즉흥(애드립)을 잡은 뒤, 붙여넣은 공식 가사를 그 위에 얹어 저장한다."""
     vocals = stems_dir(song_id) / "vocals.wav"
     if not vocals.exists():
         raise RuntimeError("분리된 보컬이 아직 없어요")
-    await db.upsert_transcription(
-        song_id, lyrics=json.dumps({"status": "running"}, ensure_ascii=False))
-    # ① LRCLIB — 정확한 싱크 가사(있으면 whisper 안 돌림). 네트워크 blocking → executor. 실패 시 None(폴백).
+    # 붙여넣기가 남긴 요청(상태 덮기 전에 읽는다) — 있으면 whisper 강제 + 완료 후 오버레이
+    row0 = await db.get_transcription(song_id)
+    cur0 = json.loads(row0.get("lyrics") or "{}") if (row0 and row0.get("lyrics")) else {}
+    pending_paste = cur0.get("pending_paste")
+    force_asr = bool(cur0.get("force_asr"))
+    pending_old = cur0.get("pending_old") or []
+    running = {"status": "running"}
+    if pending_paste:  # 처리 중 재시작에도 요청 보존
+        running.update(pending_paste=pending_paste, force_asr=force_asr, pending_old=pending_old)
+    await db.upsert_transcription(song_id, lyrics=json.dumps(running, ensure_ascii=False))
     song = await db.get_song(song_id)
-    from app.lyrics_online import fetch_lrclib
-    loop = asyncio.get_event_loop()
-    lrc = await loop.run_in_executor(
-        None, fetch_lrclib, (song or {}).get("title") or "", (song or {}).get("artist"),
-        (song or {}).get("duration"))
-    if lrc and lrc.get("segments"):
-        result = {"status": "ready", "language": "auto", "source": "lrclib",
-                  "synced": lrc.get("synced", True), "segments": lrc["segments"]}
-        await db.upsert_transcription(song_id, lyrics=json.dumps(result, ensure_ascii=False))
-        await _regen_score_lyrics(song_id, result)
-        return
-    # ② 폴백: whisper ASR
+    # ① LRCLIB — 정확한 싱크 가사(있으면 whisper 안 돌림). force_asr(붙여넣기 즉흥잡기)면 건너뛴다.
+    if not force_asr:
+        from app.lyrics_online import fetch_lrclib
+        loop = asyncio.get_event_loop()
+        lrc = await loop.run_in_executor(
+            None, fetch_lrclib, (song or {}).get("title") or "", (song or {}).get("artist"),
+            (song or {}).get("duration"))
+        if lrc and lrc.get("segments"):
+            result = {"status": "ready", "language": "auto", "source": "lrclib",
+                      "synced": lrc.get("synced", True), "segments": lrc["segments"]}
+            await db.upsert_transcription(song_id, lyrics=json.dumps(result, ensure_ascii=False))
+            await _regen_score_lyrics(song_id, result)
+            return
+    # ② whisper ASR
     out_json = stems_dir(song_id) / "lyrics.json"
     code, tail = await _run(
         [config.PYTHON, "-m", "app.lyrics_worker", str(vocals), str(out_json)],
         cwd=config.BASE_DIR, heavy=True)
-    if code != 0 or not out_json.exists():
+    asr_segs, lang = [], None
+    if code == 0 and out_json.exists():
+        data = json.loads(out_json.read_text(encoding="utf-8"))
+        asr_segs, lang = data.get("segments") or [], data.get("language")
+    elif not pending_paste:
         raise RuntimeError(f"받아쓰기가 실패했어요. 마지막 로그: {tail[-300:]}")
-    data = json.loads(out_json.read_text(encoding="utf-8"))
-    result = {"status": "ready", "language": data.get("language"),
-              "segments": data.get("segments") or []}
+    if pending_paste:
+        # ASR 골격 위에 붙여넣은 공식 가사 오버레이(즉흥 보존). ASR 부실/실패면 이전 세그 앵커에 보간 —
+        # 어떤 경우든 붙여넣은 가사는 유지(유실 방지, 종전 통짜 붙이기보다 나쁘지 않게).
+        from app.lyrics_paste import build_paste_result
+        lines = [l.strip() for l in (pending_paste or "").splitlines() if l.strip()]
+        dur = float((song or {}).get("duration") or 0)
+        base = asr_segs if len(asr_segs) >= 5 else None
+        result = build_paste_result(lines, pending_old or asr_segs, base, dur)
+    else:
+        result = {"status": "ready", "language": lang, "segments": asr_segs}
     await db.upsert_transcription(song_id, lyrics=json.dumps(result, ensure_ascii=False))
     await _regen_score_lyrics(song_id, result)
 
