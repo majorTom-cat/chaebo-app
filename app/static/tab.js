@@ -234,8 +234,8 @@
 
   function renderFlow() {
     var inner = document.getElementById('flow-inner');
-    inner.querySelectorAll('.flow-bar-line, .flow-bar-num, .flow-count, .flow-string, .flow-fret, .flow-sustain, .flow-chord, .flow-lyric')
-      .forEach(function (el) { el.remove(); });
+    inner.querySelectorAll('.flow-bar-line, .flow-bar-num, .flow-count, .flow-string, .flow-fret, .flow-sustain, .flow-chord, .flow-lyric, .flow-bar-grip')
+      .forEach(function (el) { el.remove(); });  // ★.flow-bar-grip 누락 시 재렌더마다 그립 누적 → WebView2 노드 누수(코드검사 2026-07-17)
     if (!tab || !tab.notes || !tab.notes.length) return;
 
     var attack = {}, byG = {};

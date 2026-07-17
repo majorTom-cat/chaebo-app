@@ -24,8 +24,10 @@ def peaks_path(song_id: int):
 def ensure_gz(song_id: int):
     """gzip 사전압축본 경로 보장 — 매 방문 7.6MB 재전송이 최대 낭비였음(실측 2026-07-09).
     파일 응답이라 ETag/Last-Modified 가 붙어 재방문은 304(0바이트)."""
-    compute(song_id)  # json 캐시 보장
     src = peaks_path(song_id)
+    if not src.exists():
+        compute(song_id)  # json 캐시 '없을 때만' 생성 — 있으면 7.6MB 재파싱 낭비 제거(코드검사 2026-07-17).
+        #                    gz 재생성은 원본 bytes 만 필요(파싱된 dict 불필요)라 여기서 compute 결과를 안 씀.
     gz = src.with_suffix(".json.gz")
     if not gz.exists() or gz.stat().st_mtime < src.stat().st_mtime:
         gz.write_bytes(gzip.compress(src.read_bytes(), compresslevel=6))
