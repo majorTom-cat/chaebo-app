@@ -443,18 +443,34 @@ async def paste_lyrics(song_id: int, body: LyricPaste):
             else:  # 즉흥 — 공식에 없음 → 받아쓰기 유지(초안), 표시
                 segs.append({"s": s0, "e": e0, "text": (o.get("text", "") or "")[:200], "improv": True})
         # ★누락 공식 줄 복구(사용자 버그: 붙여넣은 줄 일부 무시). ASR 초안이 심하게 뭉개져 매칭 못한 줄도
-        #   사라지지 않게 — 원문 순서상 '다음에 배치된 줄' 바로 앞(없으면 '이전 줄' 뒤)에 끼워 넣는다.
+        #   사라지지 않게 — 원문 순서상 이웃 사이에 끼워 넣는다. 단, 반복되는 코러스를 이웃으로 잡으면
+        #   그 '가장 이른 등장'으로 떨어져 엉뚱한 이른 마디에 놓인다(사용자 지적: 브리지가 25마디에 나타남).
+        #   → 딱 한 번만 배치된 '유일한' 이웃만 앵커로 써 국소 위치를 잡는다(복구줄도 배치되면 유일 앵커가 됨).
+        def _uniq_before(i):
+            for j in range(i - 1, -1, -1):
+                if len(placed.get(j, [])) == 1:
+                    return placed[j][0]
+            return None
+
+        def _uniq_after(i):
+            for j in range(i + 1, len(off)):
+                if len(placed.get(j, [])) == 1:
+                    return placed[j][0]
+            return None
+
         for i in range(len(off)):
             if i in placed or not off[i][0]:
                 continue
-            fwd = next((j for j in range(i + 1, len(off)) if placed.get(j)), None)
-            bwd = next((j for j in range(i - 1, -1, -1) if placed.get(j)), None)
-            if fwd is not None:
-                t = min(placed[fwd]) - 0.6
-            elif bwd is not None:
-                t = max(placed[bwd]) + 0.6
-            else:
-                continue
+            b, f = _uniq_before(i), _uniq_after(i)
+            if b is not None and f is not None and b <= f:
+                t = (b + f) / 2
+            elif f is not None:
+                t = f - 0.5
+            elif b is not None:
+                t = b + 0.5
+            else:  # 유일 이웃이 없으면(전부 반복) 마지막 수단 — 이른 자리 대신 곡 뒤쪽(오배치보다 눈에 띄게)
+                any_t = [x for v in placed.values() for x in v]
+                t = (max(any_t) + 1.0) if any_t else 0.0
             _emit(i, max(0.0, t), max(0.0, t) + 0.5)
         segs.sort(key=lambda s: s["s"])
         src = "overlay"
