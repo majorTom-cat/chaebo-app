@@ -985,25 +985,10 @@
   }
 
   function placeLyrics() {
+    // ★가사는 이제 alphaTex 의 native {lyrics} 로 '표준 오선 아래'(제대로 된 악보 위치)에 렌더된다
+    //   (v0.7.0). 옛 커스텀 오버레이(.lyric-label, 탭 아래 카운트행)는 중복이라 끈다 — 정리만 수행.
     var overlay = document.getElementById('at-overlay');
-    overlay.querySelectorAll('.lyric-label').forEach(function (d) { d.remove(); });
-    var ly = tab && tab.lyrics;
-    if (!ly || ly.status !== 'ready' || !ly.segments || !ly.segments.length) return;
-    ly.segments.forEach(function (seg) {
-      if (seg.words && seg.words.length && !seg.manual) {
-        seg.words.forEach(function (w) {
-          placeLyricWord(w.w, w.s + 0.01, false, overlay);
-        });
-        return;
-      }
-      // 폴백(단어 시각 없음 — 구버전·직접 고친 소절): 소절 구간 안에 시간 균등 배치
-      var words = String(seg.text || '').split(/\s+/).filter(Boolean);
-      var span = Math.max(0.2, seg.e - seg.s);
-      words.forEach(function (word, k) {
-        var t = seg.s + span * (k + 0.15) / words.length;
-        placeLyricWord(word, t, !!seg.manual, overlay);
-      });
-    });
+    if (overlay) overlay.querySelectorAll('.lyric-label').forEach(function (d) { d.remove(); });
   }
 
   /* ---- 낮은 확신 점 + 보정 팝오버 (REQ-TAB-003) + 전체 편집 모드 (2026-07-08) ---- */

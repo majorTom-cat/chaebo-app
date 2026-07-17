@@ -510,7 +510,25 @@ async def paste_lyrics(song_id: int, body: LyricPaste):
                            "words": o.get("words", []),  # 단어 시각 유지 — 재-붙여넣기 때 뭉친 절 재분할에 필요
                            **({"placeholder": True} if o.get("placeholder") else {})} for o in base]
     await db.upsert_transcription(song_id, lyrics=json.dumps(result, ensure_ascii=False))
+    await _regen_score_lyrics(song_id, result)  # 악보(오선 아래) 가사도 갱신
     return {"ok": True, "count": len(segs), "source": src}
+
+
+async def _regen_score_lyrics(song_id: int, lyrics: dict):
+    """가사가 바뀌면 타브 악보(alphaTab)의 오선 아래 가사도 재생성한다(노트가 있을 때만). 저장된
+    키·코드를 재사용해 빠르게 tex만 다시 만든다(사용자 요청 2026-07-17: 흐름 탭뿐 아니라 악보에도 가사)."""
+    row = await db.get_transcription(song_id)
+    if not row or not row.get("notes") or not row.get("tex"):
+        return
+    song = await db.get_song(song_id)
+    if not song:
+        return
+    from app.tab_worker import build_tab_tex
+    tex = build_tab_tex(json.loads(row["notes"]), row["bpm"], song["title"][:80],
+                        json.loads(row.get("key_json") or "null"),
+                        json.loads(row.get("chords") or "null"),
+                        row.get("meter") or "4/4", row.get("grid_v") or 1, lyrics=lyrics)
+    await db.upsert_transcription(song_id, tex=tex)
 
 
 @app.post("/api/songs/{song_id}/sections", status_code=202)
@@ -569,6 +587,7 @@ async def edit_lyric(song_id: int, body: LyricEdit):
     else:
         segs.pop(body.index)
     await db.upsert_transcription(song_id, lyrics=json.dumps(data, ensure_ascii=False))
+    await _regen_score_lyrics(song_id, data)  # 악보 오선 아래 가사도 갱신
     return {"ok": True, "lyrics": data}
 
 
@@ -770,8 +789,10 @@ def _tex_from_notes(row, song, notes, key_override, existing_chords, bar_slots, 
     from app.tab_worker import effective_key, estimate_chords, merge_manual_chords, to_alphatex
     key = effective_key(notes, key_override)
     chords = merge_manual_chords(estimate_chords(notes, key, bar_slots=bar_slots), existing_chords)
+    _ly = row.get("lyrics")  # 편집해도 악보 오선 아래 가사 보존
+    lyrics = (json.loads(_ly) if isinstance(_ly, str) else _ly) if _ly else None
     tex = to_alphatex(notes, row["bpm"], song["title"][:80], key=key, chords=chords,
-                      meter=row.get("meter") or "4/4", families=families)
+                      meter=row.get("meter") or "4/4", families=families, lyrics=lyrics)
     return key, chords, tex
 
 

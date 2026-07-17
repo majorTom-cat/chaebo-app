@@ -1726,7 +1726,49 @@ def chroma_chords(stems_dir, notes, slots, bpm, offset, bar_slots, key=None):
     return [c for c in chords if c["label"] is not None]
 
 
-def to_alphatex(notes, bpm, title, key=None, chords=None, meter="4/4", families=None):
+def build_tab_tex(notes, bpm, title, key, chords, meter, grid_v, lyrics=None):
+    """tex 재생성 공통 진입점 — grid_v>=2 면 families(sanitize_mixed) 재계산 후 to_alphatex.
+    가사 변경 시 악보(오선 아래 가사) 갱신·편집 경로 공용. 순수 함수(db 접근 없음)라 순환 임포트 없음."""
+    ns, fam = (sanitize_mixed(notes) if (grid_v or 1) >= 2 and meter != "12/8" else (notes, None))
+    return to_alphatex(ns, bpm, title, key=key, chords=chords, meter=meter, families=fam, lyrics=lyrics)
+
+
+def _lyrics_by_gi(lyrics, notes):
+    """가사 단어를 '가장 가까운 노트(start)'에 붙여 {gi: [단어...]} 로 — 악보 오선 아래 가사(노래책 느낌).
+    ASR은 단어별 시각, 붙여넣기는 세그 텍스트를 [s,e]에 균등 분배. ♪ placeholder는 제외."""
+    out = {}
+    if not lyrics or lyrics.get("status") != "ready" or not notes:
+        return out
+    pairs = []  # (시각, 단어)
+    for seg in (lyrics.get("segments") or []):
+        if seg.get("placeholder"):
+            continue
+        ws = seg.get("words")
+        if ws:
+            for w in ws:
+                if (w.get("w") or "").strip():
+                    pairs.append((float(w["s"]), w["w"].strip()))
+        else:
+            toks = str(seg.get("text", "")).split()
+            s0 = float(seg.get("s", 0)); span = max(0.3, float(seg.get("e", s0)) - s0)
+            for k, w in enumerate(toks):
+                pairs.append((s0 + span * (k + 0.5) / max(1, len(toks)), w))
+    if not pairs:
+        return out
+    ns = sorted(notes, key=lambda n: n["start"])
+    starts = [n["start"] for n in ns]
+    for t, w in pairs:
+        j = bisect.bisect_left(starts, t)
+        cand = [x for x in (j - 1, j) if 0 <= x < len(ns)]
+        if not cand:
+            continue
+        best = min(cand, key=lambda x: abs(starts[x] - t))
+        if abs(starts[best] - t) <= 0.7:  # 0.7초 이내 노트에만(먼 가사는 안 붙임 — 간주 등)
+            out.setdefault(ns[best]["gi"], []).append(w)
+    return out
+
+
+def to_alphatex(notes, bpm, title, key=None, chords=None, meter="4/4", families=None, lyrics=None):
     """alphaTex 생성 — 베이스 표준(낮은음자리표 F4 + 조표 + 마디 코드), 튜닝 표기 G2 D2 A1 E1.
     그리드: 4/4 v1(마디 16칸, 균일 폴백) / 4/4 v2(마디 48칸 + families 로 박별 16분·셋잇단
     가족 — Longview 류 부분 셋잇단을 {tu 3} 괄호로 조판) / 12/8(마디 48칸, 펄스=8분)."""
@@ -1778,6 +1820,7 @@ def to_alphatex(notes, bpm, title, key=None, chords=None, meter="4/4", families=
         _prev_label = c["label"]
     # alphaTex 현 번호: 1=가장 높은 현(G2) → 우리 string 0(E1)=4
     slots = {nt["gi"]: nt for nt in notes}
+    gi_lyric = _lyrics_by_gi(lyrics, notes)  # {gi: [단어...]} — 오선 아래 가사
     slot_keys = sorted(slots)  # 쉼표 다음경계 조회용 정렬 키 — bisect O(log n)(코드검사 2026-07-17: 종전 매 쉼표 전수스캔 O(노트²))
     end_gi = max(slots) + slots[max(slots)]["glen"] if slots else bar_len
     bars = []
@@ -1829,6 +1872,8 @@ def to_alphatex(notes, bpm, title, key=None, chords=None, meter="4/4", families=
             if chord_pending:
                 effects.append(f'ch "{chord_pending}"')
                 chord_pending = None
+            if nt["gi"] in gi_lyric:  # 오선 아래 가사(노래책) — 이 노트에 붙은 단어
+                effects.append('lyrics "%s"' % " ".join(gi_lyric[nt["gi"]]).replace('"', ""))
             if effects:
                 token += "{" + " ".join(effects) + "}"
             bar.append(token)

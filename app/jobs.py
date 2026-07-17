@@ -343,9 +343,10 @@ async def _process_lyrics(song_id: int):
         None, fetch_lrclib, (song or {}).get("title") or "", (song or {}).get("artist"),
         (song or {}).get("duration"))
     if lrc and lrc.get("segments"):
-        await db.upsert_transcription(song_id, lyrics=json.dumps(
-            {"status": "ready", "language": "auto", "source": "lrclib",
-             "synced": lrc.get("synced", True), "segments": lrc["segments"]}, ensure_ascii=False))
+        result = {"status": "ready", "language": "auto", "source": "lrclib",
+                  "synced": lrc.get("synced", True), "segments": lrc["segments"]}
+        await db.upsert_transcription(song_id, lyrics=json.dumps(result, ensure_ascii=False))
+        await _regen_score_lyrics(song_id, result)
         return
     # ② 폴백: whisper ASR
     out_json = stems_dir(song_id) / "lyrics.json"
@@ -355,10 +356,26 @@ async def _process_lyrics(song_id: int):
     if code != 0 or not out_json.exists():
         raise RuntimeError(f"받아쓰기가 실패했어요. 마지막 로그: {tail[-300:]}")
     data = json.loads(out_json.read_text(encoding="utf-8"))
-    await db.upsert_transcription(
-        song_id, lyrics=json.dumps(
-            {"status": "ready", "language": data.get("language"),
-             "segments": data.get("segments") or []}, ensure_ascii=False))
+    result = {"status": "ready", "language": data.get("language"),
+              "segments": data.get("segments") or []}
+    await db.upsert_transcription(song_id, lyrics=json.dumps(result, ensure_ascii=False))
+    await _regen_score_lyrics(song_id, result)
+
+
+async def _regen_score_lyrics(song_id: int, lyrics: dict):
+    """가사가 생기면 타브 악보(alphaTab) 오선 아래 가사도 갱신 — 노트가 있을 때만(저장 키·코드 재사용)."""
+    row = await db.get_transcription(song_id)
+    if not row or not row.get("notes") or not row.get("tex"):
+        return
+    song = await db.get_song(song_id)
+    if not song:
+        return
+    from app.tab_worker import build_tab_tex
+    tex = build_tab_tex(json.loads(row["notes"]), row["bpm"], song["title"][:80],
+                        json.loads(row.get("key_json") or "null"),
+                        json.loads(row.get("chords") or "null"),
+                        row.get("meter") or "4/4", row.get("grid_v") or 1, lyrics=lyrics)
+    await db.upsert_transcription(song_id, tex=tex)
 
 
 async def _run(cmd: list[str], cwd=None, on_line=None, heavy=False, env_extra=None, song_id=None) -> tuple[int, str]:
