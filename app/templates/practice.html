@@ -48,6 +48,8 @@ html { overflow-anchor: none; }
 .lyr-list[hidden] { display: none; }
 /* 가사 붙여넣기 영역(사용자 요청 2026-07-17) */
 .lyr-paste { flex: 1; overflow-y: auto; padding: var(--sp-2) var(--sp-8) var(--sp-4); }
+.lyr-paste-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 4px 0 2px; }
+.lyr-paste-head .lyr-sub { flex: 1; min-width: 180px; }
 .lyr-paste textarea { width: 100%; box-sizing: border-box; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-sm); color: var(--text); font-size: 14px; line-height: 1.6; padding: 10px 12px; resize: vertical; min-height: 220px; margin-top: 8px; }
 .lyr-row { display: flex; align-items: center; gap: var(--sp-4); padding: 3px 0; border-radius: var(--r-sm); }
 .lyr-time { flex-shrink: 0; min-width: 44px; font-size: 11px; font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; text-align: center; background: var(--surface-2); border: 1px solid var(--border); border-radius: 999px; padding: 3px 8px; cursor: pointer; transition: color .12s, border-color .12s; }
@@ -739,7 +741,10 @@ body.anchoring { cursor: ew-resize; user-select: none; }
       </div>
       <div class="lyr-list" id="lyr-list"></div>
       <div class="lyr-paste" id="lyr-paste" hidden>
-        <p class="lyr-sub">웹에서 찾은 정확한 가사를 통째로 붙여넣으세요 (한 줄에 한 소절). 노래 구간에 순서대로 배치돼요 — 시각은 뒤에서 줄별로 미세조정할 수 있어요.</p>
+        <div class="lyr-paste-head">
+          <button type="button" class="btn btn-outline btn-sm" id="lyr-search-web" title="이 곡 가사를 인터넷에서 검색해요 — 결과에서 복사해 아래에 붙여넣으세요">🔎 인터넷에서 가사 찾기</button>
+          <span class="lyr-sub" style="margin:0">찾은 가사를 복사해 아래에 붙여넣으세요 (한 줄에 한 소절). 노래 구간에 순서대로 배치돼요.</span>
+        </div>
         <textarea id="lyr-paste-text" rows="10" placeholder="예)&#10;나를 향한 주의 사랑&#10;강과 바다에 넘치니&#10;내 마음 열매 주님 나에게&#10;참 자유 주셨네"></textarea>
       </div>
       <div class="lyr-foot">

@@ -280,6 +280,17 @@ window.Shell = (function () {
       if (saveBtn) saveBtn.textContent = on ? '붙여넣기 적용' : '저장';
     }
     if (pasteToggle) pasteToggle.addEventListener('click', function () { setPaste(!pasteMode); });
+    // '인터넷에서 가사 찾기' — 이 곡 제목·가수로 검색창을 연다(사용자 선택 2026-07-17: 가사 찾기 도우미).
+    var searchWeb = document.getElementById('lyr-search-web');
+    if (searchWeb) searchWeb.addEventListener('click', function () {
+      var tEl = document.querySelector('.practice-title');
+      var aEl = document.querySelector('.practice-artist');
+      var title = tEl ? ((tEl.childNodes[0] && tEl.childNodes[0].textContent) || tEl.textContent || '').trim() : '';
+      title = title.split(/[|/]/)[0].replace(/\([^)]*\)|\[[^\]]*\]|【[^】]*】/g, ' ').trim(); // 채널·태그 노이즈 제거
+      var artist = aEl ? aEl.textContent.trim() : '';
+      var q = (title + ' ' + artist + ' 가사').replace(/\s+/g, ' ').trim();
+      window.open('https://www.google.com/search?q=' + encodeURIComponent(q), '_blank', 'noopener');
+    });
     on('meta', function (t) {
       var ly = t.lyrics;
       btn.hidden = !(ly && ly.status === 'ready' && ly.segments && ly.segments.length);
