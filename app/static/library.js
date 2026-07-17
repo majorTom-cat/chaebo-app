@@ -144,14 +144,20 @@
     });
   }
 
+  var _lastSig = null;
   function refresh() {
     return fetch('/api/songs').then(function (r) { return r.json(); }).then(function (data) {
       songs = data;
+      // 폴링마다 전 카드 재구성 낭비 방지 — 변경(상태·진행률·메타) 없으면 스킵(코드검사 2026-07-17)
+      var sig = JSON.stringify(data.map(function (s) { return [s.id, s.status, s.progress, s.title, s.artist, s.description]; }));
+      if (sig === _lastSig) return;
+      _lastSig = sig;
       render();
     });
   }
 
-  search.addEventListener('input', render);
+  var _searchT = 0;
+  search.addEventListener('input', function () { clearTimeout(_searchT); _searchT = setTimeout(render, 150); }); // 타이핑 디바운스
 
   fetch('/api/system').then(function (r) { return r.json(); }).then(function (d) {
     window.__device = d.device;

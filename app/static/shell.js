@@ -209,6 +209,8 @@ window.Shell = (function () {
       cur.textContent = '다시 계산 중… (몇 초)';
       document.getElementById('bpm-half').disabled = true;
       document.getElementById('bpm-double').disabled = true;
+      // 실패/에러 시에도 버튼을 반드시 재활성화(코드검사 2026-07-17: 성공 경로만 renderCurrent 하던 stuck UI)
+      function reenable() { document.getElementById('bpm-half').disabled = false; document.getElementById('bpm-double').disabled = false; }
       fetch('/api/songs/' + songId + '/tab', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tempo: target }),
@@ -220,10 +222,11 @@ window.Shell = (function () {
             else if (t.status === 'error') {
               clearInterval(pollTimer);
               cur.textContent = t.error || '다시 계산에 실패했어요';
+              reenable();
             }
-          });
+          }).catch(function () { clearInterval(pollTimer); cur.textContent = '다시 계산 중 문제가 있었어요'; reenable(); });
         }, 2000);
-      });
+      }).catch(function () { cur.textContent = '요청을 보내지 못했어요 — 다시 시도해 주세요'; reenable(); });
     }
     document.getElementById('bpm-half').addEventListener('click', function () { applyTempo('half'); });
     document.getElementById('bpm-double').addEventListener('click', function () { applyTempo('double'); });

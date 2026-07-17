@@ -1082,6 +1082,7 @@ async def add_song_by_file(file: UploadFile = File(...)):
     size = 0
     limits = await db.get_limits()
     limit = limits["max_file_mb"] * 1024 * 1024
+    _loop = asyncio.get_event_loop()
     with open(dest, "wb") as f:
         while chunk := await file.read(1024 * 1024):
             size += len(chunk)
@@ -1090,7 +1091,7 @@ async def add_song_by_file(file: UploadFile = File(...)):
                 dest.unlink(missing_ok=True)
                 await db.delete_song(song_id)
                 raise HTTPException(413, f"파일이 너무 커요. {limits['max_file_mb']}MB 이하만 올릴 수 있어요")
-            f.write(chunk)
+            await _loop.run_in_executor(None, f.write, chunk)  # 동기 write 오프로드 — 이벤트루프 블로킹 방지(코드검사 2026-07-17)
     await jobs.queue.put(song_id)
     return await db.get_song(song_id)
 

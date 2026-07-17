@@ -9,6 +9,7 @@
   var barsCount = 0;
   var curBar = -1;
   var meta = null; // 분석 메타(slots·bar_slots·offset·chords…) — 셸 브로드캐스트 수신
+  var _gridDirty = false; // 비활성 중 메타 변경 → 활성화 때 renderGrid 1회(코드검사 2026-07-17)
 
   /* ---- 현재 마디 하이라이트 — 재생 진행을 코드 격자 위에 ---- */
   function timeToBar(t) {
@@ -90,8 +91,12 @@
         (kd ? '키 ' + kd + ' · ' : '') + 'BPM ' + bpmDisp + ' · ' + (t.meter || '4/4');
       document.getElementById('chord-grid').hidden = false;
       document.getElementById('sheet-empty').hidden = true;
-      renderGrid();
-      highlightBar(Shell.visualTime());
+      if (Shell.active() === 'chords') {  // 비활성이면 재렌더 스킵(코드검사: refreshMeta·폴링마다 격자 전량 재생성 낭비)
+        renderGrid();
+        highlightBar(Shell.visualTime());
+      } else {
+        _gridDirty = true;  // 코드뷰 활성화 때 1회 렌더
+      }
       metaOnce();
     } else {
       document.getElementById('chord-grid').hidden = true;
@@ -291,6 +296,9 @@
         window.__chordsReady = true;
       });
     },
-    activate: function () { highlightBar(Shell.visualTime()); },
+    activate: function () {
+      if (_gridDirty && meta) { renderGrid(); _gridDirty = false; }  // 비활성 중 밀린 메타 반영
+      highlightBar(Shell.visualTime());
+    },
   });
 })();

@@ -462,6 +462,7 @@ async def _process(song_id: int):
 
 async def _probe_duration(src: Path) -> float | None:
     """ffprobe(전 포맷) → 실패 시 soundfile(wav/flac) 순."""
+    proc = None
     try:
         proc = await asyncio.create_subprocess_exec(
             "ffprobe", "-v", "error", "-show_entries", "format=duration",
@@ -471,6 +472,12 @@ async def _probe_duration(src: Path) -> float | None:
         out, _ = await asyncio.wait_for(proc.communicate(), timeout=30)
         return float(out.decode().strip())
     except Exception:  # noqa: BLE001
+        if proc is not None and proc.returncode is None:  # 타임아웃 등 — 고아 방지(코드검사 2026-07-17)
+            try:
+                proc.kill()
+                await proc.wait()
+            except Exception:  # noqa: BLE001
+                pass
         try:
             import soundfile as sf
             return float(sf.info(str(src)).duration)

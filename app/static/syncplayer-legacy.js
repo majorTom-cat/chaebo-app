@@ -270,6 +270,7 @@
       g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.07);
       osc.connect(g);
       g.connect(this._metroCtx.destination);
+      osc.onended = function () { try { osc.disconnect(); g.disconnect(); } catch (e) {} }; // 노드 누수 방지(활성 엔진과 동일, 코드검사 2026-07-17)
       osc.start(t0);
       osc.stop(t0 + 0.1);
     }

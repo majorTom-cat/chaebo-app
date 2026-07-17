@@ -450,8 +450,10 @@
     }
     updateCurrentChord();
     updateNowLyric();
-    trainerTick(t);
   }, 'mixer');
+  // ★스피드 트레이너(랩 카운트·자동 배속상승)는 상태 로직이라 뷰 무관하게 돌아야 함 — 전역 tick으로 분리.
+  //   (코드검사 2026-07-17: 믹서 스코프에 묶여 타브/코드 뷰로 넘어가면 조용히 동결됐음. trainer 없으면 즉시 반환.)
+  Shell.on('tick', function () { trainerTick(visualTime()); });
   Shell.on('seek', function () { renderOverlay(); updateCurrentChord(true); updateNowLyric(true); }, 'mixer');
   Shell.on('loop', function () { renderOverlay(); renderChips(); }, 'mixer');
   Shell.on('sync', function () { renderOverlay(); updateCurrentChord(true); updateNowLyric(true); }, 'mixer');
@@ -467,13 +469,16 @@
       // 줌 상태에서 휠 = 좌우 이동 (한 칸당 창의 4% — 사용자 피드백: 10%는 너무 빠름).
       // ★파형 레인(과 룰러) 위에서만 좌우 이동. 솔로·음소거·세로 등 컨트롤 위에선 개입하지 않아
       // 평소처럼 세로 스크롤이 되게 한다(사용자 요청 2026-07-14).
+      var _wheelRAF = 0;
       document.querySelector('.stem-deck').addEventListener('wheel', function (e) {
         if (zoom === 1) return;
         if (!e.target.closest('.stem-lane-cell') && !e.target.closest('.deck-ruler-cell')) return;
         e.preventDefault();
         viewStart += (e.deltaY / 100) * windowDur() * 0.04;
         clampView();
-        drawWaves();
+        if (!_wheelRAF) _wheelRAF = requestAnimationFrame(function () {  // 프레임당 1회로 코얼레싱(코드검사: 휠 연타 시 전량 재그리기 스래싱)
+          _wheelRAF = 0; drawWaves();
+        });
       }, { passive: false });
 
       /* 솔로/음소거/볼륨 */
