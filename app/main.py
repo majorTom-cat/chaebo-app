@@ -367,10 +367,15 @@ async def paste_lyrics(song_id: int, body: LyricPaste):
     n = len(lines)
     src = "pasted"
     # ★덧입히기(사용자 지적 2026-07-17: 라이브 즉흥 가사는 공식에 없어 통째 붙이면 안 맞음). 받아쓰기 타임라인
-    #   (라이브 전체·반복·즉흥까지 위치로 잡아둠)이 있으면, 각 받아쓰기 세그먼트에 '글자 겹침'이 가장 큰 공식
-    #   줄을 매칭 — 잘 맞으면(≥0.5) 정확한 공식 글로 교체, 안 맞으면(=즉흥) 받아쓰기 초안을 유지+표시(improv).
-    #   반복은 각 occurrence가 공식 글을 받아 자동 처리. (프로토타입 검증: 부정확한 ASR도 88·60% 매칭.)
-    if len(old) >= 5 and cur.get("source") != "lrclib":
+    #   (라이브 전체·반복·즉흥까지 위치로 잡아둠) 위에 각 세그먼트마다 '글자 겹침' 최고 공식 줄을 매칭 —
+    #   잘 맞으면(≥0.5) 정확한 공식 글로 교체, 안 맞으면(=즉흥) 받아쓰기 초안 유지+표시(improv). 반복 자동 처리.
+    # ★★ASR 골격(base)을 보존한다(사용자 지적 2026-07-17: 한 번 붙여넣으면 ASR이 교체돼 다시 붙여넣기가
+    #   옛 붙여넣기 위에 얹혀 타이밍 틀리고 즉흥이 빔). base 우선, 없으면 현재가 ASR 원본이면 그걸 base로.
+    base = cur.get("base")
+    if not base and cur.get("source") not in ("lrclib", "pasted", "overlay") and len(old) >= 5:
+        base = old
+    if base and len(base) >= 5:
+        old = base  # 항상 원본 ASR 위에 덧입힘
         def _kchars(s):
             return {c for c in (s or "") if "가" <= c <= "힣"}
         off = [(_kchars(l), l) for l in lines]
@@ -420,8 +425,10 @@ async def paste_lyrics(song_id: int, body: LyricPaste):
                 e = s + 1.2
             segs.append({"s": round(s, 2), "e": round(e, 2), "text": l[:200], "manual": True})
             prev = s
-    await db.upsert_transcription(song_id, lyrics=json.dumps(
-        {"status": "ready", "language": "manual", "source": src, "segments": segs}, ensure_ascii=False))
+    result = {"status": "ready", "language": "manual", "source": src, "segments": segs}
+    if src == "overlay" and base:  # ASR 골격 보존 — 다시 붙여넣어도 항상 원본 ASR 위에 얹히게
+        result["base"] = [{"s": o.get("s"), "e": o.get("e"), "text": o.get("text", "")} for o in base]
+    await db.upsert_transcription(song_id, lyrics=json.dumps(result, ensure_ascii=False))
     return {"ok": True, "count": len(segs), "source": src}
 
 
