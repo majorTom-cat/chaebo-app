@@ -225,13 +225,15 @@
     }
     if (t.status !== 'ready' || !t.bpm || !t.chords || !t.chords.length) return;
     var BS = t.bar_slots || 16;
-    var barDur = (BS / 4) * (60 / t.bpm); // 균일 폴백 — 동적 그리드(slots)가 있으면 그것을
+    // 슬롯(16분 상당) 시간 — 혼합격자(48·비12/8)는 박당 12칸이라 /12. tab.js uSlotDur 와 일치.
+    // (코드검사 2026-07-17: 종전 (60/bpm)/4 고정이라 48격자·동적slots부재 곡에서 3배 어긋남)
+    var slotDur = (60 / t.bpm) / (BS === 48 && t.meter !== '12/8' ? 12 : 4);
     function slotTime(g) {
       if (t.slots && t.slots.length) {
         if (g < t.slots.length) return t.slots[g];
-        return t.slots[t.slots.length - 1] + (g - t.slots.length + 1) * barDur / BS;
+        return t.slots[t.slots.length - 1] + (g - t.slots.length + 1) * slotDur;
       }
-      return (t.offset || 0) + g * barDur / BS;
+      return (t.offset || 0) + g * slotDur;
     }
     var points = [];
     t.chords.slice().sort(function (a, b) {
