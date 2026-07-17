@@ -365,26 +365,37 @@ async def paste_lyrics(song_id: int, body: LyricPaste):
     old = cur.get("segments") or []
     dur = float(song.get("duration") or 0)
     n = len(lines)
-    # ★타이밍 — 균등분배(한 줄이 곡 전체로 길어짐)가 아니라, 기존 받아쓰기 세그먼트 '시각'에 붙여넣은 줄을
-    #   비례 매핑(사용자 지적 2026-07-17). 받아쓰기는 실제 부른 순간마다 세그먼트가 있어(반복 포함 타임라인)
-    #   거기에 얹으면 줄이 실제 노래 위치에 놓인다. 받아쓰기 없으면 곡 전체 균등 폴백.
-    if old and len(old) >= 1:
-        starts = [float(o.get("s", 0)) for o in old]
-        last_e = float(old[-1].get("e") or old[-1].get("s", 0)) or (starts[-1] + 3.0)
-        m = len(starts)
-        segs = []
-        for i, l in enumerate(lines):
-            j = min(m - 1, int(i * m / n))                     # 이 줄이 얹힐 세그먼트(비례)
-            s = starts[j]
-            e = starts[min(m - 1, int((i + 1) * m / n))] if i + 1 < n else last_e
-            if e <= s:
-                e = s + 2.0
-            segs.append({"s": round(s, 2), "e": round(e, 2), "text": l[:200], "manual": True})
-    else:
-        t0, t1 = (dur * 0.04 if dur else 0.0), (dur * 0.96 if dur else float(n))
-        span = max(1.0, t1 - t0)
-        segs = [{"s": round(t0 + span * i / n, 2), "e": round(t0 + span * (i + 1) / n, 2),
-                 "text": l[:200], "manual": True} for i, l in enumerate(lines)]
+    # ★타이밍 — 붙여넣은 줄마다 '고유 시각'을 준다(사용자 지적 2026-07-17: 세그먼트 적은 곡에서 여러 줄이
+    #   같은 시각으로 뭉쳐 겹쳐 보임 — 실증 song17 받아쓰기 1개). 받아쓰기 세그먼트 시각들을 앵커로 '보간'해
+    #   n개의 서로 다른 증가 시각을 만든다. 받아쓰기가 부실하면(세그먼트<3 or 스팬<곡30%) 곡 전체 균등으로.
+    anchors = sorted({round(float(o.get("s", 0)), 2) for o in old}) if old else []
+    if old:
+        le = round(float(old[-1].get("e") or old[-1].get("s", 0)), 2)
+        if not anchors or le > anchors[-1]:
+            anchors.append(le)
+    use_anchors = len(anchors) >= 3 and (not dur or (anchors[-1] - anchors[0]) >= dur * 0.3)
+    if not use_anchors:  # 받아쓰기가 노래 구간을 못 덮음 → 곡 전체(앞뒤 여백) 균등
+        lo = (dur * 0.05) if dur else (anchors[0] if anchors else 0.0)
+        hi = (dur * 0.95) if dur else (lo + max(1, n) * 3.0)
+        anchors = [round(lo, 2), round(hi, 2)]
+    A = len(anchors)
+
+    def _interp(frac):
+        x = frac * (A - 1)
+        k = min(A - 2, int(x))
+        return anchors[k] + (anchors[k + 1] - anchors[k]) * (x - k)
+
+    segs = []
+    prev = None
+    for i, l in enumerate(lines):
+        s = _interp(i / n)
+        e = _interp((i + 1) / n)
+        if prev is not None and s <= prev + 0.05:  # 엄격 증가 — 겹침 원천 차단
+            s = prev + 0.3
+        if e <= s:
+            e = s + 1.2
+        segs.append({"s": round(s, 2), "e": round(e, 2), "text": l[:200], "manual": True})
+        prev = s
     await db.upsert_transcription(song_id, lyrics=json.dumps(
         {"status": "ready", "language": "manual", "source": "pasted", "segments": segs}, ensure_ascii=False))
     return {"ok": True, "count": n}
