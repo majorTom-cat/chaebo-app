@@ -1131,10 +1131,22 @@
     box.hidden = !box.children.length;
   }
 
+  // 주법(아티큘레이션) 토글 상태 — 자동 검출은 추정 초안이라 음마다 직접 넣고 뺄 수 있게(정직 UI)
+  var ARTIC_LABEL = { ac: '세게(>)', sl: '슬라이드', h: '해머·풀오프' };
+  function fillArtic(noteIdx) {
+    var box = document.getElementById('corr-artic');
+    if (!box) return;
+    var art = tab.notes[noteIdx].art || [];
+    Array.prototype.forEach.call(box.querySelectorAll('button[data-art]'), function (b) {
+      b.classList.toggle('artic-on', art.indexOf(b.dataset.art) >= 0);
+    });
+  }
+
   function openPopover(noteIdx, beatBounds) {
     document.getElementById('at-overlay').appendChild(popover); // 흐름 뷰에 가 있었을 수 있음
     editing = { noteIdx: noteIdx };
     fillAlts(noteIdx);
+    fillArtic(noteIdx);
     popover.hidden = false;
     // 팝오버는 그 줄(오선+타브+카운트) 전체 아래 — 위에 띄우면 타브 숫자를 가림(사용자 실증 2026-07-09)
     var tabBot = tabBotByRowY[Math.round(beatBounds.barY != null ? beatBounds.barY : beatBounds.y)];
@@ -1338,6 +1350,26 @@
       n.midi -= 1; n.conf = 1.0; n.edit = '음높이 반음 내림'; reassignFret(n);
     });
     closePopover(); saveNotes();
+  });
+  // 주법 토글(세게/슬라이드/해머·풀오프) — 자동 초안(추정)을 음마다 넣고 빼는 수동 경로(정직 UI).
+  // '같은 자리 전부 적용'(corr-all)과도 조합됨 — 반복 리프의 악센트 일괄 지정.
+  Array.prototype.forEach.call(document.querySelectorAll('#corr-artic button[data-art]'), function (btn) {
+    btn.addEventListener('click', function () {
+      if (!editing) return;
+      var code = btn.dataset.art;
+      var nt = tab.notes[editing.noteIdx];
+      var on = (nt.art || []).indexOf(code) < 0; // 지금 없으면 '넣기'
+      pushUndo();
+      var label = '주법 ' + (on ? '넣음' : '뺌') + ': ' + ARTIC_LABEL[code];
+      markRecent(nt.gi, label);
+      editTargets(nt).forEach(function (n) {
+        var a = (n.art || []).filter(function (x) { return x !== code; });
+        if (on) a.push(code);
+        if (a.length) n.art = a; else delete n.art;
+        n.edit = label;
+      });
+      closePopover(); saveNotes();
+    });
   });
   function moveNote(d) {
     if (!editing) return;

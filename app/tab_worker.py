@@ -164,6 +164,7 @@ def detect_notes_onset(x, sr):
     if not kept:
         return [], 0.0
     ont = [k * fd for k in kept]
+    envmax = float(env.max()) + 1e-9  # velocity(강약) 정규화 기준 — 악센트/셈여림 표기용
     f0, per = track_pitch(x, sr)  # CPU 수 분 — 가장 오래 걸리는 단계
     ph = HOP_SEC
     nf0 = len(f0)
@@ -183,8 +184,15 @@ def detect_notes_onset(x, sr):
         if int(vm.sum()) < 2:  # 무성 onset(피치 없음) — 픽은 있으나 음정 불명(타악·잡음) → 제외
             continue
         m = float(np.median(midi_all[a:b][vm])) - tune
+        e0 = int(t0 / fd); e1 = max(e0 + 1, int(t1 / fd))  # 이 음의 진폭 봉우리 → velocity(강약)
+        vel = int(np.clip(float(env[e0:e1].max()) / envmax, 0, 1) * 127)
+        # 음 안 피치 곡선(pc) — 슬라이드/해머 분류 재료(캐시 이후 판정 가능하게 검출 시 저장).
+        # 20ms(2프레임) 간격, 튠 보정 midi, 무성 프레임은 None. pc[i] = start+0.03 + i*0.02 초 시점.
+        pc = [round(float(midi_all[i] - tune), 2) if conf[i] > PERIODICITY_LOW else None
+              for i in range(a, b, 2)]
         notes.append({"start": round(t0, 3), "dur": round(t1 - t0, 3),
-                      "midi": int(round(m)), "conf": round(float(np.median(segc[vm])), 2)})
+                      "midi": int(round(m)), "conf": round(float(np.median(segc[vm])), 2),
+                      "vel": vel, "pc": pc})
     return notes, round(tune * 100, 1)
 
 
@@ -1768,6 +1776,220 @@ def _lyrics_by_gi(lyrics, notes):
     return out
 
 
+_PC_HOP = 0.02   # pc(음 안 피치 곡선) 샘플 간격(초) — detect_notes_onset 과 합의된 값
+_PC_SKIP = 0.03  # pc[0] 의 음 시작 대비 지연(어택 스킵) — detect 의 t0+0.03 과 동일
+
+
+def _strip_pc(notes):
+    """pc(피치 곡선)는 분류 재료 — 최종 notes(DB·프런트)로는 안 내보냄(용량·잡음). 사본 반환."""
+    return [{k: v for k, v in n.items() if k != "pc"} for n in notes]
+
+
+def classify_articulations(notes):
+    """슬라이드·해머/풀오프 자동 초안 — 검출 시 저장한 음별 피치 곡선(pc)로 판정(리서치 Abeßer 계열,
+    docs/tab-articulations-design-2026-07-18.md §3-4). 미검출 편향(임계 보수적 — 틀린 슬라이드가 빠진
+    슬라이드보다 나쁨). pc 없는 노트(bp/기타 경로)는 건너뜀. 반환은 사본(원본 raw_notes=캐시 정본 불변).
+
+    - 슬라이드: 음 안 F0 가 한 방향으로 ≥1.8반음 램프(≥60ms·역행 비율 ≤25%) 후 목적음에 도달 —
+      origin+dest 로 쪼개고 origin 에 'sl'(다음 음으로 빗금+sl. 조판).
+    - 해머/풀오프: 두 안정 플래토(각 ≥80ms·흔들림 ≤0.35반음)가 1~2반음 차이로 ≤40ms 안에 계단 전이,
+      전이 지점에 어택(픽) 없음(onset 검출이 이미 픽마다 음을 나눴으므로 음 '안' 전이 = 어택 없음) —
+      쪼개고 origin 에 'h'(alphaTab 이 상행 H/하행 P 자동 라벨).
+    조절: CHAEBO_SLIDE_MIN(반음, 기본 1.8)·CHAEBO_ARTIC=0(호출부 끔)."""
+    slide_min = float(os.environ.get("CHAEBO_SLIDE_MIN", "1.8"))
+    out = []
+    for n in notes:
+        pc = n.get("pc")
+        if not pc:
+            out.append({k: v for k, v in n.items() if k != "pc"})
+            continue
+        vi = [(i, v) for i, v in enumerate(pc) if v is not None]
+        base = {k: v for k, v in n.items() if k != "pc"}
+        if len(vi) < 6:  # <120ms 유성 — 판정 불가(보수적 통과)
+            out.append(base)
+            continue
+        vals = [v for _, v in vi]
+        s = float(np.median(vals[:3]))
+        e = float(np.median(vals[-3:]))
+        delta = e - s
+        split_at = None  # (pc 인덱스, 종류)
+        # ★과검출 가드(실측 2026-07-18: 곡6 Billie Jean=슬라이드 거의 없는 곡인데 87개(8%) 오검):
+        #   CREPE(tiny) 가 음 안에서 옥타브/배음으로 튀는 궤적이 '램프'로 위장한다. ①총 이동 ≤7반음
+        #   (한 지속 안 10반음 슬라이드는 베이스에서 비현실) ②표본당 이동 ≤1.2반음(20ms — 진짜 슬라이드는
+        #   연속, 옥타브 플립은 계단) ③도착 후 플래토 안정(마지막 3표본 흔들림 ≤0.4반음).
+        if slide_min <= abs(delta) <= 7.0 and float(np.std(vals[-3:])) <= 0.4:
+            # 램프 구간: s±0.5 를 벗어난 첫 지점 ~ e±0.5 에 든 첫 지점
+            sgn = 1.0 if delta > 0 else -1.0
+            i_dep = next((i for i, v in vi if abs(v - s) > 0.5), None)
+            i_arr = next((i for i, v in vi if abs(v - e) <= 0.5 and (v - s) * sgn > 0.5), None)
+            if i_dep is not None and i_arr is not None and i_arr > i_dep:
+                ramp_ms = (i_arr - i_dep) * _PC_HOP * 1000
+                seg = [v for i, v in vi if i_dep <= i <= i_arr]
+                steps = np.diff(seg)
+                against = int((steps * sgn < -0.05).sum())
+                if (ramp_ms >= 60 and len(steps) > 0 and against <= len(steps) * 0.25
+                        and float(np.abs(steps).max()) <= 1.2):
+                    split_at = ((i_dep + i_arr) // 2, "sl")
+            if split_at is None and abs(delta) <= 2.3:
+                # 해머/풀오프: 급격 계단(≤40ms=2샘플) + 양쪽 플래토 안정
+                for j in range(1, len(vi)):
+                    i0, v0 = vi[j - 1]
+                    i1, v1 = vi[j]
+                    if i1 - i0 > 2 or not (0.7 <= abs(v1 - v0) <= 2.5):
+                        continue
+                    pre = [v for i, v in vi if i <= i0]
+                    post = [v for i, v in vi if i >= i1]
+                    if (len(pre) >= 4 and len(post) >= 4
+                            and float(np.std(pre)) <= 0.35 and float(np.std(post)) <= 0.35
+                            and abs(float(np.median(post)) - float(np.median(pre))) >= 0.7):
+                        split_at = (i0, "h")
+                        break
+        if split_at is None:
+            out.append(base)
+            continue
+        idx, kind = split_at
+        t_split = _PC_SKIP + (idx + 1) * _PC_HOP  # 음 시작 대비 초
+        rest = float(n["dur"]) - t_split
+        if t_split < 0.08 or rest < 0.08:  # 너무 짧은 조각 — 그리드에서 뭉개짐(분할 포기)
+            out.append(base)
+            continue
+        # 분할 음정이 연주 음역(E1~) 밖이면 포기 — assign_frets 옥타브 접기가 쌍의 한쪽만 ±12 해
+        # 2반음 해머가 10반음 쌍으로 벌어짐(실측 곡13 64.8s: 27→29 가 39→29 로). CREPE 저역 사각
+        # 구간이라 음정 자체도 불안정. [[tab-low-note-crepe-fmin-blindspot]]
+        if not (OPEN_STRINGS[0] <= round(s) <= OPEN_STRINGS[-1] + MAX_FRET
+                and OPEN_STRINGS[0] <= round(e) <= OPEN_STRINGS[-1] + MAX_FRET):
+            out.append(base)
+            continue
+        origin = dict(base)
+        origin["dur"] = round(t_split, 3)
+        origin["midi"] = int(round(s))
+        origin.setdefault("art", [])
+        if kind not in origin["art"]:
+            origin["art"] = list(origin["art"]) + [kind]
+        origin["_artto"] = int(round(e))  # 검증용 목표 midi — quantize 뒤 dest 생존 확인(validate_artic)
+        dest = dict(base)
+        dest["start"] = round(float(n["start"]) + t_split, 3)
+        dest["dur"] = round(rest, 3)
+        dest["midi"] = int(round(e))
+        dest.pop("vel", None)   # dest 는 픽이 아님 — vel 은 ensure_vel 백필이 측정(악센트 오검 방지)
+        dest.pop("art", None)
+        out.append(origin)
+        out.append(dest)
+    return out
+
+
+def validate_artic(notes):
+    """분할(슬라이드/해머) dest 생존 검증 — quantize 충돌·게이트로 dest 가 사라지면 origin 의
+    sl/h 가 엉뚱한 다음 음에 빗금/슬러를 그린다(실측 2026-07-18: h 가 10반음 떨어진 음에 걸림).
+    다음 음 midi 가 분할 때 기록한 목표(_artto)와 다르면 art 에서 sl/h 제거(미검출 편향).
+    _artto 표식은 여기서 소거. quantize 뒤·assign_frets(옥타브 접기) 앞에 호출."""
+    if not notes:
+        return notes
+    ns = sorted(notes, key=lambda n: n.get("gi", 0))
+    for i, n in enumerate(ns):
+        tgt = n.pop("_artto", None)
+        art = n.get("art")
+        if tgt is None or not art or not any(a in art for a in ("sl", "ss", "h")):
+            continue
+        nxt = ns[i + 1] if i + 1 < len(ns) else None
+        if nxt is None or nxt.get("midi") != tgt:
+            n["art"] = [a for a in art if a not in ("sl", "ss", "h")]
+            if not n["art"]:
+                del n["art"]
+    return notes
+
+
+def pin_artic_strings(notes):
+    """슬라이드/해머 쌍(origin→바로 다음 음)은 같은 현에 — assign_frets(DP)가 쌍을 다른 현에 놓으면
+    빗금/슬러가 현을 건너 그려져 연주 지시로 어색하다. 쌍 양쪽 다 연주 가능한 현 중 현 운지에서 가장
+    가까운 현으로 통일(슬라이드는 개방현 불가 — 양쪽 프렛>0). 못 찾으면 그대로 둠(미검출 편향)."""
+    if not notes or "gi" not in notes[0]:
+        return notes
+    ns = sorted(notes, key=lambda n: n["gi"])
+    for i, n in enumerate(ns[:-1]):
+        art = n.get("art")
+        if not art or not any(a in art for a in ("sl", "ss", "h")):
+            continue
+        d = ns[i + 1]
+        if d.get("string") == n.get("string"):
+            continue
+        need_fret = any(a in art for a in ("sl", "ss"))
+        best = None
+        for st, om in enumerate(OPEN_STRINGS):
+            fo, fd = n["midi"] - om, d["midi"] - om
+            if not (0 <= fo <= MAX_FRET and 0 <= fd <= MAX_FRET):
+                continue
+            if need_fret and (fo == 0 or fd == 0):
+                continue
+            cand = (abs(fo - n["fret"]) + abs(fd - d["fret"]), st, fo, fd)
+            if best is None or cand < best:
+                best = cand
+        if best:
+            _, st, fo, fd = best
+            n["string"], n["fret"] = st, fo
+            d["string"], d["fret"] = st, fd
+    return notes
+
+
+def ensure_vel(notes, bass_path):
+    """vel(강약 0~127) 백필 — 검출 엔진이 vel 을 안 남긴 경우(bp/f0 경로·구버전 캐시)에도 악센트가
+    되도록, 최종 노트 구간의 진폭 봉우리를 베이스 파형에서 직접 측정(detect_notes_onset 의 vel 정의와
+    동일 계열: envelope 봉우리 / 전곡 최대). 이미 있는 vel 은 보존(멱등). 실패해도 분석은 계속."""
+    todo = [n for n in notes if n.get("vel") is None]
+    if not todo:
+        return notes
+    try:
+        x, sr = load_mono(bass_path)
+        env, fd = _bass_envelope(x, sr)
+        envmax = float(env.max()) + 1e-9
+        for n in todo:
+            i0 = int(n["start"] / fd)
+            i1 = max(i0 + 1, int((n["start"] + n.get("dur", 0.1)) / fd))
+            if i0 >= len(env):
+                continue
+            n["vel"] = int(np.clip(float(env[i0:i1].max()) / envmax, 0.0, 1.0) * 127)
+    except Exception as exc:  # noqa: BLE001 — vel 없으면 악센트만 생략될 뿐
+        print(f"[vel 백필 실패 — 악센트 생략] {exc}", flush=True)
+    return notes
+
+
+def detect_accents(notes, ratio=None):
+    """악센트(>) 자동 초안 — vel(음별 진폭 봉우리 0~127)이 이웃 ±4음 중앙값 ×1.6 을 넘는
+    두드러진 음만 art 에 'ac'. 임계 실측(2026-07-17): ×1.6 → 스파스 1~4%(미검출 편향 — 틀린
+    악센트가 빠진 악센트보다 나쁘다). vel 없는 노트(구버전 분석·bp 복구 등)는 건너뜀. 멱등.
+    조절: CHAEBO_ACCENT_RATIO(기본 1.6), 끄기 CHAEBO_ACCENT=0(호출부)."""
+    if ratio is None:
+        ratio = float(os.environ.get("CHAEBO_ACCENT_RATIO", "1.6"))
+    ns = sorted(notes, key=lambda n: n["gi"])
+    vels = [n.get("vel") for n in ns]
+    for i, n in enumerate(ns):
+        v = vels[i]
+        if v is None:
+            continue
+        neigh = [w for j, w in enumerate(vels[max(0, i - 4):i + 5], max(0, i - 4))
+                 if j != i and w is not None]
+        # 이웃이 너무 적으면(곡 끝·희소 구간) 판정 보류 — 중앙값이 불안정
+        if len(neigh) >= 4 and v > float(np.median(neigh)) * ratio:
+            art = n.setdefault("art", [])
+            if "ac" not in art:
+                art.append("ac")
+    return notes
+
+
+# alphaTex 음표효과 화이트리스트 — 반드시 길이 '앞' 중괄호(3.3{ac}.4). 길이 뒤에 붙이면
+# 파서 에러(ac/sl/h/st/x)거나 조용히 무시(v)된다(alphaTab 1.8.4 실증 2026-07-18,
+# docs/tab-articulations-design-2026-07-18.md). 박효과(d/tu/ch/lyrics/dy)는 길이 뒤 그대로.
+_NOTE_FX = ("ac", "hac", "sl", "ss", "h", "st", "x", "v")
+
+
+def _note_fx_brace(art):
+    """노트 art 리스트 → 음표효과 중괄호 문자열(없으면 ''). 화이트리스트 밖 값은 tex 오염 방지 위해 버림."""
+    if not art:
+        return ""
+    fx = [a for a in _NOTE_FX if a in art]
+    return "{" + " ".join(fx) + "}" if fx else ""
+
+
 def to_alphatex(notes, bpm, title, key=None, chords=None, meter="4/4", families=None, lyrics=None):
     """alphaTex 생성 — 베이스 표준(낮은음자리표 F4 + 조표 + 마디 코드), 튜닝 표기 G2 D2 A1 E1.
     그리드: 4/4 v1(마디 16칸, 균일 폴백) / 4/4 v2(마디 48칸 + families 로 박별 16분·셋잇단
@@ -1821,6 +2043,8 @@ def to_alphatex(notes, bpm, title, key=None, chords=None, meter="4/4", families=
     # alphaTex 현 번호: 1=가장 높은 현(G2) → 우리 string 0(E1)=4
     slots = {nt["gi"]: nt for nt in notes}
     gi_lyric = _lyrics_by_gi(lyrics, notes)  # {gi: [단어...]} — 오선 아래 가사
+    # 아티큘레이션은 notes[].art → 음표효과 중괄호(길이 앞)로 방출 — 2026-07-18 렌더까지 실증 완료
+    #   (한때 "파서 충돌·렌더 불가"로 보류했던 것: 길이 뒤 중괄호가 원인이었음. 설계문서 참조).
     slot_keys = sorted(slots)  # 쉼표 다음경계 조회용 정렬 키 — bisect O(log n)(코드검사 2026-07-17: 종전 매 쉼표 전수스캔 O(노트²))
     end_gi = max(slots) + slots[max(slots)]["glen"] if slots else bar_len
     bars = []
@@ -1863,7 +2087,12 @@ def to_alphatex(notes, bpm, title, key=None, chords=None, meter="4/4", families=
             nt = slots[gi]
             token_len = min(nt["glen"], remaining_in_bar)
             name, dotted, tup, used = _dur_token(token_len, cur_table)
-            token = f'{nt["fret"]}.{4 - nt["string"]}.{name}'
+            # 아티큘레이션은 음 머리 토큰에 — 단 슬라이드(sl/ss)는 다음 음과 맞닿는 토큰에 그려지므로,
+            # 지속이 붙임줄로 이어지면 머리에서 빼고 마지막 붙임줄 조각에 붙인다(아래 sustain 분기).
+            art = nt.get("art")
+            if art and nt["glen"] > used and ("sl" in art or "ss" in art):
+                art = [a for a in art if a not in ("sl", "ss")]
+            token = f'{nt["fret"]}.{4 - nt["string"]}{_note_fx_brace(art)}.{name}'
             effects = []
             if dotted:
                 effects.append("d")
@@ -1883,7 +2112,13 @@ def to_alphatex(notes, bpm, title, key=None, chords=None, meter="4/4", families=
             s_nt, s_left = sustain
             token_len = min(s_left, remaining_in_bar)
             name, dotted, tup, used = _dur_token(token_len, cur_table)
-            token = f'-.{4 - s_nt["string"]}.{name}'
+            # 이 음의 마지막 붙임줄 조각이면 미뤄둔 슬라이드(sl/ss)를 여기 붙임(다음 음으로 빗금 연결)
+            tail_fx = ""
+            if s_left - used <= 0:
+                s_art = s_nt.get("art")
+                if s_art:
+                    tail_fx = _note_fx_brace([a for a in s_art if a in ("sl", "ss")])
+            token = f'-.{4 - s_nt["string"]}{tail_fx}.{name}'
             effects = []
             if dotted:
                 effects.append("d")
@@ -2001,7 +2236,7 @@ def main():
     # 원시 캐시 재사용: 검출(CREPE ~10분/bp ~30초)은 안 변했는데 그리드·조판 수리 때마다 전체
     # 재실행하던 낭비(실증: 하루 6회) 제거. 검출 파이프라인이 바뀌면 RAW_V 를 올려 무효화.
     # 강제 전체 재분석은 CHAEBO_FRESH=1.
-    RAW_V = 8  # v8: 기본 박자 엔진을 PLP→beat_track(고른 박자)로 되돌림 — 안정적 곡 흔들림 교정(2026-07-16)
+    RAW_V = 9  # v9: onset 검출에 음별 피치 곡선(pc) 저장 — 슬라이드/해머 분류 재료(2026-07-18)
     apply_sensitivity(os.environ.get("CHAEBO_SENS", "normal"))
     _crepe_mode = os.environ.get("CHAEBO_CREPE_MODEL", "tiny")  # tiny(빠름)|full(정확)
     _beat_engine = os.environ.get("CHAEBO_BEAT_ENGINE", "beat_track")  # beat_track(기본)|plp|beat_this
@@ -2143,19 +2378,27 @@ def main():
         else:
             bpm, offset = refine_grid(raw_notes, bpm0, beat_times)
     prog(85)
+    # 슬라이드/해머 분류 — 그리드(slots)는 실제 픽 온셋으로 이미 세웠으니(분할 dest 는 픽 아님)
+    # 여기서 사본에만 적용해 조판 파이프라인에 흘림. raw_notes(캐시 정본·pc 포함)는 불변.
+    if os.environ.get("CHAEBO_ARTIC", "1") == "1":
+        notes_in = classify_articulations(raw_notes)
+    else:
+        notes_in = _strip_pc(raw_notes)
     if slots is not None and meter == "12/8":
-        notes = quantize_dynamic(raw_notes, slots)
+        notes = quantize_dynamic(notes_in, slots)
         grid_v = 2
         bar_slots = 48
     elif slots is not None:
-        notes, families = quantize_mixed(raw_notes, slots)
+        notes, families = quantize_mixed(notes_in, slots)
         grid_v = 2
         bar_slots = 48
     else:
-        notes = quantize(raw_notes, bpm, offset)
+        notes = quantize(notes_in, bpm, offset)
         grid_v = 1
         bar_slots = 16
+    notes = validate_artic(notes)     # 분할 dest 소실 검증 — 소실이면 sl/h 제거(옥타브 접기 전 midi 비교)
     notes = assign_frets(notes)
+    notes = pin_artic_strings(notes)  # 슬라이드/해머 쌍 같은 현 통일(빗금·슬러가 현을 안 건너게)
     # 선두 음(프레이즈 시작)이 박에서 1개-16분 이내로 벗어나면 다운비트로 스냅 — 킥과 함께 들어온 첫 음을
     # 비트트래커 첫 박이 살짝 늦게 잡아 'a'로 민 것(측정 2026-07-15: 첫음≈킥 56ms, 둘 다 그리드 박1 직전).
     # ★긴 음만·선두 하나만 — 짧은 당김음(stab)이나 나머지 음은 안 건드린다(당김음은 흔하고 정당 — 검색 확인).
@@ -2189,6 +2432,11 @@ def main():
     # 인트로(첫 베이스 음 전) 통쉼표 마디 — 곡 전체가 악보에 그려지게(사용자 요청 2026-07-10)
     notes, slots, families, offset, _intro = prepend_intro_bars(
         notes, slots, families, offset, bpm, bar_slots)
+    # 아티큘레이션 자동 초안(악센트) — 분석 시 1회, notes[].art 로 저장돼 편집·tex 재생성에도 보존.
+    # vel 없는 경로(bp/f0·구캐시)는 파형에서 백필해 엔진 무관하게 동작.
+    if os.environ.get("CHAEBO_ACCENT", "1") == "1":
+        notes = ensure_vel(notes, bass_path)
+        notes = detect_accents(notes)
     prog(92)
     key = effective_key(notes, os.environ.get("CHAEBO_KEY"),
                         stems_dir=Path(bass_path).parent)  # 화성 chroma 결합 키(딸림음 오검 교정)

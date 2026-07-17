@@ -279,6 +279,9 @@ body.anchoring { cursor: ew-resize; user-select: none; }
 .corr-all-label { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); margin: 4px 0; cursor: pointer; }
 .correction-popover::before { content: ''; position: absolute; top: -6px; left: 24px; width: 12px; height: 12px; background: var(--surface); border-left: 1px solid var(--accent); border-top: 1px solid var(--accent); transform: rotate(45deg); }
 .correction-popover-title { font-size: 13px; font-weight: 700; margin: 0 0 var(--sp-3); }
+.corr-artic-title { font-size: 12px; font-weight: 700; margin: var(--sp-3) 0 var(--sp-2); }
+.corr-artic-hint { font-weight: 400; color: var(--text-muted, #999); }
+#corr-artic .btn.artic-on { background: var(--accent); color: var(--surface); }
 .correction-controls { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 var(--sp-3); }
 .correction-actions { display: flex; gap: var(--sp-2); }
 .correction-actions .btn { flex: 1; justify-content: center; }
@@ -602,6 +605,13 @@ body.anchoring { cursor: ew-resize; user-select: none; }
             </div>
             <!-- 다른 자리·옥타브 대안(도착지 표시) — 운지 선택은 결국 연주자 몫(사용자 피드백 2026-07-08) -->
             <div class="correction-controls" id="corr-alts"></div>
+            <!-- 주법 표시 토글 — 자동 검출은 추정 초안이라 음마다 직접 넣고 뺄 수 있게(정직 UI) -->
+            <p class="corr-artic-title">주법 표시 <span class="corr-artic-hint">(자동 표시는 추정 — 눌러서 넣거나 빼요)</span></p>
+            <div class="correction-controls" id="corr-artic">
+              <button type="button" class="btn btn-outline btn-sm" data-art="ac" title="이 음을 세게 침(악보에 > 표시)">세게 &gt;</button>
+              <button type="button" class="btn btn-outline btn-sm" data-art="sl" title="이 음에서 다음 음으로 줄을 타고 미끄러짐(빗금 표시)">슬라이드</button>
+              <button type="button" class="btn btn-outline btn-sm" data-art="h" title="다음 음을 손가락으로만 침 — 올라가면 H, 내려가면 P 표시">해머·풀오프</button>
+            </div>
             <!-- 같은 자리(음·줄·프렛) 전부에 한 번에 — 반복 리프 일괄 수정(사용자 요청 2026-07-09) -->
             <label class="corr-all-label"><input type="checkbox" id="corr-all"> 같은 자리 음 전부에 적용</label>
             <!-- 셋잇단 박 복구 — 셋잇단 추가가 박 전체를 변환하므로 반대 방향 한 클릭 제공(사용자 실증 2026-07-09) -->
