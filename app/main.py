@@ -241,7 +241,7 @@ async def edit_chord(song_id: int, body: ChordEdit):
         notes2, families = sanitize_mixed(notes2)
     key = effective_key(notes2, row.get("key_override"))
     tex = to_alphatex(notes2, row["bpm"], song["title"][:80], key=key, chords=chords,
-                      meter=meter2, families=families)
+                      meter=meter2, families=families, lyrics=_row_lyrics(row))
     await db.upsert_transcription(
         song_id, chords=json.dumps(chords, ensure_ascii=False), tex=tex)
     return {"ok": True, "chords": chords}
@@ -621,7 +621,7 @@ async def edit_key(song_id: int, body: KeyEdit):
         json.loads(row.get("chords") or "[]"))
     song = await db.get_song(song_id)
     tex = to_alphatex(notes, row["bpm"], song["title"][:80], key=key, chords=chords,
-                      meter=meter, families=families)
+                      meter=meter, families=families, lyrics=_row_lyrics(row))
     await db.upsert_transcription(
         song_id, key_override=override,
         key_json=json.dumps(key, ensure_ascii=False),
@@ -732,7 +732,8 @@ async def get_tab(song_id: int):
         chords = estimate_chords(
             notes, key, bar_slots=48 if (meter == "12/8" or (row.get("grid_v") or 1) >= 2) else 16)
         song = await db.get_song(song_id)
-        tex = to_alphatex(notes, row["bpm"], song["title"][:80], key=key, chords=chords, meter=meter)
+        tex = to_alphatex(notes, row["bpm"], song["title"][:80], key=key, chords=chords, meter=meter,
+                          lyrics=_row_lyrics(row))
         fields = dict(tex=tex,
                       key_json=json.dumps(key, ensure_ascii=False),
                       chords=json.dumps(chords, ensure_ascii=False))
@@ -782,6 +783,14 @@ async def shift_tab_phase(song_id: int, body: TabShift):
         return await _shift_tab_phase(song_id, body)
 
 
+def _row_lyrics(row):
+    """저장된 가사(JSON) → dict — tex 를 재생성하는 '모든' 경로가 이걸 lyrics= 로 넘겨야 한다.
+    빼먹으면 그 경로를 탈 때마다 오선 아래 가사가 통째로 사라진다(실증 2026-07-18: 재분석·코드/키
+    수정·박자 이동·제목 변경 5경로가 빼먹어 사용자 발견 "가사 다시 뺐어?")."""
+    _ly = row.get("lyrics") if row else None
+    return (json.loads(_ly) if isinstance(_ly, str) else _ly) if _ly else None
+
+
 def _tex_from_notes(row, song, notes, key_override, existing_chords, bar_slots, families):
     """채보 tex 재생성의 '공통 꼬리' — 이 3줄(키·코드·tex)이 여러 편집 경로에 복붙돼 드리프트 위험이었다
     (코드리뷰 2026-07-14). 각 호출부는 자신의 families/겹침정규화·bar_slots·수동코드를 계산해 넘긴다.
@@ -789,10 +798,8 @@ def _tex_from_notes(row, song, notes, key_override, existing_chords, bar_slots, 
     from app.tab_worker import effective_key, estimate_chords, merge_manual_chords, to_alphatex
     key = effective_key(notes, key_override)
     chords = merge_manual_chords(estimate_chords(notes, key, bar_slots=bar_slots), existing_chords)
-    _ly = row.get("lyrics")  # 편집해도 악보 오선 아래 가사 보존
-    lyrics = (json.loads(_ly) if isinstance(_ly, str) else _ly) if _ly else None
     tex = to_alphatex(notes, row["bpm"], song["title"][:80], key=key, chords=chords,
-                      meter=row.get("meter") or "4/4", families=families, lyrics=lyrics)
+                      meter=row.get("meter") or "4/4", families=families, lyrics=_row_lyrics(row))
     return key, chords, tex
 
 
@@ -860,7 +867,7 @@ async def _shift_tab_phase(song_id: int, body: TabShift):
         shifted_chords.append({**c, "bar": g // bar_slots, "pos": g % bar_slots})
     key = json.loads(row["key_json"]) if row.get("key_json") else None
     tex = to_alphatex(notes, row["bpm"], song["title"][:80], key=key,
-                      chords=shifted_chords, meter=meter, families=families)
+                      chords=shifted_chords, meter=meter, families=families, lyrics=_row_lyrics(row))
     await db.upsert_transcription(
         song_id, notes=json.dumps(notes, ensure_ascii=False), tex=tex,
         beat_offset=new_offset,
@@ -1158,7 +1165,7 @@ async def update_song_meta(song_id: int, body: SongMeta):
                 estimate_chords(notes, key, bar_slots=bar_slots),
                 json.loads(row.get("chords") or "[]"))
             tex = to_alphatex(notes, row["bpm"], fields["title"][:80], key=key, chords=chords,
-                              meter=meter, families=families)
+                              meter=meter, families=families, lyrics=_row_lyrics(row))
             await db.upsert_transcription(song_id, tex=tex)
     return await db.get_song(song_id)
 

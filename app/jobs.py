@@ -290,6 +290,16 @@ async def _process_tab(song_id: int):
     row2 = await db.get_transcription(song_id)
     if not (row2 and row2.get("lyrics")):
         queue.put_nowait(("lyrics", song_id))
+    else:
+        # ★재분석 tex 는 가사 없이 생성된다(워커 서브프로세스는 DB 가사를 모름) — 기존 가사(LRCLIB·
+        #   붙여넣기·애드립 받아쓰기 전부)를 새 악보에 재부착. 안 하면 '다시 분석'마다 오선 아래
+        #   가사가 통째로 사라짐(v0.7.0 잠복 결함 — 사용자 발견 2026-07-18 "가사 다시 뺐어?").
+        try:
+            lyr = json.loads(row2["lyrics"])
+            if lyr.get("status") == "ready":
+                await _regen_score_lyrics(song_id, lyr)
+        except Exception as e:  # noqa: BLE001 — 가사 재부착 실패해도 채보 결과 자체는 유효
+            print(f"[가사 재부착 실패 — 채보는 유효] song {song_id}: {e}", flush=True)
     if not (row2 and row2.get("sections")):
         queue.put_nowait(("sections", song_id))
 
