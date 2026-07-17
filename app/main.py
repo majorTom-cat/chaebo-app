@@ -368,26 +368,18 @@ def _best_run(cands):
     return cur if len(cur) > len(best) else best
 
 
-def _split_words_among(words, lines):
-    """세그먼트의 단어들(시각 있음)을 공식 줄 여러 개에 순서대로 나눠, 각 줄에 (텍스트, 시작, 끝)을 준다.
-    각 줄의 한글 글자가 ~70% 덮일 때까지 단어를 모으고 다음 줄로 — 뭉친 절을 줄 단위로 되쪼갠다."""
-    res, wi, nw = [], 0, len(words)
-    for li, line in enumerate(lines):
-        lc = _kchars(line)
-        if li == len(lines) - 1 or wi >= nw:
-            chunk, wi = words[wi:], nw
-        else:
-            chunk, covered = [], set()
-            while wi < nw:
-                chunk.append(words[wi])
-                covered |= _kchars(words[wi].get("w", ""))
-                wi += 1
-                if lc and len(covered & lc) / len(lc) >= 0.7:
-                    break
-        if chunk:
-            res.append((line, float(chunk[0]["s"]), float(chunk[-1]["e"])))
-        elif res:  # 단어가 모자라면 앞 줄 끝에 짧게 붙임(순서·존재 보장)
-            res.append((line, res[-1][2], res[-1][2] + 0.5))
+def _split_span_by_lines(s0, e0, lines):
+    """뭉친 세그먼트의 시간범위 [s0,e0]를 공식 줄들에 '글자수 비례'로 균등 분배 → 각 줄 (텍스트, 시작, 끝).
+    받아쓰기 오타에 강건(글자매칭 의존 안 함) — 옛 방식은 오타 심한 줄이 시간을 거의 못 받아(0.5s) 단어가
+    겹쳐 보였다(사용자 지적 2026-07-17: 가사 겹침). 줄 길이 비례라 각 줄이 부르는 만큼 폭을 갖는다."""
+    lens = [max(1, len(_kchars(l))) for l in lines]
+    tot = sum(lens) or 1
+    span = max(0.4, e0 - s0)
+    res, t = [], s0
+    for line, ln in zip(lines, lens):
+        te = t + span * ln / tot
+        res.append((line, t, te))
+        t = te
     return res
 
 
@@ -441,10 +433,10 @@ async def paste_lyrics(song_id: int, body: LyricPaste):
             conts = [(i, (len(ac & oc) / len(oc)) if oc else 0.0) for i, (oc, l) in enumerate(off)]
             cand = [i for i, c in conts if c >= 0.55]
             run = _best_run(cand)  # 연속한 공식 줄 구간(뭉친 줄들). 반복은 단일(재사용) 자동 처리.
-            words = o.get("words") or []
-            if len(run) >= 2 and len(words) >= len(run):
-                # ★뭉친 세그 → 단어 시각으로 줄마다 쪼개 배치(사용자 버그: '산과 바다에 넘치니' 등 둘째 줄 누락)
-                for (line, ws, we), i in zip(_split_words_among(words, [off[i][1] for i in run]), run):
+            if len(run) >= 2:
+                # ★뭉친 세그 → 글자수 비례로 줄마다 시간 나눠 배치(사용자 버그: '산과 바다에 넘치니' 누락 +
+                #   짧은 시간에 단어 겹침). 균등 분배라 각 줄이 부르는 만큼 폭을 갖고 안 겹친다.
+                for (line, ws, we), i in zip(_split_span_by_lines(s0, e0, [off[j][1] for j in run]), run):
                     _emit(i, ws, we)
             elif run:
                 _emit(run[0], s0, e0)

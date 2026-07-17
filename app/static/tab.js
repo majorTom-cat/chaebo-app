@@ -357,14 +357,20 @@
     var ly = tab && tab.lyrics;
     if (ly && ly.status === 'ready' && ly.segments && ly.segments.length) {
       var lyMaxX = FLOW_PAD + totalBars * BAR * subPx();
+      var lastRight = -1e9;   // 직전 가사의 오른쪽 끝 — 겹침 방지용(시각 순서대로 배치되므로 단조 증가)
+      // ★사용자 제안(2026-07-17): 가사를 박자 격자 컬럼(1 e n a)에 스냅 → 실제 부르는 박자에 맞고 겹침도 준다.
+      //   추가로, 스냅 뒤에도 라벨 폭이 겹치면 오른쪽으로 최소만큼 밀어 절대 안 겹치게 한다.
       var placeLyric = function (wtext, wt, ph) {
-        var x = flowX(timeSlot(wt));
-        if (x < FLOW_PAD || x > lyMaxX) return;      // 그리드 밖(곡 전/후) 스킵 — 끝에 몰림 방지
+        var estW = (wtext || '').length * 12 + 6;         // 한글 라벨 대략 폭(자당 ~12px)
+        var x = flowX(Math.round(timeSlot(wt)));          // 정수 슬롯=격자 컬럼에 스냅
+        if (x - estW / 2 < lastRight + 3) x = lastRight + 3 + estW / 2;  // 앞 가사와 겹치면 살짝 오른쪽으로
+        if (x < FLOW_PAD || x > lyMaxX) return;           // 그리드 밖(곡 전/후) 스킵
         var d = document.createElement('div');
         d.className = 'flow-lyric' + (ph ? ' flow-lyric-ph' : '');  // ph=애드립 자리(♪) — 흐리게
         d.textContent = wtext;
         d.style.left = x + 'px';
         frag.appendChild(d);
+        lastRight = x + estW / 2;
       };
       ly.segments.forEach(function (seg) {
         if (seg.words && seg.words.length && !seg.manual) {
