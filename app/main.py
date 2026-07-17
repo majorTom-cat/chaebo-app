@@ -381,6 +381,12 @@ async def paste_lyrics(song_id: int, body: LyricPaste):
         off = [(_kchars(l), l) for l in lines]
         segs = []
         for o in old:
+            # ♪ placeholder(에너지로 찾은 애드립 자리) — 공식에 없는 라이브 즉흥, 매칭 대상 아님(직접 입력 안내)
+            if o.get("placeholder"):
+                s0 = round(float(o.get("s", 0)), 2)
+                e0 = round(float(o.get("e") or o.get("s", 0)) or (s0 + 2.0), 2)
+                segs.append({"s": s0, "e": e0, "text": "♪", "improv": True, "placeholder": True})
+                continue
             ac = _kchars(o.get("text", ""))
             best_ov, best_l = 0.0, None
             for oc, l in off:
@@ -426,8 +432,9 @@ async def paste_lyrics(song_id: int, body: LyricPaste):
             segs.append({"s": round(s, 2), "e": round(e, 2), "text": l[:200], "manual": True})
             prev = s
     result = {"status": "ready", "language": "manual", "source": src, "segments": segs}
-    if src == "overlay" and base:  # ASR 골격 보존 — 다시 붙여넣어도 항상 원본 ASR 위에 얹히게
-        result["base"] = [{"s": o.get("s"), "e": o.get("e"), "text": o.get("text", "")} for o in base]
+    if src == "overlay" and base:  # ASR 골격 보존 — 다시 붙여넣어도 항상 원본 ASR 위에 얹히게(♪ 애드립 자리 포함)
+        result["base"] = [{"s": o.get("s"), "e": o.get("e"), "text": o.get("text", ""),
+                           **({"placeholder": True} if o.get("placeholder") else {})} for o in base]
     await db.upsert_transcription(song_id, lyrics=json.dumps(result, ensure_ascii=False))
     return {"ok": True, "count": len(segs), "source": src}
 

@@ -357,11 +357,11 @@
     var ly = tab && tab.lyrics;
     if (ly && ly.status === 'ready' && ly.segments && ly.segments.length) {
       var lyMaxX = FLOW_PAD + totalBars * BAR * subPx();
-      var placeLyric = function (wtext, wt) {
+      var placeLyric = function (wtext, wt, ph) {
         var x = flowX(timeSlot(wt));
         if (x < FLOW_PAD || x > lyMaxX) return;      // 그리드 밖(곡 전/후) 스킵 — 끝에 몰림 방지
         var d = document.createElement('div');
-        d.className = 'flow-lyric';
+        d.className = 'flow-lyric' + (ph ? ' flow-lyric-ph' : '');  // ph=애드립 자리(♪) — 흐리게
         d.textContent = wtext;
         d.style.left = x + 'px';
         frag.appendChild(d);
@@ -373,7 +373,7 @@
         }
         var words = String(seg.text || '').split(/\s+/).filter(Boolean);  // 폴백(단어 시각 없음): 균등 배치
         var span = Math.max(0.2, seg.e - seg.s);
-        words.forEach(function (word, k) { placeLyric(word, seg.s + span * (k + 0.15) / words.length); });
+        words.forEach(function (word, k) { placeLyric(word, seg.s + span * (k + 0.15) / words.length, seg.placeholder); });
       });
     }
     inner.appendChild(frag);

@@ -307,12 +307,17 @@ window.Shell = (function () {
         var row = document.createElement('div');
         row.className = 'lyr-row' + (seg.improv ? ' improv' : '');
         var mm = Math.floor(seg.s / 60), ss = Math.floor(seg.s % 60);
+        // ♪ placeholder = 노래는 있는데 받아쓰기가 못 옮긴 애드립 자리(타이밍만 정확). 입력칸 비워 직접 쓰게 안내.
+        var isPh = !!seg.placeholder;
+        var tag = isPh
+          ? '<span class="lyr-tag" title="여기서 노래(애드립)가 나와요. 공식 가사엔 없는 부분이니 들어보고 직접 적어주세요 — 위치는 맞춰뒀어요">애드립 ✎</span>'
+          : (seg.improv ? '<span class="lyr-tag" title="공식 가사에 없는 즉흥 부분 — 받아쓰기 초안이에요. 들어보고 직접 고쳐주세요">즉흥?</span>' : '');
         row.innerHTML = '<span class="lyr-time" title="누르면 이 시각으로 이동">' +
           mm + ':' + String(ss).padStart(2, '0') + '</span>' +
-          '<input type="text" maxlength="200" data-i="' + i + '"' +
-          (seg.manual ? ' class="manual"' : (seg.improv ? ' class="improv"' : '')) + '>' +
-          (seg.improv ? '<span class="lyr-tag" title="공식 가사에 없는 즉흥 부분 — 받아쓰기 초안이에요. 들어보고 직접 고쳐주세요">즉흥?</span>' : '');
-        row.querySelector('input').value = seg.text;
+          '<input type="text" maxlength="200" data-i="' + i + '" placeholder="' +
+          (isPh ? '애드립 — 들으며 입력' : '') + '"' +
+          (seg.manual ? ' class="manual"' : (seg.improv ? ' class="improv"' : '')) + '>' + tag;
+        row.querySelector('input').value = isPh ? '' : seg.text;
         row.querySelector('.lyr-time').addEventListener('click', function () {
           player.seek(seg.s);
           emit('seek', seg.s);

@@ -47,6 +47,49 @@ def clean_segments(segments):
     return out
 
 
+def fill_vocal_gaps(segs, audio, sr=16000):
+    """★받아쓰기가 놓친 '보컬 있는 구간'(라이브 애드립·자유찬양)에 placeholder(♪) 삽입 — 골격이 애드립까지
+    덮게 한다(사용자 지적 2026-07-17: 애드립 2:52+ 가 통째로 비었음. whisper 는 조용·리버브 애드립을 못 옮김).
+    보컬 스템 에너지로 '노래 있는데 세그먼트 없는' 구간을 찾아 그 온셋에 placeholder. 텍스트는 사용자가
+    들으며 직접 입력(overlay 에선 공식에 안 맞아 즉흥으로 남고, 여기 ♪ 로 '애드립 있음'이 보인다)."""
+    if len(audio) < sr:
+        return segs
+    hop = int(0.05 * sr)
+    n = len(audio) // hop
+    if n < 8:
+        return segs
+    e = np.sqrt((audio[:n * hop].reshape(n, hop) ** 2).mean(axis=1))
+    e = e / (float(e.max()) or 1.0)
+    fd = hop / sr
+    thr = 0.10
+    covered = np.zeros(n, dtype=bool)
+    for s in segs:  # 기존 세그먼트 범위 ±0.4s 는 커버로 표시
+        a = max(0, int(s["s"] / fd) - 8)
+        b = min(n, int((s.get("e", s["s"]) + 0.4) / fd) + 8)
+        covered[a:b] = True
+    added, i = [], 0
+    while i < n:
+        if e[i] > thr and not covered[i]:
+            j = i
+            while j < n and e[j] > thr * 0.6 and not covered[j]:
+                j += 1
+            if (j - i) * fd >= 2.5:  # 2.5초 이상 '보컬 있는데 미커버' → 애드립 구간
+                last = -10.0
+                for k in range(i, j):  # 그 안 에너지 상승(온셋)마다 placeholder(≥2초 간격)
+                    t = k * fd
+                    if e[k] > thr and e[max(0, k - 1)] <= thr and t - last >= 2.0:
+                        added.append({"s": round(t, 2), "e": round(min(t + 2.5, j * fd), 2),
+                                      "text": "♪", "placeholder": True, "words": []})
+                        last = t
+                if last < i * fd:  # 온셋 못 찾으면 구간 시작에 하나
+                    added.append({"s": round(i * fd, 2), "e": round(j * fd, 2),
+                                  "text": "♪", "placeholder": True, "words": []})
+            i = j
+        else:
+            i += 1
+    return sorted(segs + added, key=lambda s: s["s"]) if added else segs
+
+
 def main():
     vocals, out_json = sys.argv[1], sys.argv[2]
     print("PROG 5", flush=True)
@@ -57,6 +100,7 @@ def main():
     segments, info = model.transcribe(audio, vad_filter=True, beam_size=5,
                                       word_timestamps=True)  # 언어 자동 감지 + 단어별 시각
     segs = clean_segments(segments)
+    segs = fill_vocal_gaps(segs, audio)  # 애드립 등 받아쓰기 공백을 에너지 기반 placeholder(♪)로 채움
     print("PROG 95", flush=True)
     with open(out_json, "w", encoding="utf-8") as f:
         json.dump({"language": info.language, "segments": segs}, f, ensure_ascii=False)
