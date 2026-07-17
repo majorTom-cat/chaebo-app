@@ -137,18 +137,50 @@ def merge_adlib(base_segs, extra_segs, audio):
     return sorted(base_segs + add, key=lambda s: s["s"]) if add else base_segs
 
 
-def fill_vocal_gaps(segs, audio, sr=16000):
-    """받아쓰기(초안 포함)가 여전히 못 채운 '보컬 있는 구간'에 placeholder(♪) 삽입 — 골격이 애드립까지
-    덮게 한다. 텍스트는 사용자가 들으며 직접 입력(overlay 에선 공식에 안 맞아 즉흥으로 남고, ♪ 로 보인다).
-    (긴 세그먼트는 clean_segments 가 이미 단어 경계로 쪼개 골격이 촘촘하므로, 절 틈에 ♪ 가 새지 않는다.)"""
+def _slice_asr(model, audio, gs, ge, sr=16000):
+    """애드립 공백 구간만 잘라 받아쓰기 재시도 — 짧은 클립이 전곡 패스가 놓친 애드립을 잡는다
+    (사용자 요청 2026-07-17: 빈 ♪보다 틀려도 초안이 있으면 고치기 쉬움). 에너지로 보컬이 확정된
+    구간이라 no_speech 필터를 안 걸고 초안으로 남긴다. 반환: 그 구간 안에 드는 초안 세그 리스트."""
+    pad = 1.0
+    a = max(0, int((gs - pad) * sr))
+    b = min(len(audio), int((ge + pad) * sr))
+    if b - a < int(sr * 0.6):
+        return []
+    seg2, _ = model.transcribe(audio[a:b], vad_filter=False, beam_size=5,
+                               word_timestamps=True, condition_on_previous_text=False)
+    base_t, out = a / sr, []
+    for s in seg2:
+        txt = (s.text or "").strip()
+        if len(txt) < 1 or (s.end - s.start) > MAX_SEG_SEC:
+            continue
+        st, en = base_t + float(s.start), base_t + float(s.end)
+        mid = (st + en) / 2
+        if mid < gs - 0.3 or mid > ge + 0.3:  # 중심이 공백 밖이면(가장자리 인접줄 꼬리) 버림
+            continue
+        words = [{"w": (w.word or "").strip(), "s": round(base_t + float(w.start), 2),
+                  "e": round(base_t + float(w.end), 2)}
+                 for w in (s.words or []) if (w.word or "").strip()]
+        out.append({"s": round(st, 2), "e": round(en, 2), "text": txt[:200],
+                    "words": words, "draft": True})
+    return out
+
+
+def fill_vocal_gaps(segs, audio, model=None, sr=16000):
+    """받아쓰기(초안 포함)가 여전히 못 채운 '보컬 있는 구간'을 채운다. model 이 있으면 그 구간만 잘라
+    받아쓰기를 재시도해 초안 텍스트를 넣고(고치기 쉽게), 그래도 안 나오면 placeholder(♪)로 위치만 잡는다.
+    (긴 세그먼트는 clean_segments 가 이미 단어 경계로 쪼개 골격이 촘촘하므로, 절 틈엔 공백이 안 생긴다.)"""
     spans = _vocal_gap_spans(segs, audio, sr=sr)
     if not spans:
         return segs
     added = []
     for gs, ge, onsets in spans:
-        for t in onsets:
-            added.append({"s": round(t, 2), "e": round(min(t + 2.5, ge), 2),
-                          "text": "♪", "placeholder": True, "words": []})
+        drafts = _slice_asr(model, audio, gs, ge, sr=sr) if model is not None else []
+        if drafts:
+            added.extend(drafts)  # 슬라이스 받아쓰기 초안(틀려도 고칠 거리)
+        else:
+            for t in onsets:      # 그래도 못 뽑으면 ♪ 로 위치만
+                added.append({"s": round(t, 2), "e": round(min(t + 2.5, ge), 2),
+                              "text": "♪", "placeholder": True, "words": []})
     return sorted(segs + added, key=lambda s: s["s"]) if added else segs
 
 
@@ -167,7 +199,7 @@ def main():
         print("PROG 60", flush=True)
         seg2, _ = model.transcribe(audio, vad_filter=False, beam_size=5, word_timestamps=True)
         segs = merge_adlib(segs, clean_segments(seg2), audio)
-    segs = fill_vocal_gaps(segs, audio)  # 그래도 남은 공백엔 에너지 기반 ♪(직접 입력 안내)
+    segs = fill_vocal_gaps(segs, audio, model=model)  # 남은 공백은 슬라이스 받아쓰기 초안, 안 되면 ♪
     print("PROG 95", flush=True)
     with open(out_json, "w", encoding="utf-8") as f:
         json.dump({"language": info.language, "segments": segs}, f, ensure_ascii=False)
