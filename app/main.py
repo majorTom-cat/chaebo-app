@@ -364,15 +364,27 @@ async def paste_lyrics(song_id: int, body: LyricPaste):
     cur = json.loads(row.get("lyrics") or "{}") if row else {}
     old = cur.get("segments") or []
     dur = float(song.get("duration") or 0)
-    # 보컬 구간 = 기존 가사 시각 span(있으면 실제 노래 구간), 없으면 곡 전체(앞뒤 여백)
-    if old:
-        t0 = float(old[0].get("s", 0)); t1 = float(old[-1].get("e") or old[-1].get("s", 0))
-    else:
-        t0, t1 = (dur * 0.04 if dur else 0.0), (dur * 0.96 if dur else float(len(lines)))
-    span = max(1.0, t1 - t0)
     n = len(lines)
-    segs = [{"s": round(t0 + span * i / n, 2), "e": round(t0 + span * (i + 1) / n, 2),
-             "text": l[:200], "manual": True} for i, l in enumerate(lines)]
+    # ★타이밍 — 균등분배(한 줄이 곡 전체로 길어짐)가 아니라, 기존 받아쓰기 세그먼트 '시각'에 붙여넣은 줄을
+    #   비례 매핑(사용자 지적 2026-07-17). 받아쓰기는 실제 부른 순간마다 세그먼트가 있어(반복 포함 타임라인)
+    #   거기에 얹으면 줄이 실제 노래 위치에 놓인다. 받아쓰기 없으면 곡 전체 균등 폴백.
+    if old and len(old) >= 1:
+        starts = [float(o.get("s", 0)) for o in old]
+        last_e = float(old[-1].get("e") or old[-1].get("s", 0)) or (starts[-1] + 3.0)
+        m = len(starts)
+        segs = []
+        for i, l in enumerate(lines):
+            j = min(m - 1, int(i * m / n))                     # 이 줄이 얹힐 세그먼트(비례)
+            s = starts[j]
+            e = starts[min(m - 1, int((i + 1) * m / n))] if i + 1 < n else last_e
+            if e <= s:
+                e = s + 2.0
+            segs.append({"s": round(s, 2), "e": round(e, 2), "text": l[:200], "manual": True})
+    else:
+        t0, t1 = (dur * 0.04 if dur else 0.0), (dur * 0.96 if dur else float(n))
+        span = max(1.0, t1 - t0)
+        segs = [{"s": round(t0 + span * i / n, 2), "e": round(t0 + span * (i + 1) / n, 2),
+                 "text": l[:200], "manual": True} for i, l in enumerate(lines)]
     await db.upsert_transcription(song_id, lyrics=json.dumps(
         {"status": "ready", "language": "manual", "source": "pasted", "segments": segs}, ensure_ascii=False))
     return {"ok": True, "count": n}
