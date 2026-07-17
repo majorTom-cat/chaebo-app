@@ -58,6 +58,8 @@ html { overflow-anchor: none; }
 .lyr-row input:hover { background: var(--surface-2); }
 .lyr-row input:focus { background: var(--surface-2); border-color: var(--accent); outline: none; }
 .lyr-row input.manual { color: #7fc478; }
+.lyr-row input.improv { color: #b39a72; font-style: italic; } /* 즉흥(받아쓰기 초안) — 직접 고칠 부분 */
+.lyr-tag { flex: 0 0 auto; font-size: 10px; font-weight: 800; color: #b5203a; background: rgba(181,32,58,0.1); border-radius: 5px; padding: 1px 6px; }
 .lyr-foot { display: flex; align-items: center; gap: var(--sp-3); padding: var(--sp-4) var(--sp-8) var(--sp-6); border-top: 1px solid var(--border); }
 .lyr-foot .control-label { margin-right: auto; }
 .lyr-foot .btn { min-width: 76px; justify-content: center; }
@@ -743,7 +745,7 @@ body.anchoring { cursor: ew-resize; user-select: none; }
       <div class="lyr-paste" id="lyr-paste" hidden>
         <div class="lyr-paste-head">
           <button type="button" class="btn btn-outline btn-sm" id="lyr-search-web" title="이 곡 가사를 인터넷에서 검색해요 — 결과에서 복사해 아래에 붙여넣으세요">🔎 인터넷에서 가사 찾기</button>
-          <span class="lyr-sub" style="margin:0">찾은 가사를 복사해 붙여넣으세요 (한 줄에 한 소절). <b>부르는 순서대로, 반복되는 후렴도 그대로</b> 넣으면 실제 노래 시각에 맞춰 배치돼요. (시각은 뒤에서 줄별로 미세조정 가능)</span>
+          <span class="lyr-sub" style="margin:0">찾은 <b>공식 가사</b>를 복사해 붙여넣으세요 (한 줄에 한 소절). 받아쓰기가 있는 곡은 <b>그 위에 얹어</b> 맞는 부분만 정확한 글로 바꾸고, 라이브 <b>즉흥 부분은 받아쓰기 초안으로 남겨 '즉흥?' 표시</b>해요(직접 고치면 돼요). 반복 후렴도 자동으로 채워져요.</span>
         </div>
         <textarea id="lyr-paste-text" rows="10" placeholder="예)&#10;나를 향한 주의 사랑&#10;강과 바다에 넘치니&#10;내 마음 열매 주님 나에게&#10;참 자유 주셨네"></textarea>
       </div>

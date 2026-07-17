@@ -302,12 +302,13 @@ window.Shell = (function () {
       list.innerHTML = '';
       segs.forEach(function (seg, i) {
         var row = document.createElement('div');
-        row.className = 'lyr-row';
+        row.className = 'lyr-row' + (seg.improv ? ' improv' : '');
         var mm = Math.floor(seg.s / 60), ss = Math.floor(seg.s % 60);
         row.innerHTML = '<span class="lyr-time" title="누르면 이 시각으로 이동">' +
           mm + ':' + String(ss).padStart(2, '0') + '</span>' +
           '<input type="text" maxlength="200" data-i="' + i + '"' +
-          (seg.manual ? ' class="manual"' : '') + '>';
+          (seg.manual ? ' class="manual"' : (seg.improv ? ' class="improv"' : '')) + '>' +
+          (seg.improv ? '<span class="lyr-tag" title="공식 가사에 없는 즉흥 부분 — 받아쓰기 초안이에요. 들어보고 직접 고쳐주세요">즉흥?</span>' : '');
         row.querySelector('input').value = seg.text;
         row.querySelector('.lyr-time').addEventListener('click', function () {
           player.seek(seg.s);

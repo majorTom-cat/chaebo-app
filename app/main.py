@@ -365,40 +365,64 @@ async def paste_lyrics(song_id: int, body: LyricPaste):
     old = cur.get("segments") or []
     dur = float(song.get("duration") or 0)
     n = len(lines)
-    # ★타이밍 — 붙여넣은 줄마다 '고유 시각'을 준다(사용자 지적 2026-07-17: 세그먼트 적은 곡에서 여러 줄이
-    #   같은 시각으로 뭉쳐 겹쳐 보임 — 실증 song17 받아쓰기 1개). 받아쓰기 세그먼트 시각들을 앵커로 '보간'해
-    #   n개의 서로 다른 증가 시각을 만든다. 받아쓰기가 부실하면(세그먼트<3 or 스팬<곡30%) 곡 전체 균등으로.
-    anchors = sorted({round(float(o.get("s", 0)), 2) for o in old}) if old else []
-    if old:
-        le = round(float(old[-1].get("e") or old[-1].get("s", 0)), 2)
-        if not anchors or le > anchors[-1]:
-            anchors.append(le)
-    use_anchors = len(anchors) >= 3 and (not dur or (anchors[-1] - anchors[0]) >= dur * 0.3)
-    if not use_anchors:  # 받아쓰기가 노래 구간을 못 덮음 → 곡 전체(앞뒤 여백) 균등
-        lo = (dur * 0.05) if dur else (anchors[0] if anchors else 0.0)
-        hi = (dur * 0.95) if dur else (lo + max(1, n) * 3.0)
-        anchors = [round(lo, 2), round(hi, 2)]
-    A = len(anchors)
+    src = "pasted"
+    # ★덧입히기(사용자 지적 2026-07-17: 라이브 즉흥 가사는 공식에 없어 통째 붙이면 안 맞음). 받아쓰기 타임라인
+    #   (라이브 전체·반복·즉흥까지 위치로 잡아둠)이 있으면, 각 받아쓰기 세그먼트에 '글자 겹침'이 가장 큰 공식
+    #   줄을 매칭 — 잘 맞으면(≥0.5) 정확한 공식 글로 교체, 안 맞으면(=즉흥) 받아쓰기 초안을 유지+표시(improv).
+    #   반복은 각 occurrence가 공식 글을 받아 자동 처리. (프로토타입 검증: 부정확한 ASR도 88·60% 매칭.)
+    if len(old) >= 5 and cur.get("source") != "lrclib":
+        def _kchars(s):
+            return {c for c in (s or "") if "가" <= c <= "힣"}
+        off = [(_kchars(l), l) for l in lines]
+        segs = []
+        for o in old:
+            ac = _kchars(o.get("text", ""))
+            best_ov, best_l = 0.0, None
+            for oc, l in off:
+                if oc:
+                    ov = len(ac & oc) / len(oc)
+                    if ov > best_ov:
+                        best_ov, best_l = ov, l
+            s0 = round(float(o.get("s", 0)), 2)
+            e0 = round(float(o.get("e") or o.get("s", 0)) or (s0 + 2.0), 2)
+            if best_ov >= 0.5 and best_l:
+                segs.append({"s": s0, "e": e0, "text": best_l[:200], "manual": True})
+            else:  # 즉흥 — 공식에 없음 → 받아쓰기 유지(초안), 표시
+                segs.append({"s": s0, "e": e0, "text": (o.get("text", "") or "")[:200], "improv": True})
+        src = "overlay"
+    else:
+        # 받아쓰기 없음/부실 → 붙여넣은 줄마다 고유 시각(보간). 받아쓰기 시각 앵커, 부실하면 곡 전체 균등.
+        anchors = sorted({round(float(o.get("s", 0)), 2) for o in old}) if old else []
+        if old:
+            le = round(float(old[-1].get("e") or old[-1].get("s", 0)), 2)
+            if not anchors or le > anchors[-1]:
+                anchors.append(le)
+        use_anchors = len(anchors) >= 3 and (not dur or (anchors[-1] - anchors[0]) >= dur * 0.3)
+        if not use_anchors:
+            lo = (dur * 0.05) if dur else (anchors[0] if anchors else 0.0)
+            hi = (dur * 0.95) if dur else (lo + max(1, n) * 3.0)
+            anchors = [round(lo, 2), round(hi, 2)]
+        A = len(anchors)
 
-    def _interp(frac):
-        x = frac * (A - 1)
-        k = min(A - 2, int(x))
-        return anchors[k] + (anchors[k + 1] - anchors[k]) * (x - k)
+        def _interp(frac):
+            x = frac * (A - 1)
+            k = min(A - 2, int(x))
+            return anchors[k] + (anchors[k + 1] - anchors[k]) * (x - k)
 
-    segs = []
-    prev = None
-    for i, l in enumerate(lines):
-        s = _interp(i / n)
-        e = _interp((i + 1) / n)
-        if prev is not None and s <= prev + 0.05:  # 엄격 증가 — 겹침 원천 차단
-            s = prev + 0.3
-        if e <= s:
-            e = s + 1.2
-        segs.append({"s": round(s, 2), "e": round(e, 2), "text": l[:200], "manual": True})
-        prev = s
+        segs = []
+        prev = None
+        for i, l in enumerate(lines):
+            s = _interp(i / n)
+            e = _interp((i + 1) / n)
+            if prev is not None and s <= prev + 0.05:
+                s = prev + 0.3
+            if e <= s:
+                e = s + 1.2
+            segs.append({"s": round(s, 2), "e": round(e, 2), "text": l[:200], "manual": True})
+            prev = s
     await db.upsert_transcription(song_id, lyrics=json.dumps(
-        {"status": "ready", "language": "manual", "source": "pasted", "segments": segs}, ensure_ascii=False))
-    return {"ok": True, "count": n}
+        {"status": "ready", "language": "manual", "source": src, "segments": segs}, ensure_ascii=False))
+    return {"ok": True, "count": len(segs), "source": src}
 
 
 @app.post("/api/songs/{song_id}/sections", status_code=202)
