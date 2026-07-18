@@ -373,13 +373,16 @@
         lastRight = x + estW / 2;
       };
       ly.segments.forEach(function (seg) {
-        if (seg.words && seg.words.length && !seg.manual) {
-          seg.words.forEach(function (w) { placeLyric(w.w, w.s + 0.01); });
+        // 즉흥(ASR 초안·되살린 애드립)·♪ 는 흐리게 — 깨끗한 공식 가사와 구분(정직 UI: 초안임을 표시)
+        var faint = !!(seg.placeholder || seg.improv);
+        // 단어별 시각이 있으면(ASR 받아쓰기 + 붙여넣기 정렬 둘 다) 그걸로 — 균등분배보다 실제 박에 가깝다
+        if (seg.words && seg.words.length) {
+          seg.words.forEach(function (w) { placeLyric(w.w, w.s + 0.01, faint); });
           return;
         }
         var words = String(seg.text || '').split(/\s+/).filter(Boolean);  // 폴백(단어 시각 없음): 균등 배치
         var span = Math.max(0.2, seg.e - seg.s);
-        words.forEach(function (word, k) { placeLyric(word, seg.s + span * (k + 0.15) / words.length, seg.placeholder); });
+        words.forEach(function (word, k) { placeLyric(word, seg.s + span * (k + 0.15) / words.length, faint); });
       });
     }
     inner.appendChild(frag);

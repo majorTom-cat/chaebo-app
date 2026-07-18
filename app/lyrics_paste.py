@@ -66,30 +66,99 @@ _GAP_ASR = 0.12   # ASR 세그 건너뜀(공식에 없는 즉흥·반복) 벌점
 _REPEAT_CLEAN = 0.55  # 건너뛴 ASR 세그가 이 이상 어떤 공식 줄과 겹치면 그 공식 글로 정리(반복 후렴)
 
 
+def _word_align(off_line, asr_words, seg_s, seg_e):
+    """공식 줄 단어 ↔ ASR 세그 단어(시각) 단조 매칭 → (words_out, adlib).
+    words_out = [{w, s}] 모든 공식 단어에 시각(매칭 asr 단어 시각 or 보간) — 박자 정확도↑.
+    adlib = [(text, s, e)] 공식 단어에 안 쓰인 연속 asr 단어(인트로/후렴 붙은 즉흥). asr_words 없으면 ([],[])."""
+    off_words = [w for w in (off_line or "").split() if w]
+    if not off_words or not asr_words:
+        return [], []
+    aw = [(a.get("w", "") or "", float(a.get("s", 0)),
+           float(a.get("e") or a.get("s", 0)) or (float(a.get("s", 0)) + 0.3)) for a in asr_words]
+    aw_chars = [_kchars(w) for w, _, _ in aw]
+    m = len(aw)
+    matched = [None] * len(off_words)
+    ptr = 0
+    for i, w in enumerate(off_words):
+        oc = _kchars(w)
+        if not oc:
+            continue
+        best_k, best = None, 0.34  # 단어 최소 겹침(오타 감안 관대)
+        for k in range(ptr, min(m, ptr + 4)):  # 앞 창(window) 안에서만 — 순서 보존
+            sim = len(oc & aw_chars[k]) / len(oc)
+            if sim > best:
+                best, best_k = sim, k
+        if best_k is not None:
+            matched[i] = best_k
+            ptr = best_k + 1
+    # 공식 단어 시각(매칭 or 보간)
+    times = [None] * len(off_words)
+    for i, k in enumerate(matched):
+        if k is not None:
+            times[i] = aw[k][1]
+    known = [(i, times[i]) for i in range(len(off_words)) if times[i] is not None]
+    if not known:
+        span = max(0.3, seg_e - seg_s)
+        for i in range(len(off_words)):
+            times[i] = seg_s + span * (i + 0.15) / len(off_words)
+    else:
+        fi, ft = known[0]
+        for i in range(fi):
+            times[i] = max(seg_s, ft - (fi - i) * 0.22)
+        li, lt = known[-1]
+        for i in range(li + 1, len(off_words)):
+            times[i] = lt + (i - li) * 0.22
+        for a in range(len(known) - 1):
+            ia, ta = known[a]
+            ib, tb = known[a + 1]
+            if ib - ia > 1:
+                for i in range(ia + 1, ib):
+                    times[i] = ta + (tb - ta) * ((i - ia) / (ib - ia))
+    words_out = [{"w": off_words[i], "s": round(float(times[i]), 2)} for i in range(len(off_words))]
+    # 안 쓰인 asr 단어 → 연속 그룹(붙은 즉흥/애드립 후보)
+    used = {k for k in matched if k is not None}
+    groups, cur = [], []
+    for k in range(m):
+        if k in used:
+            if cur:
+                groups.append(cur)
+                cur = []
+        else:
+            cur.append(k)
+    if cur:
+        groups.append(cur)
+    adlib = []
+    for g in groups:
+        txt = " ".join(aw[k][0] for k in g).strip()
+        if txt:
+            adlib.append((txt, round(aw[g[0]][1], 2), round(aw[g[-1]][2], 2)))
+    return words_out, adlib
+
+
 def _align_overlay(lines, base):
     """공식 줄(lines) ↔ ASR 세그(base) 순서보존 정렬 → 시간순 segments 리스트.
-    manual=공식 줄(정렬/보간), improv=공식에 없는 ASR 즉흥, placeholder=♪."""
+    manual=공식 줄(단어별 시각 부여), improv=공식에 없는 ASR 즉흥(줄에 붙은 것 포함), placeholder=♪."""
     n = len(lines)
     off_chars = [_kchars(l) for l in lines]
-    # ASR 세그 정규화: (s, e, text, placeholder, chars)
+    # ASR 세그 정규화(단어 시각 유지 — 단어별 배치·애드립 되살리기용)
     asr = []
     for o in base:
         s0 = round(float(o.get("s", 0)), 2)
         e0 = round(float(o.get("e") or o.get("s", 0)) or (s0 + 2.0), 2)
         ph = bool(o.get("placeholder"))
-        asr.append((s0, e0, (o.get("text", "") or ""), ph, set() if ph else _kchars(o.get("text", ""))))
+        asr.append({"s": s0, "e": e0, "text": (o.get("text", "") or ""), "ph": ph,
+                    "chars": set() if ph else _kchars(o.get("text", "")), "words": o.get("words") or []})
     m = len(asr)
     if n == 0:
-        m_only = []
-        for s0, e0, txt, ph, _ in asr:
-            if ph:
-                m_only.append({"s": s0, "e": e0, "text": "♪", "improv": True, "placeholder": True})
-            elif txt.strip():
-                m_only.append({"s": s0, "e": e0, "text": txt[:200], "improv": True})
-        return m_only
+        out = []
+        for a in asr:
+            if a["ph"]:
+                out.append({"s": a["s"], "e": a["e"], "text": "♪", "improv": True, "placeholder": True})
+            elif a["text"].strip():
+                out.append({"s": a["s"], "e": a["e"], "text": a["text"][:200], "improv": True})
+        return out
 
-    NEG = float("-inf")
-    # D[i][j] = 공식 앞 i줄 · ASR 앞 j세그 최적 정렬 점수
+    # D[i][j] = 공식 앞 i줄 · ASR 앞 j세그 최적 정렬 점수(Needleman-Wunsch, 순서보존)
     D = [[0.0] * (m + 1) for _ in range(n + 1)]
     for i in range(1, n + 1):
         D[i][0] = D[i - 1][0] - _GAP_OFF
@@ -99,23 +168,18 @@ def _align_overlay(lines, base):
         oc = off_chars[i - 1]
         row, prow = D[i], D[i - 1]
         for j in range(1, m + 1):
-            ph = asr[j - 1][3]
-            sim = 0.0 if ph else _sim(oc, asr[j - 1][4])
+            sim = 0.0 if asr[j - 1]["ph"] else _sim(oc, asr[j - 1]["chars"])
             match = prow[j - 1] + (sim - _MATCH_BIAS)
-            skip_off = prow[j] - _GAP_OFF
-            skip_asr = row[j - 1] - _GAP_ASR
-            row[j] = match if (match >= skip_off and match >= skip_asr) else max(skip_off, skip_asr)
+            row[j] = max(match, prow[j] - _GAP_OFF, row[j - 1] - _GAP_ASR)
 
-    # 백트랙 → 공식 줄별 매칭 시각(off_time) + 건너뛴 ASR(잉여)
-    off_time = [None] * n       # 공식 줄 i 의 (매칭) 시각
-    off_span = [None] * n       # (s,e) 매칭 시
-    leftover = []               # 건너뛴 ASR 세그(즉흥/♪ 후보)
+    # 백트랙 → 공식 줄별 매칭 세그(off_match_j) + 건너뛴 ASR(잉여)
+    off_match_j = [None] * n
+    leftover = []
     i, j = n, m
     while i > 0 or j > 0:
         took = None
         if i > 0 and j > 0:
-            ph = asr[j - 1][3]
-            sim = 0.0 if ph else _sim(off_chars[i - 1], asr[j - 1][4])
+            sim = 0.0 if asr[j - 1]["ph"] else _sim(off_chars[i - 1], asr[j - 1]["chars"])
             if D[i][j] == D[i - 1][j - 1] + (sim - _MATCH_BIAS):
                 took = "match"
         if took is None and i > 0 and D[i][j] == D[i - 1][j] - _GAP_OFF:
@@ -123,9 +187,7 @@ def _align_overlay(lines, base):
         if took is None:
             took = "skipasr"
         if took == "match":
-            s0, e0 = asr[j - 1][0], asr[j - 1][1]
-            off_time[i - 1] = s0
-            off_span[i - 1] = (s0, e0)
+            off_match_j[i - 1] = j - 1
             i -= 1
             j -= 1
         elif took == "skipoff":
@@ -135,54 +197,69 @@ def _align_overlay(lines, base):
             j -= 1
     leftover.reverse()
 
-    # 매칭 안 된 공식 줄 보간 — 이웃(매칭된) 시각 사이에 순서대로 균등(절대 드롭 안 함)
+    # 공식 줄 시각: 매칭이면 세그 s, 아니면 이웃 사이 보간(절대 드롭 안 함)
+    off_time = [None] * n
+    for k in range(n):
+        if off_match_j[k] is not None:
+            off_time[k] = asr[off_match_j[k]]["s"]
     anchors = [(k, off_time[k]) for k in range(n) if off_time[k] is not None]
     if not anchors:
-        # 매칭이 하나도 없음 — 곡 보컬 구간 전체에 균등(정렬 실패 폴백)
-        s_lo = asr[0][0] if asr else 0.0
-        s_hi = asr[-1][1] if asr else (s_lo + n * 3.0)
+        s_lo = asr[0]["s"] if asr else 0.0
+        s_hi = asr[-1]["e"] if asr else (s_lo + n * 3.0)
         for k in range(n):
             off_time[k] = s_lo + (s_hi - s_lo) * (k / max(1, n))
     else:
-        first_k, first_t = anchors[0]
-        for k in range(first_k):  # 선두 미매칭 — 첫 앵커 앞에 촘촘히
-            off_time[k] = max(0.0, first_t - (first_k - k) * 0.6)
-        last_k, last_t = anchors[-1]
-        for k in range(last_k + 1, n):  # 말미 미매칭 — 마지막 앵커 뒤로
-            off_time[k] = last_t + (k - last_k) * 0.6
-        for a in range(len(anchors) - 1):  # 앵커 사이 미매칭 — 균등 분배
+        fk, ft = anchors[0]
+        for k in range(fk):
+            off_time[k] = max(0.0, ft - (fk - k) * 0.6)
+        lk, lt = anchors[-1]
+        for k in range(lk + 1, n):
+            off_time[k] = lt + (k - lk) * 0.6
+        for a in range(len(anchors) - 1):
             ka, ta = anchors[a]
             kb, tb = anchors[a + 1]
-            gap = kb - ka
-            if gap > 1:
+            if kb - ka > 1:
                 for k in range(ka + 1, kb):
-                    off_time[k] = ta + (tb - ta) * ((k - ka) / gap)
+                    off_time[k] = ta + (tb - ta) * ((k - ka) / (kb - ka))
 
     segs = []
     for k in range(n):
-        s0 = round(float(off_time[k]), 2)
-        e0 = round(off_span[k][1], 2) if off_span[k] else round(s0 + 1.2, 2)
-        if e0 <= s0:
-            e0 = round(s0 + 1.2, 2)
-        segs.append({"s": s0, "e": e0, "text": lines[k][:200], "manual": True})
+        j = off_match_j[k]
+        if j is not None:
+            a = asr[j]
+            words_out, adlib = _word_align(lines[k], a["words"], a["s"], a["e"])
+            s0 = round(words_out[0]["s"], 2) if words_out else round(float(off_time[k]), 2)
+            e0 = round(max(a["e"], s0 + 0.4), 2)
+            seg = {"s": s0, "e": e0, "text": lines[k][:200], "manual": True}
+            if words_out:
+                seg["words"] = words_out
+            segs.append(seg)
+            # ★줄에 붙은 즉흥(애드립) 되살리기 — 공식 단어에 안 쓰인 asr 단어 그룹. 단, 그 그룹이 실은
+            #   인접 공식 줄이면(뭉친 절) 중복이라 건너뜀(그 줄은 따로 배치됨).
+            for txt, gs, ge in adlib:
+                ac = _kchars(txt)
+                if ac and any(_sim(off_chars[q], ac) >= _REPEAT_CLEAN for q in range(n)):
+                    continue
+                segs.append({"s": gs, "e": max(ge, gs + 0.4), "text": txt[:200], "improv": True})
+        else:
+            s0 = round(float(off_time[k]), 2)
+            segs.append({"s": s0, "e": round(s0 + 1.2, 2), "text": lines[k][:200], "manual": True})
 
-    # 건너뛴 ASR(잉여) → ♪ 보존 / 공식과 강하게 겹치는 '연속 줄'이면 반복(후렴)으로 보고 그 공식 줄들을
-    # 깨끗한 글로 재구성(조각 아님) / 아니면 공식에 없는 즉흥 초안(ASR 글 유지).
+    # 건너뛴 ASR(잉여) → ♪ 보존 / 담긴 '연속' 공식 줄이면 반복(후렴)으로 깨끗한 글 재구성 / 아니면 즉흥 초안
     for j in leftover:
-        s0, e0, txt, ph, ac = asr[j]
-        if ph:
-            segs.append({"s": s0, "e": e0, "text": "♪", "improv": True, "placeholder": True})
+        a = asr[j]
+        if a["ph"]:
+            segs.append({"s": a["s"], "e": a["e"], "text": "♪", "improv": True, "placeholder": True})
             continue
-        if not txt.strip():
+        if not a["text"].strip():
             continue
-        cand = [k for k in range(n) if _sim(off_chars[k], ac) >= _REPEAT_CLEAN]
-        run = _best_run(cand)  # 이 세그에 담긴 '연속' 공식 줄들(뭉친 후렴 블록)
+        cand = [k for k in range(n) if _sim(off_chars[k], a["chars"]) >= _REPEAT_CLEAN]
+        run = _best_run(cand)
         if run:
-            # 반복 후렴 — 담긴 공식 줄들을 글자수 비례로 시간 나눠 깨끗한 글로(사용자가 붙인 그대로)
-            for line, ws, we in _split_span(s0, e0, [lines[k] for k in run]):
+            for line, ws, we in _split_span(a["s"], a["e"], [lines[k] for k in run]):
                 segs.append({"s": ws, "e": we, "text": line[:200], "manual": True})
         else:
-            segs.append({"s": s0, "e": e0, "text": txt[:200], "improv": True})
+            segs.append({"s": a["s"], "e": a["e"], "text": a["text"][:200], "improv": True})
 
     segs.sort(key=lambda s: (s["s"], s["e"]))
     return segs
