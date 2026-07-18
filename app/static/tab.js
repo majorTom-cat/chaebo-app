@@ -19,6 +19,8 @@
   var tabBotByRowY = {};   // 줄의 스코어 보표 y -> 타브 보표 하단 y (카운트 행 = 타브 아래)
   var tabMidByRowY = {};   // 줄의 스코어 보표 y -> 타브 보표 중앙 y (편집 고스트 점 앵커)
   var duration = 0;
+  var adlibShow = true;    // 즉흥(애드립) 표시 토글 — 끄면 흐름 가사에서 애드립 라벨을 아예 안 그림
+                           // (숨기는 게 아니라 렌더 스킵 → 공식 가사가 애드립 라벨에 밀리지 않아 위치 정확)
 
   /* ---- 셸 훅 — 타브 활성일 때만(숨은 커서 갱신은 헛일) ---- */
   Shell.on('tick', function () { updateCursor(); }, 'tab');
@@ -375,6 +377,7 @@
       ly.segments.forEach(function (seg) {
         // 즉흥(ASR 초안·되살린 애드립)·♪ 는 흐리게 — 깨끗한 공식 가사와 구분(정직 UI: 초안임을 표시)
         var faint = !!(seg.placeholder || seg.improv);
+        if (!adlibShow && faint) return;  // 애드립 표시 끄면 아예 안 그림 → 공식 가사 밀림 없음(위치 정확)
         // 단어별 시각이 있으면(ASR 받아쓰기 + 붙여넣기 정렬 둘 다) 그걸로. 단어를 다시 글자(음절)로 쪼개
         // 단어 [s,e] 구간에 분배 → 한 단어 안에서도 글자마다 제 위치에(사용자 요청 2026-07-18: 글자별).
         // ★whisper 는 단어까지만 측정 — 글자별은 단어 구간 등분 근사(멜리스마 등은 완벽치 않음).
@@ -958,6 +961,11 @@
   document.getElementById('attack-check').addEventListener('change', function (e) {
     document.getElementById('flow-inner').classList.toggle('hide-attacks', !e.target.checked);
     saveShared({ attackOn: e.target.checked }); // 어택 세로선 표시 토글 저장·복원
+  });
+  document.getElementById('adlib-check').addEventListener('change', function (e) {
+    adlibShow = e.target.checked;
+    renderFlow();  // 재렌더 — 애드립 라벨을 넣고/빼며 공식 가사 위치를 다시 계산(밀림 제거)
+    saveShared({ adlibOn: e.target.checked });
   });
 
   /* ---- 가사(받아쓰기 초안) — 단어를 '마디 안 실제 시각 위치'에(사용자 지시 2026-07-11:
@@ -1603,6 +1611,9 @@
         var attackOn = sharedState.attackOn !== false;
         document.getElementById('attack-check').checked = attackOn;
         document.getElementById('flow-inner').classList.toggle('hide-attacks', !attackOn);
+        adlibShow = sharedState.adlibOn !== false;  // 즉흥 표시(기본 켬) 복원 — renderFlow 가 이 값 반영
+        document.getElementById('adlib-check').checked = adlibShow;
+        if (!adlibShow) renderFlow();  // 꺼진 상태 복원이면 애드립 없이 다시(초기 렌더는 켬 기준)
         window.__stateRestored = true; // 배터리: 토글 조작 전 이 플래그 대기
       });
       Shell.ready.then(function () {
