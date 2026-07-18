@@ -239,47 +239,81 @@ def detect_notes_legato(x, sr, f0=None, per=None):
 
     MINF = max(1, int(round(0.05 / HOP_SEC)))       # 50ms 최소(베이스)
     ph = HOP_SEC
-    notes = []
 
-    def emit(s, e):
+    def make_note(s, e):
         if e - s < MINF:
-            return
+            return None
         segc = conf[s:e]
         vm = segc > PERIODICITY_LOW
         if int(vm.sum()) < MINF:
-            return
+            return None
         vel = int(np.clip(float(fenv[s:e].max()) / envmax, 0, 1) * 127)
         if vel <= 7:  # 감쇠꼬리·무음의 유령
-            return
+            return None
         m = int(round(float(np.median(q[s:e][vm]))))
-        # 음 안 피치 곡선(pc) — 슬라이드/해머 분류 재료(20ms 간격, 튠 보정, 무성=None)
+        # 음 안 피치 곡선(pc) — 20ms 간격, 튠 보정, 무성=None
         pc = [round(float(midi_all[i] - tune), 2) if conf[i] > PERIODICITY_LOW else None
               for i in range(s, e, 2)]
-        notes.append({"start": round(s * ph, 3), "dur": round((e - s) * ph, 3),
-                      "midi": m, "conf": round(float(np.median(segc[vm])), 2),
-                      "vel": vel, "pc": pc})
+        return {"start": round(s * ph, 3), "dur": round((e - s) * ph, 3),
+                "midi": m, "conf": round(float(np.median(segc[vm])), 2),
+                "vel": vel, "pc": pc, "_sf": s, "_ef": e}
 
-    cur = None  # [start_frame, end_frame(exclusive), quantized_pitch]
+    # ① 세그먼트 수집 — 각 세그먼트가 '어택으로 시작(픽/재타건)'인지 '레가토(피치변화, 어택 없음)'인지 기록.
+    segs = []   # (start_frame, end_frame, by_attack)
+    cur = None  # [start_frame, end_frame(exclusive), quantized_pitch, by_attack]
     for i in range(nf):
         if not voiced[i]:
             if cur is not None:
-                emit(cur[0], cur[1]); cur = None
+                segs.append((cur[0], cur[1], cur[3])); cur = None
             continue
         if cur is None:
-            cur = [i, i + 1, int(q[i])]
+            cur = [i, i + 1, int(q[i]), True]           # 무음 뒤 첫 음 = 픽(어택)
             continue
         if q[i] != cur[2]:
             look = q[i:i + MINF]
-            if len(look) >= MINF and np.all(look == q[i]):   # 새 반음이 안정적 = 레가토 새 음
-                emit(cur[0], cur[1]); cur = [i, i + 1, int(q[i])]
+            if len(look) >= MINF and np.all(look == q[i]):   # 새 반음이 안정적 = 레가토 새 음(어택 없음)
+                segs.append((cur[0], cur[1], cur[3])); cur = [i, i + 1, int(q[i]), False]
             else:
                 cur[1] = i + 1                               # 순간 흔들림(비브라토·전이) = 현 음 유지
-        elif i in attk:                                     # 같은 음 재타건(다시 픽) = 새 음
-            emit(cur[0], cur[1]); cur = [i, i + 1, int(q[i])]
+        elif i in attk:                                     # 같은/다른 음 재타건(다시 픽) = 새 음(어택)
+            segs.append((cur[0], cur[1], cur[3])); cur = [i, i + 1, int(q[i]), True]
         else:
             cur[1] = i + 1
     if cur is not None:
-        emit(cur[0], cur[1])
+        segs.append((cur[0], cur[1], cur[3]))
+
+    # ② 노트 생성 + 아티큘레이션: 어택 없이(레가토) 시작한 음은 직전 음에 해머/풀오프('h', alphaTab 이
+    #    상행 H·하행 P 자동)·슬라이드('sl')를 붙인다. classify_articulations 는 '음 안' 전이를 보지만
+    #    legato 는 전이 지점에서 이미 음을 나눴으므로 '음 사이'로 판정해야 나온다(이 사각이 legato 아티큘=0 원인).
+    RAMP_FR = max(1, int(round(0.06 / HOP_SEC)))    # 슬라이드 최소 램프 60ms
+    notes = []
+    for (sf, ef, by_attack) in segs:
+        nt = make_note(sf, ef)
+        if nt is None:
+            continue
+        if notes and not by_attack:
+            prev = notes[-1]
+            delta = nt["midi"] - prev["midi"]
+            if 1 <= abs(delta) <= 7 and "_ef" in prev:
+                # 전이(직전 음 꼬리) 프레임 — 두 음 사이(±0.4 밖)에 머문 연속 프레임 수 = 램프 길이
+                lo, hi = sorted((prev["midi"], nt["midi"]))
+                w0 = max(prev["_sf"], sf - 12)
+                trans = sum(1 for i in range(w0, sf)
+                            if conf[i] > PERIODICITY_LOW and lo + 0.4 < (midi_all[i] - tune) < hi - 0.4)
+                if trans >= RAMP_FR:                 # 매끄러운 램프 = 슬라이드
+                    kind = "sl"
+                elif abs(delta) <= 2:                # 급격 계단(1~2반음) = 해머온/풀오프
+                    kind = "h"
+                else:
+                    kind = None
+                if kind:
+                    prev.setdefault("art", [])
+                    if kind not in prev["art"]:
+                        prev["art"] = list(prev["art"]) + [kind]
+                    prev["_artto"] = int(nt["midi"])
+        notes.append(nt)
+    for nt in notes:               # 내부 프레임 인덱스 제거(캐시 스키마 유지)
+        nt.pop("_sf", None); nt.pop("_ef", None)
     return notes, round(tune * 100, 1)
 
 
