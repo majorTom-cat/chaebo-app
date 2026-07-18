@@ -15,8 +15,23 @@ button, .btn, .icon-btn, .stem-toggle, input[type="range"], svg, .badge { -webki
 /* ---- 상단바 · 페이지 골격 ---- */
 .topbar { position: fixed; top: 0; left: 0; right: 0; height: var(--topbar-h); background: var(--surface); border-bottom: 1px solid var(--border); z-index: 100; }
 .topbar-inner { max-width: var(--content-max); margin: 0 auto; height: 100%; display: flex; align-items: center; justify-content: space-between; padding: 0 var(--sp-6); }
-.wordmark { font-size: 18px; font-weight: 700; text-decoration: none; color: var(--text); display: flex; align-items: baseline; gap: var(--sp-2); }
-.wordmark-sub { font-size: 12px; font-weight: 400; color: var(--muted); }
+.wordmark { text-decoration: none; display: inline-flex; align-items: center; gap: 9px; }
+.wordmark-mark { width: 30px; height: 30px; flex: none; display: block; }
+.wordmark-mark svg { width: 100%; height: 100%; display: block; }
+.wordmark-text { display: inline-flex; align-items: baseline; gap: 6px; }
+.wordmark-name { font-size: 19px; font-weight: 800; letter-spacing: -0.02em; line-height: 1;
+  background: linear-gradient(115deg, #f7bc6a 0%, #ef6461 100%);
+  -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; color: transparent; }
+.wordmark-sub { font-size: 12px; font-weight: 500; color: var(--muted); letter-spacing: 0.04em; }
+/* 파형 막대 — 평소 정적, hover 때만 은은히 숨쉼(작업 방해 없게). 접근성: 모션 줄이기면 정지 */
+.wm-bar { transform-origin: center; transform-box: fill-box; }
+.wordmark:hover .wm-bar { animation: wmWave 1.15s ease-in-out infinite; }
+.wordmark:hover .wm-bar:nth-of-type(2) { animation-delay: .1s; }
+.wordmark:hover .wm-bar:nth-of-type(3) { animation-delay: .2s; }
+.wordmark:hover .wm-bar:nth-of-type(4) { animation-delay: .3s; }
+.wordmark:hover .wm-bar:nth-of-type(5) { animation-delay: .4s; }
+@keyframes wmWave { 0%, 100% { transform: scaleY(1); } 50% { transform: scaleY(0.55); } }
+@media (prefers-reduced-motion: reduce) { .wordmark:hover .wm-bar { animation: none; } }
 .topbar-right { display: flex; align-items: center; gap: var(--sp-4); }
 .status-badge { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); background: var(--surface-2); border: 1px solid var(--border); border-radius: 999px; padding: 4px 10px 4px 8px; }
 .status-badge svg { width: 14px; height: 14px; flex-shrink: 0; }

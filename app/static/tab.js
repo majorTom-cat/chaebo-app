@@ -375,12 +375,28 @@
       ly.segments.forEach(function (seg) {
         // 즉흥(ASR 초안·되살린 애드립)·♪ 는 흐리게 — 깨끗한 공식 가사와 구분(정직 UI: 초안임을 표시)
         var faint = !!(seg.placeholder || seg.improv);
-        // 단어별 시각이 있으면(ASR 받아쓰기 + 붙여넣기 정렬 둘 다) 그걸로 — 균등분배보다 실제 박에 가깝다
-        if (seg.words && seg.words.length) {
-          seg.words.forEach(function (w) { placeLyric(w.w, w.s + 0.01, faint); });
+        // 단어별 시각이 있으면(ASR 받아쓰기 + 붙여넣기 정렬 둘 다) 그걸로. 단어를 다시 글자(음절)로 쪼개
+        // 단어 [s,e] 구간에 분배 → 한 단어 안에서도 글자마다 제 위치에(사용자 요청 2026-07-18: 글자별).
+        // ★whisper 는 단어까지만 측정 — 글자별은 단어 구간 등분 근사(멜리스마 등은 완벽치 않음).
+        var charSplit = function (text, s, e) {  // 글자(음절)를 [s,e] 구간에 분배
+          var chs = String(text || '').replace(/\s+/g, '').split('');
+          if (chs.length <= 1) { if (chs.length) placeLyric(chs[0], s + 0.01, faint); return; }
+          var sp = Math.max(0.12, e - s);
+          chs.forEach(function (ch, ci) { placeLyric(ch, s + sp * (ci + 0.15) / chs.length + 0.01, faint); });
+        };
+        if (seg.words && seg.words.length) {  // 단어별 시각 → 각 단어를 그 단어 구간 안에서 글자별로
+          seg.words.forEach(function (w) {
+            var we = (w.e != null && w.e > w.s) ? w.e : w.s + 0.4;
+            charSplit(w.w, w.s, we);
+          });
           return;
         }
-        var words = String(seg.text || '').split(/\s+/).filter(Boolean);  // 폴백(단어 시각 없음): 균등 배치
+        if (seg.manual) {  // 단어시각 없는 공식 줄(반복 후렴 등)도 글자별 — 일관되게
+          charSplit(seg.text, seg.s, seg.e);
+          return;
+        }
+        // 즉흥 초안(ASR 오타 가능) — 글자분해 무의미, 단어별 균등
+        var words = String(seg.text || '').split(/\s+/).filter(Boolean);
         var span = Math.max(0.2, seg.e - seg.s);
         words.forEach(function (word, k) { placeLyric(word, seg.s + span * (k + 0.15) / words.length, faint); });
       });

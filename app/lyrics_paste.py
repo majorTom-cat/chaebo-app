@@ -114,7 +114,19 @@ def _word_align(off_line, asr_words, seg_s, seg_e):
             if ib - ia > 1:
                 for i in range(ia + 1, ib):
                     times[i] = ta + (tb - ta) * ((i - ia) / (ib - ia))
-    words_out = [{"w": off_words[i], "s": round(float(times[i]), 2)} for i in range(len(off_words))]
+    # 단어 시각 + 끝(글자별 분할용) — 매칭 단어는 asr 단어 끝, 아니면 다음 단어 시작/구간 끝
+    words_out = []
+    for i in range(len(off_words)):
+        s = round(float(times[i]), 2)
+        if matched[i] is not None:
+            e = round(aw[matched[i]][2], 2)
+        elif i + 1 < len(off_words):
+            e = round(float(times[i + 1]), 2)
+        else:
+            e = round(seg_e, 2)
+        if e <= s:
+            e = round(s + 0.3, 2)
+        words_out.append({"w": off_words[i], "s": s, "e": e})
     # 안 쓰인 asr 단어 → 연속 그룹(붙은 즉흥/애드립 후보)
     used = {k for k in matched if k is not None}
     groups, cur = [], []

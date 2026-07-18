@@ -133,7 +133,24 @@ body.is-empty .empty-state { display: flex; }
 <header class="topbar">
   <div class="topbar-inner">
     <a class="wordmark" href="/">
-      chaebo <span class="wordmark-sub">채보</span>
+      <span class="wordmark-mark" aria-hidden="true">
+        <svg viewBox="0 0 32 32" fill="none">
+          <defs>
+            <linearGradient id="cbGrad" x1="4" y1="4" x2="28" y2="28" gradientUnits="userSpaceOnUse">
+              <stop stop-color="#f7bc6a"/><stop offset="1" stop-color="#ef6461"/>
+            </linearGradient>
+          </defs>
+          <rect x="1.5" y="1.5" width="29" height="29" rx="9" fill="url(#cbGrad)" opacity="0.13"/>
+          <g fill="url(#cbGrad)">
+            <rect class="wm-bar" x="6"  y="12"   width="2.6" height="8"  rx="1.3"/>
+            <rect class="wm-bar" x="11" y="8"    width="2.6" height="16" rx="1.3"/>
+            <rect class="wm-bar" x="16" y="5"    width="2.6" height="22" rx="1.3"/>
+            <rect class="wm-bar" x="21" y="9"    width="2.6" height="14" rx="1.3"/>
+            <rect class="wm-bar" x="26" y="12.5" width="2.6" height="7"  rx="1.3"/>
+          </g>
+        </svg>
+      </span>
+      <span class="wordmark-text"><span class="wordmark-name">chaebo</span><span class="wordmark-sub">채보</span></span>
     </a>
     <div class="topbar-right">
       <span class="status-badge" title="처리 장치 상태 — 설정에서 확인">
