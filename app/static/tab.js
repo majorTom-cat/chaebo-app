@@ -141,6 +141,107 @@
     }).then(refreshTab);
   });
 
+  /* ---- 베이스 솔로 구간(기타로 분석) — 시간/마디/드래그 3방식 (2026-07-18) ---- */
+  var grRanges = [];   // [[s,e]초] 편집 중
+  var grDrag = false;  // 흐름 타브 드래그 선택 모드
+  function grEl(id) { return document.getElementById(id); }
+  function grMsg(m) { var e = grEl('grange-msg'); if (e) e.textContent = m; }
+  function grParseTime(str) {                  // "2:47" 또는 "167" → 초
+    str = (str || '').trim(); if (!str) return null;
+    if (str.indexOf(':') >= 0) { var p = str.split(':'), m = parseFloat(p[0]), s = parseFloat(p[1]); return (isNaN(m) || isNaN(s)) ? null : m * 60 + s; }
+    var v = parseFloat(str); return isNaN(v) ? null : v;
+  }
+  function grFmt(t) { var m = Math.floor(t / 60), s = Math.round(t % 60); return m + ':' + (s < 10 ? '0' : '') + s; }
+  function grStored() { try { var r = JSON.parse((tab && tab.guitar_ranges) || '[]'); return Array.isArray(r) ? r : []; } catch (e) { return []; } }
+  function grRenderList() {
+    var box = grEl('grange-list'); if (!box) return;
+    if (!grRanges.length) { box.innerHTML = '<span class="grange-empty">아직 없어요 — 아래에서 추가하세요</span>'; return; }
+    box.innerHTML = '';
+    grRanges.forEach(function (r, i) {
+      var chip = document.createElement('span'); chip.className = 'grange-chip';
+      chip.innerHTML = grFmt(r[0]) + ' ~ ' + grFmt(r[1]) + ' <button title="삭제">×</button>';
+      chip.querySelector('button').addEventListener('click', function () { grRanges.splice(i, 1); grRenderList(); renderGRBands(); });
+      box.appendChild(chip);
+    });
+  }
+  function grAdd(s, e) {
+    if (s == null || e == null || e - s < 0.3) { grMsg('구간이 너무 짧거나 잘못됐어요'); return; }
+    grRanges.push([Math.round(s * 100) / 100, Math.round(e * 100) / 100]);
+    grRanges.sort(function (a, b) { return a[0] - b[0]; });
+    grRenderList(); renderGRBands(); grMsg('');
+  }
+  function openGRange() { grRanges = grStored().slice(); grRenderList(); grMsg(''); grEl('grange-modal').hidden = false; }
+  function closeGRange() { grEl('grange-modal').hidden = true; grSetDrag(false); }
+  function grSetDrag(on) {
+    grDrag = on;
+    var btn = grEl('grange-drag-toggle'), hint = grEl('grange-drag-hint'), inner = grEl('flow-inner');
+    if (btn) btn.classList.toggle('active', on);
+    if (hint) hint.hidden = !on;
+    if (inner) inner.classList.toggle('grange-drag', on);
+    if (on) grEl('grange-modal').hidden = true;  // 드래그하도록 모달 잠깐 숨김(완료/취소 시 복귀)
+  }
+  grEl('btn-guitar-range').addEventListener('click', openGRange);
+  grEl('grange-close').addEventListener('click', closeGRange);
+  grEl('grange-cancel').addEventListener('click', closeGRange);
+  grEl('grange-modal').addEventListener('click', function (e) { if (e.target.id === 'grange-modal') closeGRange(); });
+  grEl('grange-add-time').addEventListener('click', function () {
+    grAdd(grParseTime(grEl('grange-t-start').value), grParseTime(grEl('grange-t-end').value));
+    grEl('grange-t-start').value = ''; grEl('grange-t-end').value = '';
+  });
+  grEl('grange-add-bar').addEventListener('click', function () {
+    var b0 = parseInt(grEl('grange-b-start').value, 10), b1 = parseInt(grEl('grange-b-end').value, 10);
+    if (isNaN(b0) || isNaN(b1)) { grMsg('마디 번호를 넣어주세요'); return; }
+    var BAR = barSlots();
+    grAdd(slotTime((Math.min(b0, b1) - 1) * BAR), slotTime(Math.max(b0, b1) * BAR));
+    grEl('grange-b-start').value = ''; grEl('grange-b-end').value = '';
+  });
+  grEl('grange-drag-toggle').addEventListener('click', function () { grSetDrag(!grDrag); });
+  (function wireGRDrag() {
+    var inner = grEl('flow-inner'); if (!inner) return;
+    var startX = null, selEl = null;
+    function xTime(clientX) { var rect = inner.getBoundingClientRect(); return slotTime((clientX - rect.left - FLOW_PAD) / subPx()); }
+    inner.addEventListener('mousedown', function (e) {
+      if (!grDrag) return;
+      startX = e.clientX; var rect = inner.getBoundingClientRect();
+      selEl = document.createElement('div'); selEl.className = 'flow-drag-sel';
+      selEl.style.left = (e.clientX - rect.left) + 'px'; selEl.style.width = '0px';
+      inner.appendChild(selEl); e.preventDefault();
+    });
+    document.addEventListener('mousemove', function (e) {
+      if (!grDrag || startX == null || !selEl) return;
+      var rect = inner.getBoundingClientRect(), a = Math.min(startX, e.clientX) - rect.left, b = Math.max(startX, e.clientX) - rect.left;
+      selEl.style.left = a + 'px'; selEl.style.width = (b - a) + 'px';
+    });
+    document.addEventListener('mouseup', function (e) {
+      if (!grDrag || startX == null) return;
+      var s = xTime(Math.min(startX, e.clientX)), en = xTime(Math.max(startX, e.clientX));
+      if (selEl) { selEl.remove(); selEl = null; } startX = null;
+      grSetDrag(false); grEl('grange-modal').hidden = false;
+      if (en - s >= 0.3) grAdd(s, en);
+    });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && grDrag) { if (selEl) { selEl.remove(); selEl = null; } startX = null; grSetDrag(false); grEl('grange-modal').hidden = false; }
+    });
+  })();
+  grEl('grange-apply').addEventListener('click', function () {
+    grMsg('적용 중… 그 구간을 기타로 다시 분석해요');
+    fetch('/api/songs/' + songId + '/guitar-ranges', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ranges: grRanges }),
+    }).then(function (r) { if (!r.ok) throw 0; closeGRange(); return refreshTab(); })
+      .catch(function () { grMsg('적용 중 문제가 있었어요 — 다시 시도해주세요'); });
+  });
+  function renderGRBands() {                     // 흐름 타브에 지정 구간 음영(항상)
+    var inner = grEl('flow-inner'); if (!inner || !tab) return;
+    inner.querySelectorAll('.flow-grange-band').forEach(function (el) { el.remove(); });
+    var ranges = grEl('grange-modal').hidden ? grStored() : grRanges;   // 편집 중이면 편집값, 아니면 저장값
+    ranges.forEach(function (r) {
+      var x0 = flowX(timeSlot(r[0])), x1 = flowX(timeSlot(r[1]));
+      var band = document.createElement('div'); band.className = 'flow-grange-band';
+      band.style.left = x0 + 'px'; band.style.width = Math.max(2, x1 - x0) + 'px';
+      inner.appendChild(band);
+    });
+  }
+
   // 박자 시작점 이동 — 1에서 시작하지 않는 곡의 수동 맞춤
   function shiftPhase(slots, beat) {
     fetch('/api/songs/' + songId + '/tab/shift', {
@@ -408,6 +509,7 @@
     window.__flowReady = true;
     drawFlowWave(); // 베이스 파형 띠 — 폭 확정 뒤(같은 grid 축)
     renderGutter(); // 좌측 고정 줄이름 라벨(스크롤 무관)
+    renderGRBands(); // 기타 지정 구간 음영
   }
 
   // 좌측 고정 칸(gutter) — 각 가로줄 의미를 항상 좌측에 표시(사용자 요청 2026-07-14: 스크롤 옮겨도 유지).
@@ -467,6 +569,21 @@
         } else _k++;
       }
       bass = _bl;
+    }
+    // ★사용자 지정 기타 구간 — 그 구간 파형·어택선을 기타 스템으로(베이스 무음 솔로가 파형·어택 다 보이게).
+    //   bass 표시배열만 교체 → 폴리곤·어택 높이(둘 다 bass 사용)가 함께 기타를 반영.
+    var _gr = tab && tab.guitar_ranges;
+    if (_gr && window.__peaks && window.__peaks.guitar) {
+      try { _gr = typeof _gr === 'string' ? JSON.parse(_gr) : _gr; } catch (e) { _gr = null; }
+      if (_gr && _gr.length && window.__peaks.guitar.length === bass.length) {
+        var _gp = window.__peaks.guitar, _bb = bass.slice();
+        _gr.forEach(function (r) {
+          var i0 = Math.max(0, Math.floor(r[0] / dur * _bb.length));
+          var i1 = Math.min(_bb.length, Math.ceil(r[1] / dur * _bb.length));
+          for (var gi2 = i0; gi2 < i1; gi2++) _bb[gi2] = _gp[gi2] || 0;
+        });
+        bass = _bb;
+      }
     }
     var step = Math.max(2, Math.round(W / 5000)); // 포인트 상한(긴 곡도 SVG 1회 렌더 가볍게)
     // 한 스템(peaks)을 같은 시간축(slotTime)으로, 지정 띠(midY 중심·halfH 반높이)에 폴리곤으로 — 각자 최대 정규화.

@@ -276,6 +276,45 @@ def fill_gaps_from_guitar(notes, stems_dir, gaps):
     return sorted(notes + added, key=lambda m: float(m["start"])), len(added)
 
 
+def merge_guitar_ranges(notes, stems_dir, ranges):
+    """사용자 지정 구간(ranges=[(s,e)초])을 기타 스템 검출로 교체 — 그 구간 베이스 음 제거 + 기타 음 추가.
+    ★고음 베이스 솔로가 분리에서 기타 스템으로 샌 경우(실증 오직주께감사해) 수동 지정용. fill_gaps_from_guitar
+    (자동 무음구간 채움)와 달리 사용자가 명시 구간을 '교체'한다. 각 구간을 잘라서 검출 → 국소 정규화라
+    솔로 어택이 살아난다(통째 검출은 다른 시끄러운 기타 파트가 최댓값을 잡아 솔로가 floor 밑으로 깔림 —
+    조사 확인 2026-07-18). 반환: (병합 notes, 추가된 기타 음 수)."""
+    if not ranges:
+        return notes, 0
+    gpath = Path(stems_dir) / "guitar.wav"
+    if not gpath.exists():
+        return notes, 0
+    gx, gsr = load_mono(str(gpath))
+    added = []
+    for (s, e) in ranges:
+        if e <= s:
+            continue
+        m = 0.3  # 마진 — 경계 직전/직후 음도 잡되, 마진 밖은 버림
+        a, b = max(0, int((s - m) * gsr)), min(len(gx), int((e + m) * gsr))
+        if b - a < int(gsr * 0.2):
+            continue
+        gslice = gx[a:b]
+        gn, _ = detect_notes_onset(gslice, gsr)  # 구간만 → 국소 정규화(솔로 어택 살아남)
+        gn = gate_quiet(gn, gslice, gsr)
+        off = a / gsr
+        for n in gn:
+            st = float(n["start"]) + off
+            if s <= st <= e:
+                nn = dict(n)
+                nn["start"] = round(st, 3)
+                nn["src"] = "guitar"  # 표시·디버그용 표식
+                added.append(nn)
+
+    def in_ranges(t):
+        return any(s <= t <= e for (s, e) in ranges)
+
+    kept = [n for n in notes if not in_ranges(float(n.get("start", 0)))]
+    return sorted(kept + added, key=lambda m: float(m.get("start", 0))), len(added)
+
+
 def frame_rms_db(x, sr, n_frames):
     """CREPE 프레임과 같은 격자의 RMS(dB) — 주기성-음량 증거 융합용."""
     hop = int(sr * HOP_SEC)
@@ -2353,6 +2392,18 @@ def main():
         # 교정으로 같은음이 된 인접 조각(C↔C# 흔들림 등)을 다시 지속으로 병합 — 둥둥 과분절 완화(사용자 지적).
         raw_notes = merge_sustained(raw_notes, x, sr)
         prog(75)
+    # ★캐시엔 순수 베이스 raw_notes 를 저장하고(구간만 바꿔도 베이스 재검출 없이 반영), 기타 구간 교체는
+    #   그 위에 매번 재적용한다. 안 그러면 캐시가 옛 구간 병합을 물고 있어 구간 변경이 stale.
+    raw_notes_bass = list(raw_notes)
+    _gr = os.environ.get("CHAEBO_GUITAR_RANGES")
+    if _gr:
+        try:
+            grr = [(float(a), float(b)) for a, b in json.loads(_gr) if float(b) > float(a)]
+        except Exception:  # noqa: BLE001
+            grr = []
+        if grr:
+            raw_notes, _ngr = merge_guitar_ranges(raw_notes, Path(bass_path).parent, grr)
+            print(f"[기타 구간 교체] {len(grr)}구간 → 기타 음 {_ngr}개 추가", flush=True)
     beat_times_full = list(beat_times)  # 캐시엔 원본 보관(절반/2배 적용을 멱등하게)
     bpm0_orig = bpm0  # 캐시 복원용 — "적용됐을 것"이라고 역산하면 비트 0개 곡(no-op)에서 오염(실증 2026-07-10)
     _tempo_adj = os.environ.get("CHAEBO_TEMPO")
@@ -2466,7 +2517,7 @@ def main():
                    "raw_cache": {"v": RAW_V, "sens": SENS["mode"], "crepe_mode": _crepe_mode,
                                  "beat_engine": _beat_engine, "detect_engine": _detect_engine_k,
                                  "source_stem": _source_stem_k,
-                                 "raw_notes": raw_notes,
+                                 "raw_notes": raw_notes_bass,  # 순수 베이스(기타 구간 병합 전) — 구간 변경 시 재사용
                                  "beat_times": [round(float(b), 4) for b in beat_times_full],
                                  "tune_cents": tune_cents,
                                  "bpm0": bpm0_orig}},

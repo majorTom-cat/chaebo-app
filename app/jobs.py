@@ -269,6 +269,8 @@ async def _process_tab(song_id: int):
         env_extra["CHAEBO_SOURCE_STEM"] = src_stem  # 캐시 키 종속 — 소스 바꾸면 재검출(tab.json 같은 파일 재사용 방지)
     if row and row.get("lead_snap") == 1:
         env_extra["CHAEBO_LEAD_SNAP"] = "1"  # 사용자가 첫 음 정박 스냅 명시적으로 켬 — 기본은 끔(패싱음/당김음 보존)
+    if row and row.get("guitar_ranges"):
+        env_extra["CHAEBO_GUITAR_RANGES"] = row["guitar_ranges"]  # 이 구간만 기타 스템으로 검출·병합(부분 베이스 솔로)
     code, tail = await _run(
         [config.PYTHON, "-m", "app.tab_worker", str(bass), str(drums),
          str(out_json), song["title"][:80]],

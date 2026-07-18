@@ -27,6 +27,28 @@ html { overflow-anchor: none; }
 .am-sub { margin: 3px 0 18px; font-size: 12.5px; color: var(--muted); }
 .am-field { margin-bottom: 16px; }
 .am-flabel { font-size: 12px; font-weight: 700; margin-bottom: 8px; color: var(--muted); }
+/* 베이스 솔로 구간 모달 */
+.grange-body { padding: var(--sp-4) var(--sp-8); overflow-y: auto; }
+.grange-label { font-size: 12px; font-weight: 700; color: var(--muted); margin-bottom: 8px; }
+.grange-list { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; min-height: 30px; align-items: center; }
+.grange-empty { font-size: 13px; color: var(--muted); }
+.grange-chip { display: inline-flex; align-items: center; gap: 8px; background: var(--surface-2); border: 1px solid var(--accent); border-radius: 999px; padding: 5px 8px 5px 12px; font-size: 13px; }
+.grange-chip button { border: none; background: transparent; color: var(--muted); cursor: pointer; font-size: 14px; line-height: 1; padding: 0 2px; }
+.grange-chip button:hover { color: var(--danger); }
+.grange-add { display: flex; flex-direction: column; gap: 12px; }
+.grange-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.grange-way { font-size: 12px; font-weight: 700; color: var(--muted); width: 44px; flex: none; }
+.grange-in { width: 84px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-sm); padding: 7px 10px; font-size: 14px; }
+.grange-in-num { width: 72px; }
+.grange-in:focus { outline: none; border-color: var(--accent); }
+.grange-tilde { color: var(--muted); }
+.grange-hint { font-size: 12px; color: var(--accent); }
+#grange-drag-toggle.active { background: var(--accent); color: var(--surface); border-color: var(--accent); }
+/* 흐름 타브 드래그 선택 표시 */
+.flow-drag-sel { position: absolute; top: 0; bottom: 0; background: rgba(240,168,72,0.18); border-left: 2px solid var(--accent); border-right: 2px solid var(--accent); pointer-events: none; z-index: 5; }
+.flow-inner.grange-drag { cursor: crosshair; }
+/* 지정 구간 음영(흐름 타브에 항상 표시) */
+.flow-grange-band { position: absolute; top: 0; bottom: 0; background: rgba(240,168,72,0.09); border-left: 1px dashed rgba(240,168,72,0.5); border-right: 1px dashed rgba(240,168,72,0.5); pointer-events: none; z-index: 1; }
 .am-flabel .am-note { font-weight: 400; }
 .am-opt { display: block; padding: 10px 12px; border: 1.5px solid var(--border); border-radius: 10px; margin-bottom: 7px; cursor: pointer; font-size: 13px; transition: border-color .12s, background .12s; }
 .am-opt:hover { border-color: var(--muted); }
@@ -585,6 +607,7 @@ body.anchoring { cursor: ew-resize; user-select: none; }
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.13-3.36L23 10M1 14l5.36 4.36A9 9 0 0020.49 15"/></svg>
         다시 분석
       </button>
+      <button type="button" class="btn btn-outline btn-sm" id="btn-guitar-range" title="특정 구간(베이스 솔로 등)을 기타 소리로 분석해요 — 고음 베이스 솔로가 분리에서 기타 쪽으로 샜을 때, 그 구간만 기타로 채워 베이스 타브에 합쳐요">🎸 베이스 솔로 구간</button>
       <button type="button" class="btn btn-outline btn-sm" id="btn-print" title="브라우저 인쇄 창에서 'PDF로 저장'을 고르면 파일로 저장돼요">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
         인쇄 / PDF 저장
@@ -757,6 +780,50 @@ body.anchoring { cursor: ew-resize; user-select: none; }
       <div class="am-foot">
         <button type="button" class="btn btn-outline btn-sm" id="am-cancel">취소</button>
         <button type="button" class="btn btn-primary btn-sm" id="am-go">이 방법으로 다시 분석</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 베이스 솔로 구간(기타로 분석) 모달 — 시간/마디 입력 + 흐름 타브 드래그로 구간 지정 -->
+  <div class="lyr-overlay" id="grange-modal" hidden>
+    <div class="lyr-modal" role="dialog" aria-modal="true" aria-label="베이스 솔로 구간">
+      <div class="lyr-head">
+        <div class="lyr-head-row"><h2>🎸 베이스 솔로 구간 (기타 소리로 분석)</h2>
+          <button type="button" class="icon-btn" id="grange-close" aria-label="닫기"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+        </div>
+        <p class="lyr-sub">고음 베이스 솔로가 분리에서 <b>기타 쪽으로 샜을 때</b>, 그 구간만 기타 소리로 채워 베이스 타브에 합쳐요. 아래 세 방법 중 편한 걸로 구간을 더하세요.</p>
+      </div>
+      <div class="grange-body">
+        <div class="grange-list-wrap">
+          <div class="grange-label">지정된 구간</div>
+          <div class="grange-list" id="grange-list"><span class="grange-empty">아직 없어요 — 아래에서 추가하세요</span></div>
+        </div>
+        <div class="grange-add">
+          <div class="grange-row">
+            <span class="grange-way">시간</span>
+            <input type="text" id="grange-t-start" class="grange-in" placeholder="2:47" inputmode="numeric">
+            <span class="grange-tilde">~</span>
+            <input type="text" id="grange-t-end" class="grange-in" placeholder="3:10" inputmode="numeric">
+            <button type="button" class="btn btn-outline btn-sm" id="grange-add-time">추가</button>
+          </div>
+          <div class="grange-row">
+            <span class="grange-way">마디</span>
+            <input type="number" id="grange-b-start" class="grange-in grange-in-num" placeholder="33" min="1">
+            <span class="grange-tilde">~</span>
+            <input type="number" id="grange-b-end" class="grange-in grange-in-num" placeholder="40" min="1">
+            <button type="button" class="btn btn-outline btn-sm" id="grange-add-bar">추가</button>
+          </div>
+          <div class="grange-row">
+            <span class="grange-way">드래그</span>
+            <button type="button" class="btn btn-outline btn-sm" id="grange-drag-toggle">흐름 타브에서 드래그로 선택</button>
+            <span class="grange-hint" id="grange-drag-hint" hidden>흐름 타브에서 원하는 구간을 마우스로 드래그하세요 (Esc 취소)</span>
+          </div>
+        </div>
+      </div>
+      <div class="lyr-foot">
+        <span class="control-label" id="grange-msg" style="margin-right:auto;"></span>
+        <button type="button" class="btn btn-outline btn-sm" id="grange-cancel">닫기</button>
+        <button type="button" class="btn btn-primary btn-sm" id="grange-apply">적용하고 다시 분석</button>
       </div>
     </div>
   </div>

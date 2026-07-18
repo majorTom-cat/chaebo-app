@@ -75,6 +75,9 @@ MIGRATIONS = [
     # 분석 소스 스템: NULL/'bass'=베이스 스템 | 'guitar'=기타 스템(고음 베이스 솔로가 분리에서 기타로
     # 라우팅될 때, 기타 스템을 대신 채보해 베이스 타브로 렌더. 사용자 요청 2026-07-16).
     "ALTER TABLE transcriptions ADD COLUMN source_stem TEXT",
+    # 기타 구간 교체: JSON [[s,e]초,...] — 이 시간구간만 기타 스템으로 검출해 베이스 타브에 병합(부분 베이스
+    # 솔로가 기타로 샌 경우 수동 지정). 나머지는 베이스. tab_worker.merge_guitar_ranges(2026-07-18).
+    "ALTER TABLE transcriptions ADD COLUMN guitar_ranges TEXT",
 ]
 
 

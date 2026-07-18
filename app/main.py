@@ -607,6 +607,37 @@ async def start_tab(song_id: int, body: TabStart | None = None):
     return await db.get_transcription(song_id)
 
 
+class GuitarRanges(BaseModel):
+    ranges: list  # [[s,e]초, ...] — 전체 교체(이 구간들만 기타 스템으로 검출·병합)
+
+
+@app.put("/api/songs/{song_id}/guitar-ranges", status_code=202)
+async def set_guitar_ranges(song_id: int, body: GuitarRanges):
+    """이 시간구간(초)만 기타 스템으로 검출해 베이스 타브에 병합(부분 베이스 솔로) — 저장 후 재분석.
+    베이스 검출은 캐시 재사용(구간만 기타로 다시 병합)이라 빠르다. 빈 목록 = 전부 베이스로 되돌림."""
+    row = await db.get_transcription(song_id)
+    if not row or row["status"] != "ready":
+        raise HTTPException(409, "먼저 타브 초안이 있어야 구간을 지정할 수 있어요")
+    dur = float((await db.get_song(song_id) or {}).get("duration") or 0)
+    clean = []
+    for r in (body.ranges or []):
+        try:
+            s, e = float(r[0]), float(r[1])
+        except (TypeError, ValueError, IndexError):
+            continue
+        s, e = max(0.0, s), (min(dur, e) if dur else e)
+        if e - s >= 0.3:  # 최소 0.3초
+            clean.append([round(s, 2), round(e, 2)])
+    clean.sort()
+    if len(clean) > 20:
+        raise HTTPException(422, "구간은 최대 20개까지 지정할 수 있어요")
+    await db.upsert_transcription(
+        song_id, guitar_ranges=json.dumps(clean) if clean else None,
+        status="queued", progress=0, error=None)
+    await jobs.queue.put(("tab", song_id))
+    return {"ok": True, "ranges": clean}
+
+
 @app.get("/api/songs/{song_id}/tab")
 async def get_tab(song_id: int):
     row = await db.get_transcription(song_id)
