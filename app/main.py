@@ -14,7 +14,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
@@ -94,6 +94,27 @@ async def tuner_page(request: Request):
     """근음 듣기 — 마이크로 지금 흐르는 곡을 듣고 근음(베이스 음)을 실시간으로 알려준다(모르는 곡·키 대비).
     마이크는 보안 컨텍스트(localhost 또는 HTTPS)에서만 — 페이지가 상황을 안내한다."""
     return templates.TemplateResponse(request, "tuner.html")
+
+
+_STATIC_DIR = Path(__file__).parent / "static"
+
+
+@app.get("/sw.js")
+async def service_worker():
+    """서비스워커(PWA) — 루트 스코프(/)로 서빙해야 앱 전체를 캐시/오프라인 제어(정적 폴더서 서빙하면
+    스코프가 /static/ 로 좁아짐). APP_VERSION 주입 → 새 버전 배포마다 파일이 바뀌어 브라우저가 갱신 감지."""
+    sw_ver = os.environ.get("CHAEBO_SW_VERSION") or config.APP_VERSION  # 오버라이드=테스트·핀
+    js = (_STATIC_DIR / "sw.js").read_text(encoding="utf-8").replace("__CHAEBO_VERSION__", sw_ver)
+    return Response(js, media_type="application/javascript",
+                    headers={"Service-Worker-Allowed": "/", "Cache-Control": "no-cache, max-age=0"})
+
+
+@app.get("/manifest.webmanifest")
+async def web_manifest():
+    """PWA 매니페스트 — 루트에서 서빙(scope '/' 가 매니페스트 경로 안이어야 브라우저가 수용)."""
+    data = (_STATIC_DIR / "manifest.webmanifest").read_text(encoding="utf-8")
+    return Response(data, media_type="application/manifest+json",
+                    headers={"Cache-Control": "no-cache, max-age=0"})
 
 
 @app.get("/api/settings")

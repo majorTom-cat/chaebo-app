@@ -6,6 +6,12 @@
 <title>연습 — {{ song.title }} — chaebo</title>
 <link rel="stylesheet" href="/static/tokens.css">
 <link rel="stylesheet" href="/static/ui.css">
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#0f1115">
+<link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="chaebo">
 <style>
 /* ===== 연습 화면(믹서·타브·코드 악보) — 한 문서 안의 뷰 3개.
    상단바·서브바·재생 박스·전환기는 문서에 1개뿐 — 탭 전환은 섹션 표시 전환(리로드 없음).
@@ -880,5 +886,6 @@ body.anchoring { cursor: ew-resize; user-select: none; }
 <script src="/static/tab.js"></script>
 <script src="/static/chords.js"></script>
 <script src="/static/logo.js"></script>
+<script src="/static/pwa.js"></script>
 </body>
 </html>
