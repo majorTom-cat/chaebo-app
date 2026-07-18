@@ -95,6 +95,8 @@ async def get_app_settings():
     sync = await db.get_setting("sync_ms")
     drift = await db.get_setting("sync_drift_ms_per_min")
     sync_ver = await db.get_setting("sync_formula_version")
+    logo_font = await db.get_setting("logo_font") or "pacifico"
+    logo_symbol = await db.get_setting("logo_symbol") or "wave"
     st = await system.status()
     sync_val = int(sync) if sync is not None else 0
     drift_val = float(drift) if drift is not None else 0.0
@@ -114,8 +116,15 @@ async def get_app_settings():
         # 곡이 진행될수록 실기기 출력이 선형으로 밀리는 걸 상쇄(ms/분). 측정 근거: 앱 표시시계는
         # 드리프트 0, 밀림은 하드웨어 출력경로 → 고정 offset 으론 못 잡아 '위치 비례' 보정 추가(2026-07-13).
         "sync_drift_ms_per_min": drift_val,
+        "logo_font": logo_font,      # 로고 글씨체(설정에서 선택 — logo.js 가 상단바에 적용)
+        "logo_symbol": logo_symbol,  # 로고 심볼(그림)
         "version": f"chaebo v{config.APP_VERSION} (로컬 전용)",
     }
+
+
+# 로고 선택 화이트리스트 — logo.js FONTS/SYMBOLS·ui.css data-font 와 동기(임의값 저장 방지)
+_LOGO_FONTS = {"pacifico", "lobster", "kaushan", "satisfy", "shrikhand", "chewy", "monoton", "bubbles", "default"}
+_LOGO_SYMBOLS = {"wave", "note", "beam", "hybrid", "sound", "disc", "pick", "clef", "none"}
 
 
 class SettingsIn(BaseModel):
@@ -123,6 +132,8 @@ class SettingsIn(BaseModel):
     max_file_mb: int | None = None
     sync_ms: int | None = None
     sync_drift_ms_per_min: float | None = None
+    logo_font: str | None = None
+    logo_symbol: str | None = None
 
 
 @app.put("/api/settings")
@@ -146,6 +157,14 @@ async def put_app_settings(body: SettingsIn):
         if not (-500 <= body.sync_drift_ms_per_min <= 500):
             raise HTTPException(422, "밀림 보정은 분당 -500~500ms 사이로 정해주세요")
         await db.set_setting("sync_drift_ms_per_min", body.sync_drift_ms_per_min)
+    if body.logo_font is not None:
+        if body.logo_font not in _LOGO_FONTS:
+            raise HTTPException(422, "그 글씨체는 목록에 없어요")
+        await db.set_setting("logo_font", body.logo_font)
+    if body.logo_symbol is not None:
+        if body.logo_symbol not in _LOGO_SYMBOLS:
+            raise HTTPException(422, "그 심볼은 목록에 없어요")
+        await db.set_setting("logo_symbol", body.logo_symbol)
     # 싱크 보정을 쓸 때마다 '지금 공식 세대'를 함께 도장 — 다음 세대에서 이 값이 stale 인지 판정하는 근거.
     # (0 으로 리셋해도 스탬프가 현재가 되어 재알림이 멈춘다 — 프런트의 stale 리셋이 여기로 영구화된다.)
     if body.sync_ms is not None or body.sync_drift_ms_per_min is not None:

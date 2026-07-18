@@ -23,6 +23,25 @@ button, .btn, .icon-btn, .stem-toggle, input[type="range"], svg, .badge { -webki
   background: linear-gradient(115deg, #f7bc6a 0%, #ef6461 100%);
   -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; color: transparent; }
 .wordmark-sub { font-size: 12px; font-weight: 500; color: var(--muted); letter-spacing: 0.04em; }
+
+/* ── 로고 글씨체(설정에서 선택) — 번들 폰트(OFL, docs/licenses.md). data-font 로 전환 ── */
+@font-face{font-family:'Pacifico';src:url('/static/fonts/Pacifico.woff2') format('woff2');font-display:swap;}
+@font-face{font-family:'Lobster';src:url('/static/fonts/Lobster.woff2') format('woff2');font-display:swap;}
+@font-face{font-family:'KaushanScript';src:url('/static/fonts/KaushanScript.woff2') format('woff2');font-display:swap;}
+@font-face{font-family:'Satisfy';src:url('/static/fonts/Satisfy.woff2') format('woff2');font-display:swap;}
+@font-face{font-family:'Shrikhand';src:url('/static/fonts/Shrikhand.woff2') format('woff2');font-display:swap;}
+@font-face{font-family:'Chewy';src:url('/static/fonts/Chewy.woff2') format('woff2');font-display:swap;}
+@font-face{font-family:'Monoton';src:url('/static/fonts/Monoton.woff2') format('woff2');font-display:swap;}
+@font-face{font-family:'RubikBubbles';src:url('/static/fonts/RubikBubbles.woff2') format('woff2');font-display:swap;}
+/* 스크립트·장식체는 자체 굵기라 weight/크기를 글씨체별로 맞춘다(밸런스) */
+.wordmark[data-font="pacifico"] .wordmark-name{font-family:'Pacifico';font-weight:400;font-size:23px;letter-spacing:0;}
+.wordmark[data-font="lobster"]  .wordmark-name{font-family:'Lobster';font-weight:400;font-size:24px;letter-spacing:0;}
+.wordmark[data-font="kaushan"]  .wordmark-name{font-family:'KaushanScript';font-weight:400;font-size:23px;letter-spacing:0;}
+.wordmark[data-font="satisfy"]  .wordmark-name{font-family:'Satisfy';font-weight:400;font-size:23px;letter-spacing:0;}
+.wordmark[data-font="shrikhand"].wordmark-name,.wordmark[data-font="shrikhand"] .wordmark-name{font-family:'Shrikhand';font-weight:400;font-size:20px;letter-spacing:0;}
+.wordmark[data-font="chewy"]    .wordmark-name{font-family:'Chewy';font-weight:400;font-size:22px;letter-spacing:0;}
+.wordmark[data-font="monoton"]  .wordmark-name{font-family:'Monoton';font-weight:400;font-size:18px;letter-spacing:0.02em;}
+.wordmark[data-font="bubbles"]  .wordmark-name{font-family:'RubikBubbles';font-weight:400;font-size:21px;letter-spacing:0;}
 /* 파형 막대 — 평소 정적, hover 때만 은은히 숨쉼(작업 방해 없게). 접근성: 모션 줄이기면 정지 */
 .wm-bar { transform-origin: center; transform-box: fill-box; }
 .wordmark:hover .wm-bar { animation: wmWave 1.15s ease-in-out infinite; }
