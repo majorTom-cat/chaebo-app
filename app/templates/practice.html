@@ -65,6 +65,18 @@ html { overflow-anchor: none; }
 .am-opt.am-inline { display: inline-block; margin-right: 7px; }
 .am-opt.am-check { margin-top: 2px; }
 .am-foot { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
+.am-sub-warn { color: var(--danger); }
+.am-adv { border: 1px solid var(--border); border-radius: 12px; background: var(--surface-2); }
+.am-adv[open] { background: transparent; }
+.am-adv-t { cursor: pointer; padding: 13px 14px; font-size: 14px; font-weight: 700; list-style: none; display: flex; align-items: center; gap: 6px; user-select: none; }
+.am-adv-t::-webkit-details-marker { display: none; }
+.am-adv-t::after { content: '▾'; margin-left: auto; color: var(--muted); transition: transform .15s; }
+.am-adv[open] .am-adv-t::after { transform: rotate(180deg); }
+.am-adv-t .am-note { font-weight: 400; }
+.am-adv-ico { font-size: 15px; }
+.am-adv-body { padding: 2px 14px 10px; }
+.am-adv-sub { font-size: 12px; font-weight: 700; color: var(--muted); margin: 2px 0 10px; padding-top: 12px; border-top: 1px dashed var(--border); }
+#am-go { min-width: 120px; padding: 11px 22px; font-size: 15px; }
 .lyr-modal { width: 680px; max-width: 100%; max-height: 78vh; display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; box-shadow: 0 28px 80px rgba(0,0,0,0.65); overflow: hidden; }
 .lyr-head { padding: var(--sp-6) var(--sp-8) var(--sp-4); }
 .lyr-head-row { display: flex; align-items: center; gap: var(--sp-3); }
@@ -752,51 +764,66 @@ body.anchoring { cursor: ew-resize; user-select: none; }
   <div class="lyr-overlay" id="analyze-modal" hidden>
     <div class="am-box" role="dialog" aria-modal="true" aria-label="분석 방법 선택">
       <div class="am-head">
-        <h2>어떻게 분석할까요?</h2>
+        <h2>다시 분석</h2>
         <button type="button" class="icon-btn" id="am-close" aria-label="닫기">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
       </div>
-      <p class="am-sub">같은 곡을 방법을 바꿔가며 분석해 비교해 보세요. 직접 고친 내용은 사라져요.</p>
-      <div class="am-field">
-        <div class="am-flabel">박자(비트) 따는 방법</div>
-        <label class="am-opt"><input type="radio" name="am-beat" value="beat_track" checked> <b>고른 박자</b> <span>한 빠르기로 일정하게 — 대부분의 곡에 맞아요</span></label>
-        <label class="am-opt"><input type="radio" name="am-beat" value="plp"> <b>빠르기 변하는 곡</b> <span>느려졌다 빨라지는 곡용 — 박이 조금 흔들릴 수 있어요</span></label>
-        <label class="am-opt"><input type="radio" name="am-beat" value="beat_this"> <b>정밀 (신경망 · Beat This!)</b> <span>가장 똑똑하게 · 다운비트까지 — 처음 쓸 때 준비 파일을 한 번 내려받아요</span></label>
-      </div>
-      <div class="am-field">
-        <div class="am-flabel">음 검출 방식 <span class="am-note">(잘 모르겠으면 '자동'에 두세요)</span></div>
-        <label class="am-opt"><input type="radio" name="am-detect" value="auto" checked> <b>자동 (추천)</b> <span>곡을 살펴보고 알아서 골라요 — 보통은 '픽 기반', 화음(코드)이 많으면 '폭넓게'. 그리고 베이스가 안 들리는 솔로 구간은 기타 소리에서 자동으로 채워줘요. 조금 더 걸려요</span></label>
-        <label class="am-opt"><input type="radio" name="am-detect" value="onset"> <b>픽 기반</b> <span>실제로 튕긴 곳마다 음 하나 — 어택 표시선과 타브가 개수·위치 딱 맞고 헛음이 가장 적어요</span></label>
-        <label class="am-opt"><input type="radio" name="am-detect" value="bp"> <b>여러 음 폭넓게</b> <span>음을 폭넓게 잡아요(코드·복잡한 곡). 헛음이 좀 더 생길 수 있어요</span></label>
-        <label class="am-opt"><input type="radio" name="am-detect" value="f0"> <b>단음 (한 음씩)</b> <span>F0 방식으로 한 음씩. 조금 더 걸려요</span></label>
-        <label class="am-opt"><input type="radio" name="am-detect" value="legato"> <b>이어 치는 음까지 잡기</b> <span>튕기지 않고 손가락으로 이어 치는 음(해머온·풀오프·슬라이드)이 많은 라인용 — 튕긴 곳이 아니라 <b>음정이 바뀌는 곳</b>마다 음을 잡고, 이런 이어 치는 주법도 <b>표시</b>해요. 길게 끄는 음은 하나로 봐요</span></label>
-      </div>
-      <div class="am-field">
-        <div class="am-flabel">분석할 소리 <span class="am-note">(베이스 솔로가 안 잡히면 '기타 소리'로)</span></div>
-        <label class="am-opt"><input type="radio" name="am-source" value="bass" checked> <b>베이스 소리</b> <span>보통은 이거예요</span></label>
-        <label class="am-opt"><input type="radio" name="am-source" value="guitar"> <b>기타 소리</b> <span>고음으로 올라가는 베이스 솔로가 분리 때 기타 쪽으로 새서 파형·타브가 안 잡힐 때 — 기타 소리를 대신 채보해 베이스 타브로 그려요</span></label>
-      </div>
-      <div class="am-field">
-        <div class="am-flabel">음 개수 <span class="am-note">(타브·어택이 너무 많으면 '단순하게')</span></div>
-        <label class="am-opt"><input type="radio" name="am-sens" value="normal" checked> <b>기본</b></label>
-        <label class="am-opt"><input type="radio" name="am-sens" value="simple"> <b>단순하게</b> <span>약한·번진 소리를 걸러 음을 적게 그려요</span></label>
-      </div>
-      <div class="am-field">
-        <div class="am-flabel">음정 정밀도</div>
-        <label class="am-opt"><input type="radio" name="am-precision" value="tiny" checked> <b>빠름</b> <span>기본</span></label>
-        <label class="am-opt"><input type="radio" name="am-precision" value="full"> <b>정확</b> <span>음이 틀리거나 놓친 곡에 — 곡당 몇 분 더 걸려요</span></label>
-      </div>
-      <div class="am-field">
-        <div class="am-flabel">빠르기(BPM) 보정</div>
-        <label class="am-opt am-inline"><input type="radio" name="am-tempo" value="auto" checked> 자동</label>
-        <label class="am-opt am-inline"><input type="radio" name="am-tempo" value="half"> 절반</label>
-        <label class="am-opt am-inline"><input type="radio" name="am-tempo" value="double"> 2배</label>
-      </div>
-      <label class="am-opt am-check"><input type="checkbox" id="am-lead-snap"> 첫 음을 가장 가까운 박으로 당기기 <span>(당겨 친 음이 아니면)</span></label>
+      <p class="am-sub">그냥 아래 <b>[분석 시작]</b>을 누르면 알아서 분석해요. 결과가 아쉬울 때만 <b>'자세히 설정'</b>을 열어 바꾸면 돼요.<br><span class="am-sub-warn">※ 다시 분석하면 직접 고친 내용(가사·타브·코드)은 사라져요.</span></p>
+
+      <details class="am-adv">
+        <summary class="am-adv-t"><span class="am-adv-ico">⚙</span> 자세히 설정 <span class="am-note">— 결과가 아쉬울 때만 열어요</span></summary>
+        <div class="am-adv-body">
+
+          <div class="am-field">
+            <div class="am-flabel">🎸 분석할 소리 <span class="am-note">(베이스 솔로가 안 잡히면 '기타 소리')</span></div>
+            <label class="am-opt"><input type="radio" name="am-source" value="bass" checked> <b>베이스 소리</b> <span>보통은 이거예요</span></label>
+            <label class="am-opt"><input type="radio" name="am-source" value="guitar"> <b>기타 소리</b> <span>고음으로 올라가는 베이스 솔로가 분리 때 기타 쪽으로 새서 안 잡힐 때 — 기타 소리를 대신 채보해 베이스 타브로 그려요</span></label>
+          </div>
+
+          <div class="am-field">
+            <div class="am-flabel">음 잡는 방식 <span class="am-note">(잘 모르겠으면 '자동')</span></div>
+            <label class="am-opt"><input type="radio" name="am-detect" value="auto" checked> <b>자동 (추천)</b> <span>곡을 살펴보고 알아서 골라요. 조금 더 걸려요</span></label>
+            <label class="am-opt"><input type="radio" name="am-detect" value="onset"> <b>튕긴 곳마다 (픽 기반)</b> <span>실제로 튕긴 곳마다 음 하나 — 개수·위치가 딱 맞고 헛음이 가장 적어요</span></label>
+            <label class="am-opt"><input type="radio" name="am-detect" value="legato"> <b>이어 치는 음까지</b> <span>해머온·풀오프·슬라이드가 많은 라인 — 튕긴 곳이 아니라 <b>음정이 바뀌는 곳</b>마다 음을 잡고 그 주법도 표시해요</span></label>
+            <label class="am-opt"><input type="radio" name="am-detect" value="bp"> <b>여러 음 폭넓게</b> <span>음을 폭넓게 잡아요(코드·복잡한 곡). 헛음이 좀 더 생길 수 있어요</span></label>
+          </div>
+
+          <div class="am-adv-sub">결과가 이상할 때만 손봐요 ↓</div>
+
+          <div class="am-field">
+            <div class="am-flabel">음이 너무 많으면</div>
+            <label class="am-opt am-inline"><input type="radio" name="am-sens" value="normal" checked> 기본</label>
+            <label class="am-opt am-inline"><input type="radio" name="am-sens" value="simple"> 단순하게 (적게)</label>
+          </div>
+
+          <div class="am-field">
+            <div class="am-flabel">음정이 틀리거나 놓쳤으면</div>
+            <label class="am-opt am-inline"><input type="radio" name="am-precision" value="tiny" checked> 빠름 (기본)</label>
+            <label class="am-opt am-inline"><input type="radio" name="am-precision" value="full"> 정확 (느림)</label>
+          </div>
+
+          <div class="am-field">
+            <div class="am-flabel">빠르기가 2배·절반으로 나오면</div>
+            <label class="am-opt am-inline"><input type="radio" name="am-tempo" value="auto" checked> 자동</label>
+            <label class="am-opt am-inline"><input type="radio" name="am-tempo" value="half"> 절반</label>
+            <label class="am-opt am-inline"><input type="radio" name="am-tempo" value="double"> 2배</label>
+          </div>
+
+          <label class="am-opt am-check"><input type="checkbox" id="am-lead-snap"> 첫 음을 가장 가까운 박으로 당기기 <span>(당겨 친 음이 아니면)</span></label>
+
+          <div class="am-field" style="margin-top:14px;">
+            <div class="am-flabel">박자(비트) 따는 방법</div>
+            <label class="am-opt"><input type="radio" name="am-beat" value="beat_track" checked> <b>고른 박자</b> <span>한 빠르기로 일정하게 — 대부분의 곡에 맞아요</span></label>
+            <label class="am-opt"><input type="radio" name="am-beat" value="plp"> <b>빠르기 변하는 곡</b> <span>느려졌다 빨라지는 곡용 — 박이 조금 흔들릴 수 있어요</span></label>
+            <label class="am-opt"><input type="radio" name="am-beat" value="beat_this"> <b>가장 정밀하게</b> <span>다운비트까지 똑똑하게 — 처음 쓸 때 준비 파일을 한 번 내려받아요</span></label>
+          </div>
+        </div>
+      </details>
+
       <div class="am-foot">
         <button type="button" class="btn btn-outline btn-sm" id="am-cancel">취소</button>
-        <button type="button" class="btn btn-primary btn-sm" id="am-go">이 방법으로 다시 분석</button>
+        <button type="button" class="btn btn-primary" id="am-go">분석 시작</button>
       </div>
     </div>
   </div>
