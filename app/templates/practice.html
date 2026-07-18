@@ -285,6 +285,11 @@ body.anchoring { cursor: ew-resize; user-select: none; }
 /* 셋잇단 자리(la·li) 고스트 — 점선을 둥글게 촘촘히 해 일반 칸과 구분 */
 .add-dot-tu { border-style: dotted; border-color: #7d9a74; }
 .add-dot-tu:hover { border-color: #4d7a44; background: rgba(125, 154, 116, 0.18); }
+/* 흐름 타브 아티큘레이션 — 크림 배경에 읽히는 진한 주홍(악보와 같은 표기: > 악센트, 슬러 H/P, 슬라이드 sl) */
+.flow-art-accent { position: absolute; font-size: 13px; font-weight: 800; color: #a83417; line-height: 1; transform: translateX(2px); pointer-events: none; z-index: 2; }
+.flow-art-label { position: absolute; font-size: 10px; font-weight: 700; color: #a83417; line-height: 1; transform: translateX(-3px); pointer-events: none; z-index: 2; letter-spacing: 0; }
+.flow-art-slide { position: absolute; height: 2px; background: #a83417; transform-origin: left center; border-radius: 1px; pointer-events: none; z-index: 2; }
+.flow-art-slur { position: absolute; height: 7px; border: 1.6px solid #a83417; border-bottom: none; border-radius: 50% 50% 0 0 / 100% 100% 0 0; pointer-events: none; z-index: 2; }
 .flow-inner.edit-mode { cursor: copy; }
 .flow-inner.edit-mode .flow-fret { cursor: pointer; outline: 1px dashed rgba(226, 121, 63, 0.55); outline-offset: 2px; }
 /* 자주 쓰는 도구는 악보 위(하단은 스크롤해야 보임 — 사용자 지시 2026-07-08) */

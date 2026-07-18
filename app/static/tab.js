@@ -353,7 +353,7 @@
 
   function renderFlow() {
     var inner = document.getElementById('flow-inner');
-    inner.querySelectorAll('.flow-bar-line, .flow-bar-num, .flow-count, .flow-string, .flow-fret, .flow-sustain, .flow-chord, .flow-lyric, .flow-bar-grip')
+    inner.querySelectorAll('.flow-bar-line, .flow-bar-num, .flow-count, .flow-string, .flow-fret, .flow-sustain, .flow-chord, .flow-lyric, .flow-bar-grip, .flow-art-accent, .flow-art-slur, .flow-art-slide, .flow-art-label')
       .forEach(function (el) { el.remove(); });  // ★.flow-bar-grip 누락 시 재렌더마다 그립 누적 → WebView2 노드 누수(코드검사 2026-07-17)
     if (!tab || !tab.notes || !tab.notes.length) return;
 
@@ -470,6 +470,38 @@
       f.dataset.gx = flowX(nt.gi);      // 격자 원위치(스냅 멱등용)
       f.style.top = y + 'px';
       frag.appendChild(f);
+    });
+    // ★아티큘레이션(악센트·슬라이드·해머/풀오프) — 흐름 타브에도 표기(사용자 요청 2026-07-18: 전엔 악보에만).
+    //   슬라이드/해머는 '다음 음'(같은 현, pin_artic_strings 보장)으로 잇는다. 상행=H·하행=P.
+    var sortedN = tab.notes.slice().sort(function (a, b) { return a.gi - b.gi; });
+    sortedN.forEach(function (nt, i) {
+      var art = nt.art; if (!art || !art.length) return;
+      var x = flowX(nt.gi), y = 70 + (3 - nt.string) * 24;
+      if (art.indexOf('ac') >= 0 || art.indexOf('hac') >= 0) {
+        var acc = document.createElement('div'); acc.className = 'flow-art-accent'; acc.textContent = '>';
+        acc.style.left = x + 'px'; acc.style.top = (y - 16) + 'px'; frag.appendChild(acc);
+      }
+      var isSlide = art.indexOf('sl') >= 0 || art.indexOf('ss') >= 0, isHam = art.indexOf('h') >= 0;
+      var dst = sortedN[i + 1];
+      if ((isSlide || isHam) && dst) {
+        var x2 = flowX(dst.gi), y2 = 70 + (3 - dst.string) * 24, topY = Math.min(y, y2);
+        if (isSlide) {
+          var xa = x + 9, xb = Math.max(xa + 4, x2 - 1), w = xb - xa;
+          var sl = document.createElement('div'); sl.className = 'flow-art-slide';
+          sl.style.left = xa + 'px'; sl.style.top = (y + 8) + 'px'; sl.style.width = w + 'px';
+          sl.style.transform = 'rotate(' + (Math.atan2(y2 - y, w) * 180 / Math.PI).toFixed(1) + 'deg)';
+          frag.appendChild(sl);
+          var slb = document.createElement('div'); slb.className = 'flow-art-label'; slb.textContent = 'sl';
+          slb.style.left = ((x + x2) / 2) + 'px'; slb.style.top = (topY - 15) + 'px'; frag.appendChild(slb);
+        } else {
+          var slur = document.createElement('div'); slur.className = 'flow-art-slur';
+          slur.style.left = (x + 5) + 'px'; slur.style.top = (topY - 10) + 'px';
+          slur.style.width = Math.max(6, x2 - x - 3) + 'px'; frag.appendChild(slur);
+          var hp = document.createElement('div'); hp.className = 'flow-art-label';
+          hp.textContent = (dst.midi > nt.midi) ? 'H' : 'P';
+          hp.style.left = ((x + x2) / 2) + 'px'; hp.style.top = (topY - 23) + 'px'; frag.appendChild(hp);
+        }
+      }
     });
     // 가사(받아쓰기 초안) — 드럼 파형 밑 레인에 단어를 실제 시각(timeSlot) 위치로(사용자 요청 2026-07-16:
     // 전체 타브처럼 흐름 타브에도). 전체 타브 가사와 같은 lyrics-check 토글(hide-lyrics)로 함께 켜고 끈다.
