@@ -196,6 +196,93 @@ def detect_notes_onset(x, sr):
     return notes, round(tune * 100, 1)
 
 
+def detect_notes_legato(x, sr, f0=None, per=None):
+    """레가토(해머온·풀오프·슬라이드) 많은 솔로/연습 라인용 검출 — 진폭 '픽'이 아니라 F0 의 '반음 변화'로
+    음 경계를 잡고, 같은 음정으로 유지되는 구간은 1음으로 병합한다. 픽 기반(detect_notes_onset)은 어택
+    없는 레가토 음(해머·풀오프·슬라이드)을 통째로 놓치고, F0 분절(segment_notes_crepe)은 길게 유지되는
+    음을 유령으로 산산조각 내던 — 둘의 사각을 메운다. (실증: A major 스케일 연습본 — 유지 A1 12조각→1,
+    하행 레가토 런 F#2·A2·E3·D3·C#3·A2·E2 복원, 2026-07-19. 실곡 스테디 라인엔 과검출 없음: Billie
+    Jean onset 대비 1.1x·ABitesDust 0.5x 실측.) 같은 음을 다시 픽(재타건)한 건 진폭 어택으로 분리한다.
+    반환 형식은 detect_notes_onset 과 동일(start/dur/midi/conf/vel/pc) — 하류 아티큘레이션·강약 그대로."""
+    from scipy.signal import butter, filtfilt, hilbert
+
+    if f0 is None:
+        f0, per = track_pitch(x, sr)   # 가장 오래 걸리는 단계(CPU 수 분)
+    nf = len(f0)
+    if nf < 4:
+        return [], 0.0
+    midi_all = 69 + 12 * np.log2(np.maximum(f0, 1e-6) / 440.0)
+    conf = np.clip(np.asarray(per, dtype=float), 0.0, 1.0)
+    voiced = conf > PERIODICITY_LOW
+    if not voiced.any():
+        return [], 0.0
+    tune = float(np.median(midi_all[voiced] - np.round(midi_all[voiced])))
+    q = np.round(midi_all - tune).astype(int)     # 반음 양자화(튠 보정)
+
+    # 진폭 envelope(프레임 격자) — 같은 음 재타건(다시 픽) 분리 + velocity(강약)
+    env = np.abs(hilbert(x.astype(float)))
+    try:
+        b, a = butter(4, min(0.99, 50.0 / (sr / 2)), btype="low")
+        env = filtfilt(b, a, env)
+    except Exception:  # noqa: BLE001
+        pass
+    fh = len(x) / nf
+    fenv = np.array([env[int(i * fh):int((i + 1) * fh)].max() if int((i + 1) * fh) <= len(env) else 0.0
+                     for i in range(nf)])
+    envmax = float(fenv.max()) + 1e-9
+    gap09 = max(1, int(round(0.09 / HOP_SEC)))
+    attk = set()
+    for i in range(2, nf - 1):
+        if fenv[i] > 0.10 * envmax and fenv[i] > fenv[i - 1] and fenv[i] >= fenv[i + 1]:
+            if fenv[i] - fenv[max(0, i - gap09):i + 1].min() > 0.12 * envmax:
+                attk.add(i)
+
+    MINF = max(1, int(round(0.05 / HOP_SEC)))       # 50ms 최소(베이스)
+    ph = HOP_SEC
+    notes = []
+
+    def emit(s, e):
+        if e - s < MINF:
+            return
+        segc = conf[s:e]
+        vm = segc > PERIODICITY_LOW
+        if int(vm.sum()) < MINF:
+            return
+        vel = int(np.clip(float(fenv[s:e].max()) / envmax, 0, 1) * 127)
+        if vel <= 7:  # 감쇠꼬리·무음의 유령
+            return
+        m = int(round(float(np.median(q[s:e][vm]))))
+        # 음 안 피치 곡선(pc) — 슬라이드/해머 분류 재료(20ms 간격, 튠 보정, 무성=None)
+        pc = [round(float(midi_all[i] - tune), 2) if conf[i] > PERIODICITY_LOW else None
+              for i in range(s, e, 2)]
+        notes.append({"start": round(s * ph, 3), "dur": round((e - s) * ph, 3),
+                      "midi": m, "conf": round(float(np.median(segc[vm])), 2),
+                      "vel": vel, "pc": pc})
+
+    cur = None  # [start_frame, end_frame(exclusive), quantized_pitch]
+    for i in range(nf):
+        if not voiced[i]:
+            if cur is not None:
+                emit(cur[0], cur[1]); cur = None
+            continue
+        if cur is None:
+            cur = [i, i + 1, int(q[i])]
+            continue
+        if q[i] != cur[2]:
+            look = q[i:i + MINF]
+            if len(look) >= MINF and np.all(look == q[i]):   # 새 반음이 안정적 = 레가토 새 음
+                emit(cur[0], cur[1]); cur = [i, i + 1, int(q[i])]
+            else:
+                cur[1] = i + 1                               # 순간 흔들림(비브라토·전이) = 현 음 유지
+        elif i in attk:                                     # 같은 음 재타건(다시 픽) = 새 음
+            emit(cur[0], cur[1]); cur = [i, i + 1, int(q[i])]
+        else:
+            cur[1] = i + 1
+    if cur is not None:
+        emit(cur[0], cur[1])
+    return notes, round(tune * 100, 1)
+
+
 # ── 자동(추천) 모드 — 곡을 측정해 방식·소스를 스스로 고른다(사용자 요청 2026-07-16). 판단이 아니라
 #    '측정 기반'(다성 겹침 비율·베이스 무음 구간)이라 헛발질이 적다. cf. 내 판단 신뢰 낮음 교훈. ──
 def _polyphony_ratio(bp_notes):
@@ -2368,6 +2455,15 @@ def main():
             cr_notes, tune_cr = segment_notes_crepe(f0, per, x, sr)
             raw_notes, _ = _prep(cr_notes)
             tune_cents = tune_cr
+        elif _detect_engine == "legato":
+            # ★레가토(해머·풀오프·슬라이드 많은 솔로/연습) 검출(2026-07-19): F0 반음 변화로 음 경계 +
+            #   같은음 유지 병합. 픽 기반이 어택 없는 레가토를 놓치고 F0 분절이 유지음을 조각내던 사각을
+            #   메운다. onset 처럼 _prep(align 재분절)은 건너뛴다(내부에서 이미 병합) — gate_quiet 만.
+            f0, per = track_pitch(x, sr)   # 가장 오래 걸리는 단계(CPU 수 분)
+            prog(70)
+            leg_notes, tune_leg = detect_notes_legato(x, sr, f0, per)
+            raw_notes = gate_quiet(leg_notes, x, sr)
+            tune_cents = tune_leg
         elif score_bp >= BP_ACCEPT:
             raw_notes, tune_cents = raw_bp, tune_bp
         else:
@@ -2385,7 +2481,7 @@ def main():
         #   A2(45)까지 bp 로 채우면 onset 이 이미 잡은 저음과 타이밍이 미세하게 달라 중복 추가(+136 실측
         #   2026-07-16), '픽=음 1:1'이 깨진다. 다른 엔진(bp/f0/CREPE)은 종전대로 A2 까지 보강.
         raw_notes = merge_low_notes(raw_notes, raw_bp, x, sr,
-                                    low_midi=33 if _detect_engine in ("onset", "auto") else LOW_RECOVER_MIDI)
+                                    low_midi=33 if _detect_engine in ("onset", "auto", "legato") else LOW_RECOVER_MIDI)
         # 저역 음정 교정 — CREPE·bp 가 30~60Hz 서 내는 반음 오차를 자기상관으로 바로잡음(사용자 지적
         # 2026-07-15: 74마디부터 C→C# 등). merge 로 보강한 음까지 함께 교정되도록 뒤에 둔다.
         raw_notes = refine_low_pitch(raw_notes, x, sr)
