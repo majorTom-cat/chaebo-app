@@ -104,15 +104,77 @@ def _is_another_instance_running():
         return False
 
 
+_LAN_FILE = os.path.join(_HERE, "lan_mode.txt")
+
+
+def _read_lan_mode():
+    """휴대폰/태블릿 접속 방식 — ''(기본 로컬 전용)·'on'(같은 와이파이 접속 HTTP). 설정에서 바꾼다."""
+    try:
+        with open(_LAN_FILE, encoding="utf-8") as f:
+            return f.read().strip().lower()
+    except Exception:
+        return ""
+
+
 def _serve_in_thread():
     """백그라운드 스레드에서 uvicorn 기동 — 시그널 핸들러는 메인 스레드 전용이라 끈다."""
     import uvicorn
-    host = os.environ.get("HOST", "127.0.0.1")  # REQ-SEC-001: 기본 로컬 전용
+    # 기본 127.0.0.1(REQ-SEC-001 로컬 전용). 사용자가 '휴대폰/태블릿에서 열기'를 켜면 0.0.0.0(같은 와이파이
+    # 안에서만 접속 — 인터넷 노출 아님). env HOST 가 있으면 그게 우선(개발/테스트).
+    host = os.environ.get("HOST") or ("0.0.0.0" if _read_lan_mode() == "on" else "127.0.0.1")
     port = int(os.environ.get("PORT", "8765"))
     config = uvicorn.Config("app.main:app", host=host, port=port)
     server = uvicorn.Server(config)
     server.install_signal_handlers = lambda: None
     server.run()
+
+
+_HTTPS_PORT = int(os.environ.get("HTTPS_PORT", "8443"))
+
+
+def _lan_ips():
+    """같은 와이파이에서 접속 가능한 사설 IP 목록(자체서명 인증서 SAN 용)."""
+    ips = set()
+    try:
+        import socket
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.connect(("8.8.8.8", 80))          # 실제 라우팅 나가는 인터페이스 IP(패킷 전송 없음)
+            ips.add(s.getsockname()[0])
+        finally:
+            s.close()
+    except Exception:
+        pass
+    try:
+        import socket
+        for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+            ip = info[4][0]
+            if not ip.startswith("127."):
+                ips.add(ip)
+    except Exception:
+        pass
+    return sorted(ips)
+
+
+def _serve_https_in_thread():
+    """휴대폰/태블릿 마이크('근음 듣기')용 HTTPS — LAN 모드일 때만 자체서명 인증서로 0.0.0.0:8443.
+    인증서 준비 실패(오프라인 등)면 조용히 건너뛴다(앱 본체·데스크톱 로컬은 영향 없음)."""
+    try:
+        from app import https_cert
+        pair = https_cert.ensure_cert(_lan_ips())
+        if not pair:
+            print("[https] 인증서 준비 실패 — 휴대폰 마이크(HTTPS)는 건너뜁니다. 브라우징(HTTP)은 정상.",
+                  flush=True)
+            return
+        cert_path, key_path = pair
+        import uvicorn
+        config = uvicorn.Config("app.main:app", host="0.0.0.0", port=_HTTPS_PORT,
+                                ssl_certfile=cert_path, ssl_keyfile=key_path, log_level="warning")
+        server = uvicorn.Server(config)
+        server.install_signal_handlers = lambda: None
+        server.run()
+    except Exception as e:
+        print(f"[https] HTTPS 서버 시작 실패({e}) — 무시하고 진행(로컬·HTTP 는 정상).", flush=True)
 
 
 def _wait_health(timeout=40.0):
@@ -207,6 +269,10 @@ def _prepare_backend(report=None):
         report(96, "연습 화면을 켜는 중이에요")
     t = threading.Thread(target=_serve_in_thread, daemon=True)
     t.start()
+    # LAN 모드면 휴대폰 마이크용 HTTPS 서버도 병행 기동(백그라운드 — health 는 HTTP 로만 확인하니
+    # 인증서 준비/설치가 늦어도 앱 켜짐을 막지 않는다).
+    if _read_lan_mode() == "on":
+        threading.Thread(target=_serve_https_in_thread, daemon=True).start()
     ok = _wait_health(180)
     if report and ok:
         report(100, "다 됐어요")

@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>근음 듣기 — chaebo</title>
+<link rel="stylesheet" href="/static/tokens.css">
+<link rel="stylesheet" href="/static/ui.css">
+<style>
+.tuner-main { max-width: 560px; margin: 0 auto; padding: var(--sp-6) var(--sp-4) 80px; text-align: center; }
+.tuner-lead { color: var(--muted); font-size: 14px; line-height: 1.6; margin: 0 0 var(--sp-6); }
+.tuner-stage { background: var(--surface); border: 1px solid var(--border); border-radius: 20px; padding: 32px 20px 28px; margin-bottom: var(--sp-4); }
+.tuner-label { font-size: 13px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin: 0 0 6px; }
+.tuner-note { font-size: 120px; font-weight: 800; line-height: 1; letter-spacing: -.02em;
+  background: linear-gradient(120deg, #f7bc6a, #ef6461); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; color: transparent; min-height: 120px; }
+.tuner-oct { font-size: 22px; color: var(--muted); font-weight: 600; margin-top: 2px; min-height: 26px; }
+.tuner-cents { height: 8px; background: var(--surface-2); border-radius: 999px; margin: 18px auto 0; max-width: 260px; position: relative; }
+.tuner-cents .tc-center { position: absolute; left: 50%; top: -3px; width: 2px; height: 14px; background: var(--muted); }
+.tuner-cents .tc-dot { position: absolute; top: -3px; width: 14px; height: 14px; border-radius: 50%; background: var(--accent); transform: translateX(-50%); transition: left .08s, background .2s; }
+.tuner-hz { font-size: 12px; color: var(--muted); margin-top: 12px; font-variant-numeric: tabular-nums; min-height: 16px; }
+/* 지판 */
+.fretboard { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 16px 14px; margin-bottom: var(--sp-4); overflow-x: auto; }
+.fb-title { font-size: 13px; font-weight: 700; color: var(--muted); margin: 0 0 12px; text-align: left; }
+.fb-grid { display: grid; grid-template-columns: 34px repeat(13, 1fr); gap: 0; min-width: 460px; }
+.fb-cell { height: 26px; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); position: relative; }
+.fb-open { border-right: 2px solid var(--text); }
+.fb-strname { font-size: 12px; font-weight: 700; color: var(--muted); display: flex; align-items: center; justify-content: center; }
+.fb-fnum { font-size: 10px; color: var(--muted); height: 16px; display: flex; align-items: center; justify-content: center; }
+.fb-dot { position: absolute; inset: 4px; border-radius: 50%; background: var(--surface-2); opacity: 0; }
+.fb-dot.on { opacity: 1; background: linear-gradient(120deg, #f7bc6a, #ef6461); }
+.fb-dot.root { box-shadow: 0 0 0 2px var(--accent); }
+/* 컨트롤 */
+.tuner-btn { width: 100%; max-width: 320px; padding: 16px; font-size: 17px; font-weight: 700; border-radius: 14px; border: none; cursor: pointer; background: var(--accent); color: #1a1206; }
+.tuner-btn.listening { background: var(--surface-2); color: var(--text); border: 1px solid var(--accent); }
+.tuner-msg { font-size: 13px; color: var(--muted); line-height: 1.6; margin-top: 16px; }
+.tuner-msg.warn { color: var(--danger); }
+.tuner-tip { font-size: 12px; color: var(--muted); margin-top: 20px; line-height: 1.7; }
+@media (max-width: 480px) { .tuner-note { font-size: 96px; min-height: 96px; } }
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="wordmark" data-font="pacifico" href="/">
+      <span class="wordmark-mark" aria-hidden="true"></span>
+      <span class="wordmark-text"><span class="wordmark-name">chaebo</span></span>
+    </a>
+    <div class="topbar-right">
+      <a class="icon-btn" href="/" aria-label="라이브러리로">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg>
+      </a>
+    </div>
+  </div>
+</header>
+
+<main class="tuner-main">
+  <h1 style="font-size:22px;margin:0 0 8px;">근음 듣기</h1>
+  <p class="tuner-lead">모르는 곡이 흐를 때, 마이크로 들어서 지금의 <b>근음(베이스 음)</b>을 알려줘요. 아래 <b>지판</b>에서 그 음을 어디서 치는지도 표시해요. (저음에 집중해 근음을 잡아요 — 함께 연주하며 근음 잡기용)</p>
+
+  <div class="tuner-stage">
+    <p class="tuner-label">지금 근음</p>
+    <div class="tuner-note" id="t-note">–</div>
+    <div class="tuner-oct" id="t-oct"></div>
+    <div class="tuner-cents"><span class="tc-center"></span><span class="tc-dot" id="t-dot" style="left:50%;opacity:0;"></span></div>
+    <div class="tuner-hz" id="t-hz"></div>
+  </div>
+
+  <div class="fretboard">
+    <p class="fb-title">베이스 지판 — 켜진 자리가 지금 근음</p>
+    <div class="fb-grid" id="t-fretboard"></div>
+  </div>
+
+  <button type="button" class="tuner-btn" id="t-toggle">🎧 듣기 시작</button>
+  <p class="tuner-msg" id="t-msg"></p>
+  <p class="tuner-tip">팁: 휴대폰을 스피커 가까이 두면 더 잘 잡아요. 근음은 화음의 뿌리라, 이걸 치면 어떤 곡이든 함께 연주할 수 있어요. 음이름이 흔들리면 가장 자주 뜨는 음이 근음일 확률이 높아요.</p>
+</main>
+
+<script src="/static/logo.js"></script>
+<script src="/static/tuner.js"></script>
+</body>
+</html>

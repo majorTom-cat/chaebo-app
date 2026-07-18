@@ -89,6 +89,13 @@ async def settings_page(request: Request):
     return templates.TemplateResponse(request, "settings.html")
 
 
+@app.get("/tuner", response_class=HTMLResponse)
+async def tuner_page(request: Request):
+    """근음 듣기 — 마이크로 지금 흐르는 곡을 듣고 근음(베이스 음)을 실시간으로 알려준다(모르는 곡·키 대비).
+    마이크는 보안 컨텍스트(localhost 또는 HTTPS)에서만 — 페이지가 상황을 안내한다."""
+    return templates.TemplateResponse(request, "tuner.html")
+
+
 @app.get("/api/settings")
 async def get_app_settings():
     limits = await db.get_limits()
@@ -118,6 +125,10 @@ async def get_app_settings():
         "sync_drift_ms_per_min": drift_val,
         "logo_font": logo_font,      # 로고 글씨체(설정에서 선택 — logo.js 가 상단바에 적용)
         "logo_symbol": logo_symbol,  # 로고 심볼(그림)
+        "lan_mode": _read_lan_mode(),   # 휴대폰/태블릿 접속(같은 와이파이) on/off
+        "lan_ips": _lan_ips(),          # 접속 주소(사설 LAN IP)
+        "lan_port": int(os.environ.get("PORT", "8765")),
+        "lan_https_port": int(os.environ.get("HTTPS_PORT", "8443")),  # 근음 듣기(마이크)용 보안 주소
         "version": f"chaebo v{config.APP_VERSION} (로컬 전용)",
     }
 
@@ -1012,6 +1023,55 @@ async def set_open_mode(body: OpenModeIn):
         return {"ok": True, "mode": mode}
     except Exception:  # noqa: BLE001
         return {"ok": False, "mode": _read_open_mode()}
+
+
+# 휴대폰/태블릿 접속 — 같은 와이파이 안에서 접속(0.0.0.0 바인딩). 기본 꺼짐(로컬 전용, REQ-SEC-001).
+_LAN_FILE = config.BASE_DIR / "lan_mode.txt"
+
+
+def _read_lan_mode() -> str:
+    try:
+        return "on" if _LAN_FILE.read_text(encoding="utf-8").strip().lower() == "on" else "off"
+    except Exception:  # noqa: BLE001
+        return "off"
+
+
+def _lan_ips() -> list[str]:
+    """이 PC 의 사설 LAN IPv4 목록(휴대폰이 접속할 주소). 인터넷 노출 아님(사설망 대역만)."""
+    import socket
+    ips = set()
+    try:
+        for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+            ip = info[4][0]
+            if ip.startswith(("192.168.", "10.")) or (ip.startswith("172.") and 16 <= int(ip.split(".")[1]) <= 31):
+                ips.add(ip)
+    except Exception:  # noqa: BLE001
+        pass
+    try:  # 기본 라우트로 나가는 인터페이스 IP(가장 흔한 접속 주소) — 실제 전송 없음
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ips.add(s.getsockname()[0])
+        s.close()
+    except Exception:  # noqa: BLE001
+        pass
+    return sorted(ips)
+
+
+class LanModeIn(BaseModel):
+    enabled: bool
+
+
+@app.post("/api/lan-mode")
+async def set_lan_mode(body: LanModeIn):
+    """휴대폰/태블릿 접속 켜기/끄기 — 저장 후 다음에 chaebo 를 열 때부터 적용(호스트 바인딩은 기동 시 결정)."""
+    val = "on" if body.enabled else "off"
+    try:
+        _LAN_FILE.write_text(val, encoding="utf-8")
+        return {"ok": True, "enabled": body.enabled, "ips": _lan_ips(),
+                "port": int(os.environ.get("PORT", "8765")),
+                "https_port": int(os.environ.get("HTTPS_PORT", "8443"))}
+    except Exception:  # noqa: BLE001
+        return {"ok": False, "enabled": _read_lan_mode() == "on"}
 
 
 @app.get("/api/gpu/progress")
