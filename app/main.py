@@ -1071,14 +1071,25 @@ def _read_lan_mode() -> str:
         return "off"
 
 
+def _is_private_ipv4(ip: str) -> bool:
+    try:
+        return ip.startswith(("192.168.", "10.")) or (ip.startswith("172.") and 16 <= int(ip.split(".")[1]) <= 31)
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def _lan_ips() -> list[str]:
-    """이 PC 의 사설 LAN IPv4 목록(휴대폰이 접속할 주소). 인터넷 노출 아님(사설망 대역만)."""
+    """이 PC 의 사설 LAN IPv4 목록(휴대폰이 접속할 주소). 인터넷 노출 아님(사설망 대역만).
+    ★와이파이 없는 집에서 'PC 모바일 핫스팟'(192.168.137.1 등)을 켜면 그 IP 도 여기 나와야 폰이 접속한다 —
+    getaddrinfo 가 핫스팟 가상 어댑터를 놓칠 수 있어 ipconfig 의 'IPv4' 라인까지 전수해 확실히 잡는다."""
     import socket
+    import subprocess
+    import re
     ips = set()
     try:
         for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
             ip = info[4][0]
-            if ip.startswith(("192.168.", "10.")) or (ip.startswith("172.") and 16 <= int(ip.split(".")[1]) <= 31):
+            if _is_private_ipv4(ip):
                 ips.add(ip)
     except Exception:  # noqa: BLE001
         pass
@@ -1087,6 +1098,16 @@ def _lan_ips() -> list[str]:
         s.connect(("8.8.8.8", 80))
         ips.add(s.getsockname()[0])
         s.close()
+    except Exception:  # noqa: BLE001
+        pass
+    try:  # ipconfig 의 'IPv4' 라인만(게이트웨이·서브넷마스크 제외 — 한/영 Windows 공통, 핫스팟·가상 어댑터 포착)
+        # ★한국어 Windows ipconfig 는 cp949 라 text=True(utf-8) 가 크래시([[규칙12 인코딩]]). IP 는 ASCII 이니
+        #   latin-1(무손실·ASCII 온전)로 디코드 — 한글 라벨은 깨져도 'IPv4:'·숫자는 살아 regex 가 잡는다.
+        out = subprocess.run(["ipconfig"], capture_output=True, timeout=5,
+                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)).stdout.decode("latin-1", "replace")
+        for m in re.findall(r"IPv4[^:\n]*:\s*([0-9]{1,3}(?:\.[0-9]{1,3}){3})", out):
+            if _is_private_ipv4(m):
+                ips.add(m)
     except Exception:  # noqa: BLE001
         pass
     return sorted(ips)
