@@ -198,30 +198,46 @@
   grEl('grange-drag-toggle').addEventListener('click', function () { grSetDrag(!grDrag); });
   (function wireGRDrag() {
     var inner = grEl('flow-inner'); if (!inner) return;
-    var startX = null, selEl = null;
-    function xTime(clientX) { var rect = inner.getBoundingClientRect(); return slotTime((clientX - rect.left - FLOW_PAD) / subPx()); }
+    // ★시각(time)을 앵커로 잡는다 — 드래그 중 스크롤돼도 안 어긋남(픽셀 앵커는 스크롤에 흔들림).
+    var startT = null, selEl = null, curClientX = 0, raf = null;
+    function xToTime(clientX) { var rect = inner.getBoundingClientRect(); return slotTime((clientX - rect.left - FLOW_PAD) / subPx()); }
+    function scEl() { return grEl('flow-scroll'); }
+    function paint() {
+      if (startT == null || !selEl) return;
+      var curT = xToTime(curClientX);
+      var s = Math.min(startT, curT), en = Math.max(startT, curT);
+      var x0 = flowX(timeSlot(s)), x1 = flowX(timeSlot(en));  // inner 좌표(스크롤 무관) — 항상 정확
+      selEl.style.left = x0 + 'px'; selEl.style.width = Math.max(0, x1 - x0) + 'px';
+    }
+    function tick() {  // 자동 스크롤 — 커서가 뷰포트 가장자리 근처면 계속 스크롤(화면 밖까지 선택)
+      if (startT == null) { raf = null; return; }
+      var sc = scEl(), rect = sc.getBoundingClientRect();
+      var edge = 48, dx = 0;
+      if (curClientX < rect.left + edge) dx = -Math.max(6, (rect.left + edge - curClientX) * 0.5);
+      else if (curClientX > rect.right - edge) dx = Math.max(6, (curClientX - (rect.right - edge)) * 0.5);
+      if (dx) sc.scrollLeft = Math.max(0, Math.min(sc.scrollWidth - sc.clientWidth, sc.scrollLeft + dx));
+      paint();
+      raf = requestAnimationFrame(tick);
+    }
     inner.addEventListener('mousedown', function (e) {
       if (!grDrag) return;
-      startX = e.clientX; var rect = inner.getBoundingClientRect();
+      startT = xToTime(e.clientX); curClientX = e.clientX;
       selEl = document.createElement('div'); selEl.className = 'flow-drag-sel';
-      selEl.style.left = (e.clientX - rect.left) + 'px'; selEl.style.width = '0px';
-      inner.appendChild(selEl); e.preventDefault();
+      inner.appendChild(selEl); paint();
+      if (!raf) raf = requestAnimationFrame(tick);
+      e.preventDefault();
     });
-    document.addEventListener('mousemove', function (e) {
-      if (!grDrag || startX == null || !selEl) return;
-      var rect = inner.getBoundingClientRect(), a = Math.min(startX, e.clientX) - rect.left, b = Math.max(startX, e.clientX) - rect.left;
-      selEl.style.left = a + 'px'; selEl.style.width = (b - a) + 'px';
-    });
-    document.addEventListener('mouseup', function (e) {
-      if (!grDrag || startX == null) return;
-      var s = xTime(Math.min(startX, e.clientX)), en = xTime(Math.max(startX, e.clientX));
-      if (selEl) { selEl.remove(); selEl = null; } startX = null;
+    document.addEventListener('mousemove', function (e) { if (grDrag && startT != null) { curClientX = e.clientX; paint(); } });
+    function finish(cancel) {
+      if (startT == null) return;
+      var curT = xToTime(curClientX), s = Math.min(startT, curT), en = Math.max(startT, curT);
+      if (selEl) { selEl.remove(); selEl = null; }
+      startT = null; if (raf) { cancelAnimationFrame(raf); raf = null; }
       grSetDrag(false); grEl('grange-modal').hidden = false;
-      if (en - s >= 0.3) grAdd(s, en);
-    });
-    document.addEventListener('keydown', function (e) {
-      if (e.key === 'Escape' && grDrag) { if (selEl) { selEl.remove(); selEl = null; } startX = null; grSetDrag(false); grEl('grange-modal').hidden = false; }
-    });
+      if (!cancel && en - s >= 0.3) grAdd(s, en);
+    }
+    document.addEventListener('mouseup', function () { if (grDrag && startT != null) finish(false); });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && grDrag) finish(true); });
   })();
   grEl('grange-apply').addEventListener('click', function () {
     grMsg('적용 중… 그 구간을 기타로 다시 분석해요');
@@ -661,19 +677,29 @@
   }
   if (window.Shell && Shell.ready && Shell.ready.then) Shell.ready.then(function () { ensureBassPeaks(); });
 
+  var flowFixed = false;  // 진행바 고정 모드 — 진행바를 가운데 두고 흐름 타브가 스크롤
   function updateFlowCursor(t) {
     if (!tab || !tab.bpm) return;
     var x = FLOW_PAD + timeSlot(t) * subPx(); // 박 단위 등속 — 동적 그리드면 실연주 박을 추종
     var ph = document.getElementById('flow-playhead');
     ph.style.left = Math.max(0, x) + 'px';
     var sc = document.getElementById('flow-scroll');
-    if (x < sc.scrollLeft + 60 || x > sc.scrollLeft + sc.clientWidth - 120) {
-      sc.scrollLeft = Math.max(0, x - 160);
+    if (flowFixed) {
+      // 고정 모드: 진행바를 뷰포트 좌측 40% 지점에 두고 내용이 흘러감(끝 근처만 자연히 멈춤 — 곡 끝은 못 넘음)
+      sc.scrollLeft = Math.max(0, Math.min(sc.scrollWidth - sc.clientWidth, x - sc.clientWidth * 0.4));
+    } else if (x < sc.scrollLeft + 60 || x > sc.scrollLeft + sc.clientWidth - 120) {
+      sc.scrollLeft = Math.max(0, x - 160); // 기본: 끝 근처 닿으면 점프 스크롤
     }
   }
+  document.getElementById('flowfix-check').addEventListener('change', function (e) {
+    flowFixed = e.target.checked;
+    updateCursor();  // 즉시 반영(현재 위치로 가운데 정렬)
+    saveShared({ flowFixed: e.target.checked });
+  });
 
   document.getElementById('flow-inner').addEventListener('click', function (e) {
     if (!tab || !tab.bpm) return;
+    if (grDrag) return; // 구간 드래그 선택 모드 — 클릭 seek 안 함(드래그가 우선)
     if (e.target.closest('.correction-popover')) return; // 팝오버 내부 클릭은 통과
     if (e.target.closest('.flow-bar-grip')) return; // 박자 앵커 그립은 드래그 전용 — seek 안 함
     var rect = document.getElementById('flow-inner').getBoundingClientRect();
@@ -1731,6 +1757,8 @@
         adlibShow = sharedState.adlibOn !== false;  // 즉흥 표시(기본 켬) 복원 — renderFlow 가 이 값 반영
         document.getElementById('adlib-check').checked = adlibShow;
         if (!adlibShow) renderFlow();  // 꺼진 상태 복원이면 애드립 없이 다시(초기 렌더는 켬 기준)
+        flowFixed = sharedState.flowFixed === true;  // 진행바 고정(기본 끔) 복원
+        document.getElementById('flowfix-check').checked = flowFixed;
         window.__stateRestored = true; // 배터리: 토글 조작 전 이 플래그 대기
       });
       Shell.ready.then(function () {
