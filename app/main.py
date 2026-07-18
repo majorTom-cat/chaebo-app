@@ -117,6 +117,20 @@ async def web_manifest():
                     headers={"Cache-Control": "no-cache, max-age=0"})
 
 
+@app.get("/cert")
+async def download_ca_cert():
+    """휴대폰 설치용 CA 공개 인증서(DER) — 폰이 이걸 '신뢰'로 설치하면 chaebo LAN HTTPS(마이크·앱 설치·
+    오프라인)를 신뢰한다. 공개 인증서(개인키 아님)이고 LAN 으로만 받는다. 신뢰 이전이라 HTTP 로도 받게 둔다.
+    iOS 는 application/x-x509-ca-cert MIME 로 프로파일 설치 흐름이 뜬다(설정에서 '신뢰' 토글 별도 필요)."""
+    from app import https_cert
+    der = https_cert.ca_cert_der()
+    if not der:
+        raise HTTPException(503, "인증서를 준비하지 못했어요. 잠시 후 다시 시도해 주세요.")
+    return Response(der, media_type="application/x-x509-ca-cert",
+                    headers={"Content-Disposition": 'inline; filename="chaebo-ca.crt"',
+                             "Cache-Control": "no-cache, max-age=0"})
+
+
 @app.get("/api/settings")
 async def get_app_settings():
     limits = await db.get_limits()
