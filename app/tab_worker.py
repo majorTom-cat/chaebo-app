@@ -1400,6 +1400,15 @@ def assign_frets(notes):
     # 가까워도 줄을 건너면 어렵다) ③개방현은 어느 포지션에서든 무료. 하이프렛 미세 선호만 유지.
     SPAN = 3          # 검지~새끼 4프렛 폭
     STR_COST = [0.0, 0.2, 1.0, 2.0]
+    # 얇은 고현(G=3·D=2)의 '낮은 프렛' 회피 — 멜로디 베이스는 같은 음을 D현 7프렛처럼 편한 자리로 치지,
+    # G현 2프렛(얇은 줄 낮은 칸)으로 안 친다(사용자 그라운드 트루스: A2→D7·G#2→D6, 2026-07-19). 저음역
+    # 개방/저프렛(E·A현)은 안 건드리게 '고현 × 낮은프렛'에만 페널티. env 로 조절·실측 튜닝.
+    LOW_FRET = 5
+    THIN_LOW_PEN = float(os.environ.get("CHAEBO_THIN_LOW_PEN", "0.16"))
+
+    def thin_low(s, fret):
+        # D(2)·G(3)현의 낮은 프렛만 — E(0)·A(1)현과 개방현(fret 0)은 저음역 정석이라 안 건드림.
+        return THIN_LOW_PEN * max(0, s - 1) * max(0, LOW_FRET - fret) if fret > 0 else 0.0
 
     def pos_for(fret, ppos):
         if fret == 0:
@@ -1408,7 +1417,8 @@ def assign_frets(notes):
             return ppos            # 손폭 안 — 포지션 유지
         return max(1, fret - SPAN) if fret > ppos + SPAN else fret
 
-    states = [(fret * 0.05, (max(1, fret) if fret > 0 else 1), -1) for s, fret in cands[0]]
+    states = [(fret * 0.05 + thin_low(s, fret), (max(1, fret) if fret > 0 else 1), -1)
+              for s, fret in cands[0]]
     history = [states]
     for i in range(1, len(notes)):
         cur = []
@@ -1424,7 +1434,7 @@ def assign_frets(notes):
                 # 시간 여유(쉼·프레이즈 경계 ≥1초)엔 손을 자유로 옮김 — 빠듯한 연속 음만 세게 최적화
                 dt = notes[i]["start"] - notes[i - 1]["start"]
                 relax = 0.2 if dt > 1.0 else 1.0
-                cost = pc + (move + STR_COST[sdiff] + finger) * relax + fret * 0.05
+                cost = pc + (move + STR_COST[sdiff] + finger) * relax + fret * 0.05 + thin_low(s, fret)
                 if cost < best[0]:
                     best = (cost, npos, j)
             cur.append(best)
