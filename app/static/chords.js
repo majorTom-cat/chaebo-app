@@ -57,8 +57,9 @@
       btn.title = st === 'error' ? (ly.error || '지난 번 가사 가져오기가 실패했어요')
         : '인터넷 가사(LRCLIB)를 먼저 찾고, 없으면 보컬 소리에서 받아써요. 정확한 가사는 「전체 가사」에서 붙여넣을 수도 있어요';
     }
-    // 진행 중이면 완료까지 셸 메타 폴링(가사는 분석과 별개 잡)
-    if (st === 'running' || st === 'queued') {
+    // 진행 중이면 완료까지 셸 메타 폴링(가사는 분석과 별개 잡). upgrading = 붙여넣기가 이미 보이는 채로
+    // 배경에서 즉흥(애드립) 잡는 중 — 화면은 그대로 두고 폴링만 유지하다 완료되면 오버레이로 자동 교체.
+    if (st === 'running' || st === 'queued' || (ly && ly.upgrading)) {
       if (!lyricPoll) lyricPoll = setInterval(function () { Shell.refreshMeta(); }, 3000);
     } else if (lyricPoll) {
       clearInterval(lyricPoll); lyricPoll = null;

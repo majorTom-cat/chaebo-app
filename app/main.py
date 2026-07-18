@@ -377,13 +377,19 @@ async def paste_lyrics(song_id: int, body: LyricPaste):
         await db.upsert_transcription(song_id, lyrics=json.dumps(result, ensure_ascii=False))
         await _regen_score_lyrics(song_id, result)  # 악보(오선 아래) 가사도 갱신
         return {"ok": True, "count": len(result["segments"]), "source": result["source"]}
-    # 골격 없음 → whisper 받아쓰기를 먼저 돌리고(즉흥 잡기), 완료되면 이 붙여넣기를 그 위에 얹는다(비동기).
-    # pending_old 로 이전 세그(예: LRCLIB 시각)를 보관 — ASR가 부실하면 그 앵커에 보간 폴백(가사 유실 방지).
-    await db.upsert_transcription(song_id, lyrics=json.dumps(
-        {"status": "running", "pending_paste": body.text, "force_asr": True, "pending_old": old},
-        ensure_ascii=False))
+    # 골격 없음 → ①먼저 즉시 붙여넣기(보간)를 저장해 화면이 절대 비지 않게(가사·전체가사 버튼 유지) —
+    #            ②배경에서 whisper 로 즉흥(애드립)을 잡아 오버레이로 업그레이드(완료 시 자동 교체).
+    # ★status 는 'ready'로 두고 세그먼트를 채운 채 upgrading 표식만 단다 — v0.7.3 초판이 'running'(세그
+    #   없음)으로 덮어 whisper 도는 동안 가사·버튼이 통째로 사라졌던 회귀 교정(사용자 실증 2026-07-18).
+    immediate = build_paste_result(lines, old, None, dur)  # source='pasted'(즉시 표시)
+    immediate["upgrading"] = True          # 배경 업그레이드 예정(폴링 유지·화면은 그대로)
+    immediate["pending_paste"] = body.text
+    immediate["force_asr"] = True
+    immediate["pending_old"] = old
+    await db.upsert_transcription(song_id, lyrics=json.dumps(immediate, ensure_ascii=False))
+    await _regen_score_lyrics(song_id, immediate)  # 악보 오선 아래 가사도 즉시
     await jobs.queue.put(("lyrics", song_id))
-    return {"ok": True, "pending": True, "count": 0, "source": "asr-then-overlay"}
+    return {"ok": True, "count": len(immediate["segments"]), "source": immediate["source"], "upgrading": True}
 
 
 async def _regen_score_lyrics(song_id: int, lyrics: dict):

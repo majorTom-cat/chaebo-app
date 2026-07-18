@@ -342,10 +342,10 @@ window.Shell = (function () {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: text }),
         }).then(function (r) { if (!r.ok) throw 0; return r.json(); })
           .then(function (res) {
-            if (res && res.pending) {
-              // 골격(ASR)이 없어 받아쓰기부터 — 완료되면 자동으로 얹힌다(가사 폴링이 반영). 모달은 안내 후 닫음.
-              msg0.textContent = '먼저 받아쓰기로 즉흥(애드립)을 잡는 중이에요 — 잠시 뒤 자동으로 반영돼요';
-              return refreshMeta().then(function () { setTimeout(close, 1800); });
+            if (res && res.upgrading) {
+              // 붙여넣기는 바로 반영됨(화면 유지) + 배경에서 즉흥(애드립)까지 잡아 얹는 중(가사 폴링이 자동 교체)
+              msg0.textContent = '붙여넣었어요 — 배경에서 즉흥(애드립)까지 잡아 잠시 뒤 자동으로 더해져요';
+              return refreshMeta().then(function () { setTimeout(close, 1600); });
             }
             return refreshMeta().then(close);
           })
