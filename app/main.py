@@ -1073,7 +1073,11 @@ def _read_lan_mode() -> str:
 
 def _is_private_ipv4(ip: str) -> bool:
     try:
-        return ip.startswith(("192.168.", "10.")) or (ip.startswith("172.") and 16 <= int(ip.split(".")[1]) <= 31)
+        o = [int(x) for x in ip.split(".")]
+        if len(o) != 4:
+            return False
+        return (ip.startswith(("192.168.", "10.")) or (o[0] == 172 and 16 <= o[1] <= 31)
+                or (o[0] == 100 and 64 <= o[1] <= 127))  # 100.64/10 = Tailscale(사설 메시) 대역 — 어디서든 접속
     except Exception:  # noqa: BLE001
         return False
 
