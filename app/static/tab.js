@@ -1668,6 +1668,37 @@
     window.open('/songs/' + songId + '/tab/print', '_blank');
   });
 
+  // 폰에 저장(오프라인) — 이 곡의 타브·소리를 이 기기에 받아둔다(offline.js). 그다음엔 PC 없이 연습.
+  //   offline.js 는 이 스크립트보다 늦게 로드되므로 window.chaeboOffline 은 지연 참조(load 시점 확인).
+  (function () {
+    var btn = document.getElementById('btn-save-offline');
+    var lab = document.getElementById('save-offline-label');
+    if (!btn || !lab) return;
+    function O() { return window.chaeboOffline; }
+    function saved() { return lab.textContent.indexOf('저장됨') >= 0; }
+    function setSaved() { lab.textContent = '저장됨 ✓'; btn.disabled = false; btn.classList.add('is-saved'); }
+    function setUnsaved() { lab.textContent = '폰에 저장'; btn.disabled = false; btn.classList.remove('is-saved'); }
+    // offline.js 가 아직 로드 전일 수 있어 재시도로 확인(오프라인 재로드 시 로드 순서 흔들림 대비).
+    (function initState(tries) {
+      if (O()) { O().isSaved(songId).then(function (s) { if (s) setSaved(); }); return; }
+      if (tries > 0) { setTimeout(function () { initState(tries - 1); }, 120); return; }
+      btn.style.display = 'none';   // IndexedDB 미지원 등 — offline.js 가 끝내 없으면 숨김
+    })(15);
+    btn.addEventListener('click', function () {
+      if (btn.disabled || !O()) return;
+      if (saved()) {
+        if (!window.confirm('이 곡의 폰 저장(오프라인)을 지울까요?')) return;
+        btn.disabled = true; lab.textContent = '지우는 중…';
+        O().removeSong(songId).then(setUnsaved).catch(setUnsaved);
+        return;
+      }
+      btn.disabled = true; lab.textContent = '저장 중… 0%';
+      O().saveSong(songId, function (done, total) {
+        lab.textContent = '저장 중… ' + Math.round(done / Math.max(1, total) * 100) + '%';
+      }).then(setSaved).catch(function () { lab.textContent = '저장 실패 — 다시'; btn.disabled = false; });
+    });
+  })();
+
   function reassignFret(nt) {
     // 음역 밖은 옥타브 접기(클램프 금지 — 클램프는 음정 파괴, 실증: 옥타브 일괄 내리기 사고)
     while (nt.midi < 28) nt.midi += 12;

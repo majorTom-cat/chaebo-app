@@ -5,6 +5,31 @@
 const VERSION = '__CHAEBO_VERSION__';
 const SHELL_CACHE = 'chaebo-shell-' + VERSION;
 
+/* offline.js 가 '폰에 저장'한 곡 파일(IndexedDB 'chaebo-offline'/files, key=경로)을 SW 가 읽어, 오프라인일 때
+   /stems·/api/songs·연습 화면 요청을 그 저장분으로 응답한다 → 연습 화면 코드 무변경(공통화). */
+function idbFile(path) {
+  return new Promise((res) => {
+    let r;
+    try { r = indexedDB.open('chaebo-offline', 1); } catch (e) { res(null); return; }
+    r.onsuccess = () => {
+      const db = r.result;
+      if (!db.objectStoreNames.contains('files')) { res(null); return; }
+      try {
+        const q = db.transaction('files', 'readonly').objectStore('files').get(path);
+        q.onsuccess = () => res(q.result || null);
+        q.onerror = () => res(null);
+      } catch (e) { res(null); }
+    };
+    r.onerror = () => res(null);
+    r.onupgradeneeded = () => { try { r.transaction.abort(); } catch (e) { /* offline.js 가 스키마 소유 */ } };
+  });
+}
+function offlineResponse(path) {
+  return idbFile(path).then((f) => (f && f.blob)
+    ? new Response(f.blob, { headers: { 'Content-Type': f.type || 'application/octet-stream' } })
+    : null);
+}
+
 /* 오프라인에도 켜지게 미리 받아두는 최소 셸(네비게이션 진입점). 나머지 정적 자산(css/js/폰트/alphaTab)은
    처음 온라인 방문 때 아래 fetch 핸들러가 자동 캐시(런타임)한다 — 목록을 빠짐없이 나열 안 해도 됨. */
 const PRECACHE = ['/tuner', '/', '/manifest.webmanifest',
@@ -36,8 +61,14 @@ self.addEventListener('fetch', (e) => {
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;    // 외부 요청은 건드리지 않음(외부 전송 0)
 
-  // 곡 데이터·스템은 2단계(IndexedDB)에서 오프라인 처리 — 지금은 네트워크로만.
-  if (url.pathname.startsWith('/stems/') || url.pathname.startsWith('/api/')) return;
+  // 곡 스템·데이터·설정(/stems·/api) → 온라인이면 네트워크(최신), 끊기면(오프라인) '폰에 저장'분(IndexedDB).
+  //   저장 안 한 api 는 offlineResponse 가 null → Response.error()(네트워크와 동일하게 실패) → 화면이 알아서 처리.
+  if (url.pathname.startsWith('/stems/') || url.pathname.startsWith('/api/')) {
+    e.respondWith(
+      fetch(req).catch(() => offlineResponse(url.pathname).then((r) => r || Response.error()))
+    );
+    return;
+  }
 
   // 정적 자산 + manifest → 캐시 우선(없으면 받아서 캐시). 폰트·alphaTab 등도 처음 방문에 자동 저장.
   if (url.pathname.startsWith('/static/') || url.pathname === '/manifest.webmanifest') {
@@ -53,7 +84,7 @@ self.addEventListener('fetch', (e) => {
     return;
   }
 
-  // 페이지(네비게이션) → 네트워크 우선, 끊기면 캐시 → 그래도 없으면 튜너(오프라인 최소 동작).
+  // 페이지(네비게이션) → 네트워크 우선. 끊기면: '폰에 저장'한 연습 화면(IndexedDB) → 셸 캐시 → 튜너.
   if (req.mode === 'navigate') {
     e.respondWith(
       fetch(req).then((resp) => {
@@ -62,7 +93,8 @@ self.addEventListener('fetch', (e) => {
           caches.open(SHELL_CACHE).then((c) => c.put(req, clone));
         }
         return resp;
-      }).catch(() => caches.match(req).then((hit) => hit || caches.match('/tuner')))
+      }).catch(() => offlineResponse(url.pathname).then((r) => r
+        || caches.match(req).then((hit) => hit || caches.match('/tuner'))))
     );
     return;
   }

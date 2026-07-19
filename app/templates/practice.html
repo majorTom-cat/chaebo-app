@@ -640,6 +640,10 @@ body.anchoring { cursor: ew-resize; user-select: none; }
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
         인쇄 / PDF 저장
       </button>
+      <button type="button" class="btn btn-outline btn-sm" id="btn-save-offline" title="이 곡(타브·소리)을 이 기기에 받아둬요 — 그다음엔 PC 없이 오프라인으로 연습해요">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        <span id="save-offline-label">폰에 저장</span>
+      </button>
     </div>
 
     <!-- 흐름 타브 — 시간 비례 뷰(칸=고정 폭): 박자 간격 균일·진행바 등속·프렛/카운트 일렬.
@@ -914,5 +918,6 @@ body.anchoring { cursor: ew-resize; user-select: none; }
 <script src="/static/chords.js"></script>
 <script src="/static/logo.js"></script>
 <script src="/static/pwa.js"></script>
+<script src="/static/offline.js"></script>
 </body>
 </html>
