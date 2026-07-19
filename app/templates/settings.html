@@ -190,13 +190,13 @@
 
       <details style="margin-bottom:12px; background:var(--surface-2); border:1px solid var(--border); border-radius:var(--r-sm); padding:10px 12px;">
         <summary class="lan-guide-t">🌐 와이파이가 아예 없어요 — 어디서든 폰으로 (PC 를 켜뒀을 때)</summary>
-        <p class="settings-desc" style="margin:8px 0 6px;">와이파이·핫스팟이 안 되면, <b>Tailscale</b>(무료) 같은 사설 연결로 <b>내 PC 와 폰만 연결</b>해요. 그러면 폰이 셀룰러 데이터로도 어디서든 이 PC 의 chaebo 에 접속돼요 — 곡·소리는 인터넷 공개 서버에 안 올라가고 <b>내 두 기기 사이로만</b> 오가요(암호화). 인증서(https)도 알아서 돼서 마이크·설치도 됩니다.</p>
+        <p class="settings-desc" style="margin:8px 0 6px;">와이파이·핫스팟이 안 되면, <b>Tailscale</b>(무료 앱)으로 <b>내 PC 와 폰만</b> 이어요. 그러면 폰이 셀룰러 데이터로도 어디서든 이 PC 의 chaebo 에 접속돼요 — 곡·소리는 공개 서버가 아니라 <b>내 두 기기 사이로만</b> 오가요(암호화). 명령어 입력 같은 건 필요 없어요.</p>
         <ol class="lan-steps">
-          <li>PC 와 폰에 <b>Tailscale</b> 앱 설치 → <b>같은 계정</b>으로 로그인(둘 다)</li>
-          <li>PC 에서 한 번: 명령창에 <code>tailscale serve https / http://localhost:8765</code> (마이크·앱설치용 https 주소가 생겨요)</li>
-          <li>폰에서 Tailscale 이 알려주는 <b>이 PC 주소</b>(100.x.x.x 또는 …ts.net)로 접속</li>
+          <li>PC 와 폰에 <b>Tailscale</b> 앱 설치 (검색 'Tailscale' · tailscale.com/download)</li>
+          <li>PC·폰 둘 다 <b>같은 계정</b>(구글·애플 등)으로 로그인 — '내 기기끼리'라는 걸 이걸로 증명해요</li>
+          <li>chaebo 를 껐다 켜면 위 접속 주소 목록에 <b>100.x.x.x 주소</b>가 떠요 — 폰에서 그 주소로 접속하면 타브·연습이 다 돼요</li>
         </ol>
-        <p class="settings-desc" style="margin:6px 0 0;">단, 이건 <b>PC 를 켜뒀을 때</b> 접속하는 방식이에요(곡 데이터가 PC 에 있으니까). PC 를 끄면 못 봐요 — 그건 물리적으로 어쩔 수 없어요.</p>
+        <p class="settings-desc" style="margin:6px 0 0;">※ 앱 설치+로그인 한 번은 줄일 수 없어요 — 어떤 앱이든 내 PC 에 원격 접속하려면 필요한 최소 단계예요(근음 듣기는 그것도 필요 없는 <b>웹주소</b>가 따로 있어요). PC 를 끄면 못 봐요(곡이 PC 에 있음).</p>
       </details>
 
       <div class="lan-step">
