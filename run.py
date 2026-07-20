@@ -19,8 +19,17 @@ os.environ.setdefault("PYTHONIOENCODING", "utf-8")
 # 로그 파일로 돌려 크래시 방지 + 문제 시 확인 가능하게.
 if sys.stdout is None or sys.stderr is None:
     try:
-        _logf = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "chaebo-log.txt"),
-                     "a", encoding="utf-8", errors="replace")
+        _logp = os.path.join(os.path.dirname(os.path.abspath(__file__)), "chaebo-log.txt")
+        # ★로그 무한 증가 방지 — 옛 코드는 "a"(append)라 실행마다 끝없이 쌓였다(uvicorn 접근로그가 요청마다
+        #   기록 → 한 세션 4MB, 몇 달이면 수백 MB). WebView2 임시 프로파일 누적과 같은 '실행마다 쌓임' 계열
+        #   (2026-07-20). 시작할 때 직전 로그를 .prev 1개로만 넘기고 새로 시작 → '직전+현재 세션'만 남아 상한이
+        #   생긴다(크래시 진단용 직전 로그는 .prev 로 보존).
+        try:
+            if os.path.exists(_logp):
+                os.replace(_logp, _logp[:-4] + ".prev.txt")  # chaebo-log.txt -> chaebo-log.prev.txt
+        except Exception:
+            pass
+        _logf = open(_logp, "w", encoding="utf-8", errors="replace")
         if sys.stdout is None:
             sys.stdout = _logf
         if sys.stderr is None:
