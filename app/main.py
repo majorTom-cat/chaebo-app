@@ -1194,6 +1194,79 @@ async def set_lan_mode(body: LanModeIn):
         return {"ok": False, "enabled": _read_lan_mode() == "on"}
 
 
+# ── Tailscale '어디서나 폰으로(자동)' — 비전문가용: 터미널 명령 없이 버튼 하나로. ────────────────
+#   Serve 를 켜면 포트·인증서 없는 깨끗한 https 주소(https://<PC이름>.<tailnet>.ts.net)가 생겨 폰에서 그대로
+#   열린다(마이크·설치·오프라인까지). GPU PC 등 다른 컴퓨터도 같은 계정 로그인 + 이 버튼이면 끝(명령어 X).
+def _tailscale_exe():
+    """tailscale CLI 경로 — 설치돼 있으면 반환, 없으면 None."""
+    p = shutil.which("tailscale")
+    if p:
+        return p
+    for c in (r"C:\Program Files\Tailscale\tailscale.exe",
+              r"C:\Program Files (x86)\Tailscale\tailscale.exe"):
+        if os.path.isfile(c):
+            return c
+    return None
+
+
+def _run_ts(exe, args, timeout=20):
+    """tailscale 명령 실행 → 합쳐진 출력 문자열(콘솔창 안 띄움). 실패해도 예외 없이 빈 문자열."""
+    import subprocess
+    try:
+        r = subprocess.run([exe, *args], capture_output=True, timeout=timeout,
+                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        return r.stdout.decode("utf-8", "replace") + "\n" + r.stderr.decode("utf-8", "replace")
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def _ts_serve_url(exe):
+    """현재 serve 로 노출 중인 https 주소(있으면). 없으면 None."""
+    m = re.search(r"https://\S+", _run_ts(exe, ["serve", "status"]))
+    return m.group(0).rstrip("/") if m else None
+
+
+@app.get("/api/tailscale/status")
+async def tailscale_status():
+    """Tailscale 설치·로그인·serve 상태 — 설정의 '어디서나 폰으로(자동)' UI 가 읽어 버튼 상태를 정한다."""
+    exe = _tailscale_exe()
+    if not exe:
+        return {"installed": False}
+    name, logged_in = "", False
+    try:
+        data = json.loads(_run_ts(exe, ["status", "--json"]))
+        logged_in = data.get("BackendState") == "Running"
+        name = ((data.get("Self") or {}).get("DNSName") or "").rstrip(".")
+    except Exception:  # noqa: BLE001
+        pass
+    return {"installed": True, "logged_in": logged_in, "name": name,
+            "serve_url": _ts_serve_url(exe)}
+
+
+@app.post("/api/tailscale/serve")
+async def tailscale_serve():
+    """chaebo 를 Tailscale HTTPS 로 노출(포트·인증서 없는 폰 주소). 버튼만 누르면 됨(멱등 — 이미 켜졌으면 주소만)."""
+    exe = _tailscale_exe()
+    if not exe:
+        return {"ok": False, "reason": "not_installed"}
+    port = int(os.environ.get("PORT", "8765"))
+    txt = _run_ts(exe, ["serve", "--bg", str(port)], timeout=30)
+    low = txt.lower()
+    if "not enabled" in low:  # tailnet 에서 Serve 기능 미활성(계정 관리자 페이지에서 1회 켜야)
+        m = re.search(r"https://login\.tailscale\.com/\S+", txt)
+        return {"ok": False, "reason": "serve_not_enabled", "enable_url": m.group(0) if m else None}
+    if "needslogin" in low or "logged out" in low:
+        return {"ok": False, "reason": "not_logged_in"}
+    url = _ts_serve_url(exe)
+    if not url:  # serve status 파싱 실패 시 이름으로 구성
+        try:
+            nm = ((json.loads(_run_ts(exe, ["status", "--json"])).get("Self") or {}).get("DNSName") or "").rstrip(".")
+            url = "https://" + nm if nm else None
+        except Exception:  # noqa: BLE001
+            url = None
+    return {"ok": True, "url": url} if url else {"ok": False, "reason": "unknown"}
+
+
 @app.get("/api/gpu/progress")
 async def gpu_progress():
     return gpu.state()
