@@ -190,6 +190,12 @@ body.is-empty .empty-state { display: flex; }
 
   <div class="song-grid" id="song-grid"></div>
 
+  <section id="offline-section" style="margin-top:32px" hidden>
+    <h2 style="font-size:16px;margin:0 0 6px;">📱 이 폰에 저장한 곡</h2>
+    <p style="font-size:13px;color:var(--muted);margin:0 0 12px;">PC 없이 열거나, 지금 접속한 PC 로 보낼 수 있어요 — 내 기기끼리 옮기기(폰이 날라줘요).</p>
+    <div id="offline-list" style="display:flex;flex-direction:column;gap:10px;"></div>
+  </section>
+
   <div class="empty-state">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
     <p class="empty-title">아직 곡이 없어요 — 첫 곡을 추가해보세요</p>
@@ -268,6 +274,50 @@ body.is-empty .empty-state { display: flex; }
 
 <script src="/static/logo.js"></script>
 <script src="/static/pwa.js"></script>
+<script src="/static/offline.js"></script>
+<script>
+/* 폰에 저장한 곡 목록 — 오프라인 열기 + '이 PC로 보내기'(개인 기기 간 이동, offline.js). */
+(function () {
+  function O() { return window.chaeboOffline; }
+  function render() {
+    if (!O()) return;
+    O().savedSongs().then(function (songs) {
+      var sec = document.getElementById('offline-section'), list = document.getElementById('offline-list');
+      if (!sec || !list) return;
+      if (!songs || !songs.length) { sec.hidden = true; return; }
+      sec.hidden = false; list.innerHTML = '';
+      songs.sort(function (a, b) { return (b.at || 0) - (a.at || 0); });
+      songs.forEach(function (s) {
+        var row = document.createElement('div');
+        row.style.cssText = 'display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:10px 14px;';
+        var nm = document.createElement('b');
+        nm.style.cssText = 'flex:1;min-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+        nm.textContent = s.title || ('곡 ' + s.id);
+        var open = document.createElement('a');
+        open.href = '/songs/' + s.id + '/practice'; open.className = 'btn btn-outline btn-sm'; open.textContent = '열기';
+        var send = document.createElement('button');
+        send.type = 'button'; send.className = 'btn btn-outline btn-sm'; send.textContent = '이 PC로 보내기';
+        send.addEventListener('click', function () {
+          if (send.disabled) return;
+          send.disabled = true; send.textContent = '보내는 중… 0%';
+          O().sendToPc(s.id, function (d, t) { send.textContent = '보내는 중… ' + Math.round(d / Math.max(1, t) * 100) + '%'; })
+            .then(function () { send.textContent = '보냄 ✓'; setTimeout(function () { location.reload(); }, 900); })
+            .catch(function (e) { send.textContent = '실패 — 다시'; send.disabled = false; });
+        });
+        var rm = document.createElement('button');
+        rm.type = 'button'; rm.className = 'btn btn-outline btn-sm'; rm.textContent = '삭제';
+        rm.addEventListener('click', function () {
+          if (!window.confirm('이 곡의 폰 저장을 지울까요?')) return;
+          O().removeSong(s.id).then(render);
+        });
+        row.appendChild(nm); row.appendChild(open); row.appendChild(send); row.appendChild(rm);
+        list.appendChild(row);
+      });
+    }).catch(function () {});
+  }
+  window.addEventListener('load', function () { setTimeout(render, 250); });
+})();
+</script>
 <script src="/static/update.js"></script>
 <script src="/static/library.js"></script>
 </body>

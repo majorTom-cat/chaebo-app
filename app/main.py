@@ -1005,6 +1005,66 @@ async def put_practice_state(song_id: int, request: Request):
     return {"ok": True}
 
 
+@app.post("/api/import")
+async def import_song(request: Request):
+    """다른 기기(폰)에서 이미 분석된 곡을 받아 이 PC 에 추가 — 개인 기기 간 동기화(GPU PC 에서 분석 → 폰에
+    저장 → 이 PC 로 옮김). 재분석 없이 바로 ready. multipart: meta(JSON)·tab(JSON)·peaks(파일,선택)·스템
+    파일(stem_<이름>). ★남에게 공유·배포가 아니라 '내 기기끼리 옮기기'(폰이 나른다) — LAN/사설연결로만."""
+    form = await request.form()
+    try:
+        meta = json.loads(form.get("meta") or "{}")
+        tab = json.loads(form.get("tab") or "{}")
+    except Exception:  # noqa: BLE001
+        raise HTTPException(422, "가져올 곡 정보가 올바르지 않아요")
+    title = (meta.get("title") or "가져온 곡")[:200]
+    song_id = await db.create_song(title, "import", (meta.get("source") or "다른 기기")[:200])
+    sdir = config.STEMS_DIR / str(song_id)
+    sdir.mkdir(parents=True, exist_ok=True)
+    for key, val in form.multi_items():
+        if key.startswith("stem_") and hasattr(val, "read"):
+            name = re.sub(r"[^a-z0-9]", "", key[len("stem_"):].lower())[:20]
+            if name:
+                (sdir / f"{name}.m4a").write_bytes(await val.read())
+    peaks_field = form.get("peaks")
+    if peaks_field is not None and hasattr(peaks_field, "read"):
+        try:  # 저장분(비압축 JSON)을 캐시에 직접 → peaks 재계산(wav 필요) 회피
+            (sdir / "peaks_v5.json").write_bytes(await peaks_field.read())
+        except Exception:  # noqa: BLE001
+            pass
+    fields = {"status": "ready", "progress": 100}
+
+    def _js(v):
+        return json.dumps(v, ensure_ascii=False)
+    if tab.get("bpm") is not None:
+        fields["bpm"] = tab["bpm"]
+    if tab.get("notes") is not None:
+        fields["notes"] = _js(tab["notes"])
+    if tab.get("tex"):
+        fields["tex"] = tab["tex"]
+    if tab.get("key"):
+        fields["key_json"] = _js(tab["key"])
+    if tab.get("chords") is not None:
+        fields["chords"] = _js(tab["chords"])
+    if tab.get("meter"):
+        fields["meter"] = tab["meter"]
+    if tab.get("grid_v"):
+        fields["grid_v"] = tab["grid_v"]
+    if tab.get("slots") is not None:
+        fields["slots"] = _js(tab["slots"])
+    if tab.get("offset") is not None:
+        fields["beat_offset"] = tab["offset"]
+    if tab.get("lyrics") is not None:
+        fields["lyrics"] = _js(tab["lyrics"])
+    if tab.get("sections") is not None:
+        fields["sections"] = _js(tab["sections"])
+    await db.upsert_transcription(song_id, **fields)
+    sfields = {"status": "ready"}
+    if meta.get("duration"):
+        sfields["duration"] = meta["duration"]
+    await db.update_song(song_id, **sfields)
+    return {"ok": True, "song_id": song_id, "title": title}
+
+
 @app.get("/api/health")
 def health():
     return {"status": "ok"}

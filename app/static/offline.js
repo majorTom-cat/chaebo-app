@@ -106,6 +106,41 @@
     });
   }
 
+  // 폰에 저장된 곡을 '지금 접속 중인 PC'로 보낸다(업로드→그 PC 가 재분석 없이 곡으로 추가). 개인 기기 간
+  //   이동(폰이 나른다) — GPU PC 에서 분석→폰→다른 PC. 반환: {ok, song_id, title}.
+  function sendToPc(songId, onProgress) {
+    onProgress = onProgress || function () {};
+    var id = String(songId);
+    return Promise.all([
+      get('files', '/api/songs/' + id),
+      get('files', '/api/songs/' + id + '/tab'),
+      get('files', '/api/songs/' + id + '/peaks'),
+    ]).then(function (r) {
+      var metaF = r[0], tabF = r[1], peaksF = r[2];
+      if (!metaF || !tabF) throw new Error('저장 데이터가 부족해요');
+      return Promise.all([metaF.blob.text(), tabF.blob.text()]).then(function (t) {
+        var meta = JSON.parse(t[0]);
+        var fd = new FormData();
+        fd.append('meta', t[0]);
+        fd.append('tab', t[1]);
+        if (peaksF && peaksF.blob) fd.append('peaks', peaksF.blob, 'peaks.json');
+        var stems = meta.stems || {}, names = Object.keys(stems), i = 0;
+        return names.reduce(function (chain, name) {
+          var path = new URL(stems[name], location.href).pathname;
+          return chain.then(function () { return get('files', path); }).then(function (f) {
+            if (f && f.blob) fd.append('stem_' + name, f.blob, name + '.m4a');
+            onProgress(++i, names.length);
+          });
+        }, Promise.resolve()).then(function () {
+          return fetch('/api/import', { method: 'POST', body: fd }).then(function (resp) {
+            if (!resp.ok) throw new Error('보내기 실패 (' + resp.status + ')');
+            return resp.json();
+          });
+        });
+      });
+    });
+  }
+
   function savedSongs() { return all('songs'); }
   function isSaved(songId) { return get('songs', String(songId)).then(function (s) { return !!s; }); }
   function usageBytes() {
@@ -114,6 +149,6 @@
 
   window.chaeboOffline = {
     saveSong: saveSong, removeSong: removeSong, savedSongs: savedSongs,
-    isSaved: isSaved, usageBytes: usageBytes,
+    isSaved: isSaved, usageBytes: usageBytes, sendToPc: sendToPc,
   };
 })();
