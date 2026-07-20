@@ -92,6 +92,10 @@
 .ts-qr { width: 108px; height: 108px; background: #fff; border-radius: var(--r-sm); padding: 6px; margin-bottom: 4px; }
 .ts-qr img { width: 100%; height: 100%; display: block; }
 .ts-hint { margin-top: 6px; font-size: 12px; color: var(--muted); background: var(--surface); border-left: 2px solid var(--accent); padding: 5px 9px; border-radius: 4px; line-height: 1.5; }
+.lan-primary { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-sm); padding: 14px; }
+.lan-primary .lan-step-h { margin-bottom: 2px; }
+.lan-other { margin-top: 14px; }
+.lan-other > summary { padding: 4px 0; }
 .ts-auto { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-sm); padding: 12px; }
 .ts-auto-body { font-size: 13px; color: var(--muted); line-height: 1.6; }
 .ts-auto-msg b, .ts-auto-ok b, .ts-auto-url a { color: var(--text); }
@@ -206,88 +210,69 @@
       <span class="control-label" style="font-size:14px;">휴대폰·태블릿 접속 켜기</span>
     </label>
     <div id="lan-info" hidden>
-      <p class="settings-desc" style="margin-bottom:10px;">같은 와이파이의 휴대폰·태블릿에서 chaebo 를 열어요. <b>앱처럼 설치</b>하면 근음 듣기·저장한 곡을 <b>PC 없이 오프라인</b>으로 쓸 수 있어요.</p>
+      <p class="settings-desc" style="margin-bottom:12px;">폰에서 chaebo 를 열려면 — 아래 <b>'어디서나 폰으로'</b> 하나만 따라 하면 돼요. 주소·포트를 외울 필요 없이 <b>QR 한 번</b>이면 됩니다(마이크·오프라인 저장까지).</p>
 
-      <details style="margin-bottom:12px; background:var(--surface-2); border:1px solid var(--border); border-radius:var(--r-sm); padding:10px 12px;">
-        <summary class="lan-guide-t">📶 집에 와이파이가 없어요 — 이 PC 를 핫스팟으로</summary>
-        <p class="settings-desc" style="margin:8px 0 6px;">공유기 와이파이가 없어도, <b>이 PC 를 와이파이 핫스팟</b>으로 만들어 폰을 거기 연결하면 돼요(랜선 인터넷을 폰과 나눠 씀). <b>설치·곡 저장은 한 번만</b> 하면 되고, 그 뒤엔 폰만으로 오프라인이에요.</p>
-        <ol class="lan-steps">
-          <li>윈도우 <b>설정 → 네트워크 및 인터넷 → 모바일 핫스팟</b> → <b>켜기</b> ('인터넷 연결 공유' = 이더넷/랜선)</li>
-          <li>거기 나오는 <b>이름·비밀번호</b>로 폰 와이파이에서 그 핫스팟에 연결</li>
-          <li>chaebo 를 껐다 켜면, 아래 주소 목록에 핫스팟 주소(보통 <b>192.168.137.1</b>)가 나와요 — 그 주소로 접속</li>
-        </ol>
-        <p class="settings-desc" style="margin:6px 0 0;">※ 이 PC 에 와이파이 기능이 없으면(데스크톱 등) 모바일 핫스팟이 안 보여요 — 그럴 땐 <b>USB 와이파이 동글</b>(수천 원)을 꽂으면 돼요.</p>
-      </details>
-
-      <details style="margin-bottom:12px; background:var(--surface-2); border:1px solid var(--border); border-radius:var(--r-sm); padding:10px 12px;">
-        <summary class="lan-guide-t">🌐 와이파이가 아예 없어요 — 어디서든 폰으로 (PC 를 켜뒀을 때)</summary>
-        <p class="settings-desc" style="margin:8px 0 10px;">와이파이·핫스팟이 안 되면, <b>Tailscale</b>(무료 앱)으로 <b>내 PC 와 폰만</b> 이어요. 폰이 셀룰러 데이터로도 어디서든 이 PC 의 chaebo 에 접속돼요 — 곡·소리는 공개 서버가 아니라 <b>내 두 기기 사이로만</b> 오가요(암호화). <b>명령어 입력 없이</b> 아래 버튼으로 돼요.</p>
-
-        <!-- 자동: 상태 보고 버튼 하나로. 터미널 명령 노출 금지(규칙9). GPU PC 등 다른 컴퓨터도 이 버튼이면 끝. -->
+      <!-- 추천 = 유일 주력 경로: Tailscale 자동(항상 보임, 버튼 하나·터미널 없음). 규칙9. -->
+      <div class="lan-primary">
+        <div class="lan-step-h">🌐 어디서나 폰으로 <span class="lan-step-sub">추천 · 셀룰러 데이터로도</span></div>
+        <p class="settings-desc" style="margin:4px 0 10px;">이 PC 와 폰을 <b>Tailscale</b>(무료)로 이어요. 포트·인증서 없는 <b>깨끗한 주소</b>로 열리고, 내 두 기기 사이로만(공개 아님·암호화). 아래 <b>버튼</b>만 누르면 돼요.</p>
         <div id="ts-auto" class="ts-auto"><div class="ts-auto-body">상태 확인 중…</div></div>
-
-        <p class="settings-desc" style="margin:10px 0 0;">💡 <b>GPU 있는 다른 컴퓨터</b>도 폰에서 열고 싶으면: 그 PC 에 Tailscale 설치(같은 계정 로그인) + chaebo 를 켜고, 그 PC 의 이 설정 화면에서 <b>같은 버튼</b>만 누르면 그 PC 만의 주소가 생겨요. (명령어 필요 없음)</p>
-
         <details class="ts-manual" style="margin-top:10px;">
-          <summary class="lan-guide-t" style="font-size:13px;">📖 폰에 Tailscale 설치 + 직접(수동) 방법</summary>
-          <div class="ts-step" style="margin-top:10px;"><div class="ts-step-n">1</div><div class="ts-step-b">
-            <b>폰에 Tailscale 설치</b> — 폰 카메라로 아래 QR 을 찍으면 앱 설치 페이지로 가요(또는 앱스토어에서 'Tailscale' 검색). 설치한 뒤 <b>PC 와 같은 계정</b>(구글·애플 등)으로 로그인해요.
+          <summary class="lan-guide-t" style="font-size:13px;">📱 폰에 Tailscale 설치 (처음 한 번만)</summary>
+          <div class="ts-step" style="margin-top:10px;"><div class="ts-step-b">
+            폰 카메라로 QR 을 찍어 설치(또는 앱스토어에서 'Tailscale' 검색) → <b>이 PC 와 같은 계정</b>(구글·애플)으로 로그인.
             <div class="ts-qr-row">
               <div class="ts-qr-cell"><div class="ts-qr" id="ts-qr-ios"></div><span>📱 아이폰</span></div>
               <div class="ts-qr-cell"><div class="ts-qr" id="ts-qr-and"></div><span>🤖 안드로이드</span></div>
             </div>
           </div></div>
-          <div class="ts-step"><div class="ts-step-n">2</div><div class="ts-step-b">
-            <b>이 PC 에 설치</b>(자동 버튼이 '없어요'라고 하면): <div class="ts-link"><a href="https://tailscale.com/download/windows" target="_blank" rel="noopener">tailscale.com/download/windows</a><button type="button" data-copy="https://tailscale.com/download/windows">복사</button></div>
-          </div></div>
-          <div class="ts-step"><div class="ts-step-n">3</div><div class="ts-step-b">
-            위 <b>자동 버튼</b>이 안 되면, 이 아래 '접속 주소' 목록의 <b>100.x.x.x</b> 주소를 폰에서 직접 열어도 돼요(뒤에 <b>:8765</b> 붙여서).
-          </div></div>
+        </details>
+        <p class="settings-desc" style="margin:10px 0 0;">💡 <b>GPU 있는 다른 컴퓨터</b>도: 그 PC 에 Tailscale(같은 계정)+chaebo 켜고, 그 PC 설정에서 <b>같은 버튼</b>만 누르면 그 PC 주소가 생겨요.</p>
+      </div>
+
+      <!-- 다른 방법(접힘) — 폰이 같은 와이파이에 있을 때만. Tailscale 안 쓰는 경우. -->
+      <details class="lan-other" style="margin-top:14px;">
+        <summary class="lan-guide-t">다른 방법 — 폰이 이 PC 와 <b>같은 와이파이</b>일 때 (Tailscale 없이)</summary>
+
+        <div class="lan-step" style="margin-top:12px;">
+          <div class="lan-step-h">그냥 보기 <span class="lan-step-sub">타브·연습</span></div>
+          <p class="settings-desc" style="margin:0 0 8px;">폰 카메라로 QR 을 찍으면 주소가 자동 입력돼요. 열린 뒤 <b>'홈 화면에 추가'</b>하면 다음부턴 아이콘만.</p>
+          <div class="lan-addr-row"><div class="lan-qr" id="lan-qr"></div><div class="lan-urls" id="lan-urls"></div></div>
+        </div>
+
+        <div class="lan-step">
+          <div class="lan-step-h">마이크·설치·오프라인까지 <span class="lan-step-sub">인증서 한 번 신뢰</span></div>
+          <p class="settings-desc" style="margin:6px 0 10px;">아래 QR 로 이 PC 인증서를 폰에 받아 <b>신뢰</b>(한 번만) → 그 아래 <b>보안 주소</b>로 접속.</p>
+          <div class="lan-addr-row"><div class="lan-qr" id="lan-qr-cert"></div><div class="lan-urls" id="lan-urls-cert"></div></div>
+          <details style="margin-top:10px;">
+            <summary class="lan-guide-t">📱 아이폰 인증서 설치</summary>
+            <ol class="lan-steps">
+              <li>위 QR 을 <b>카메라</b>로 스캔 → '프로파일 다운로드' 허용</li>
+              <li><b>설정 → 일반 → VPN 및 기기 관리</b> → 'chaebo local CA' → <b>설치</b></li>
+              <li><b>설정 → 일반 → 정보 → 인증서 신뢰 설정</b> → chaebo <b>켜기</b> (빠뜨리기 쉬워요!)</li>
+            </ol>
+          </details>
+          <details style="margin-top:6px;">
+            <summary class="lan-guide-t">🤖 안드로이드 인증서 설치</summary>
+            <ol class="lan-steps">
+              <li>위 QR 스캔 → 인증서 파일 다운로드</li>
+              <li><b>설정 → 보안 → 암호화 및 사용자 인증서</b> → <b>CA 인증서 설치</b> → 받은 파일 선택</li>
+              <li>'네트워크 감시' 안내는 내 PC 인증서라 정상 — 계속</li>
+            </ol>
+          </details>
+          <div class="lan-addr-row" style="margin-top:12px;"><div class="lan-qr" id="lan-qr-https"></div><div class="lan-urls" id="lan-urls-https"></div></div>
+        </div>
+
+        <details style="margin-top:10px;">
+          <summary class="lan-guide-t">📶 공유기 와이파이가 없으면 — 이 PC 를 핫스팟으로</summary>
+          <ol class="lan-steps" style="margin-top:8px;">
+            <li>윈도우 <b>설정 → 네트워크 및 인터넷 → 모바일 핫스팟</b> → <b>켜기</b></li>
+            <li>나오는 <b>이름·비밀번호</b>로 폰 와이파이에서 그 핫스팟에 연결</li>
+            <li>chaebo 껐다 켜면 위 주소 목록에 핫스팟 주소(보통 <b>192.168.137.1</b>)가 나와요</li>
+          </ol>
+          <p class="settings-desc" style="margin:6px 0 0;">※ 이 PC 에 와이파이 기능이 없으면 안 보여요 — <b>USB 와이파이 동글</b>을 꽂으면 돼요.</p>
         </details>
       </details>
-
-      <div class="lan-step">
-        <div class="lan-step-h">① 그냥 브라우저로 보기 <span class="lan-step-sub">설치 없이 · 이 PC 가 켜져 있을 때</span></div>
-        <p class="settings-desc" style="margin:0 0 8px;">💡 <b>주소를 직접 안 쳐도 돼요</b> — 폰 카메라로 아래 <b>QR 을 찍으면</b> 주소·포트(:8765)가 자동으로 들어가요. 한 번 열린 뒤 브라우저 메뉴에서 <b>'홈 화면에 추가'</b>하면, 다음부턴 <b>아이콘만 누르면</b> 끝(주소 입력 영영 필요 없음).</p>
-        <div class="lan-addr-row">
-          <div class="lan-qr" id="lan-qr"></div>
-          <div class="lan-urls" id="lan-urls"></div>
-        </div>
-      </div>
-
-      <div class="lan-step">
-        <div class="lan-step-h">② 앱으로 설치하려면 — 인증서 한 번 신뢰 <span class="lan-step-sub">마이크·오프라인·설치에 필요</span></div>
-        <p class="settings-desc" style="margin:6px 0 10px;">아래 QR 로 이 PC 의 <b>인증서</b>를 폰에 받아 <b>신뢰</b>로 설치하세요(한 번만). 그래야 폰이 이 PC 를 안전한 연결로 인정해 앱 설치·마이크가 됩니다.</p>
-        <div class="lan-addr-row">
-          <div class="lan-qr" id="lan-qr-cert"></div>
-          <div class="lan-urls" id="lan-urls-cert"></div>
-        </div>
-        <details style="margin-top:10px;">
-          <summary class="lan-guide-t">📱 아이폰 설치 방법</summary>
-          <ol class="lan-steps">
-            <li>위 QR 을 <b>카메라</b>로 스캔 → '프로파일 다운로드' 허용</li>
-            <li><b>설정 → 일반 → VPN 및 기기 관리</b> → 'chaebo local CA' → <b>설치</b></li>
-            <li><b>설정 → 일반 → 정보 → 인증서 신뢰 설정</b> → chaebo 를 <b>켜기</b> (이 단계 빠뜨리기 쉬워요!)</li>
-          </ol>
-        </details>
-        <details style="margin-top:6px;">
-          <summary class="lan-guide-t">🤖 안드로이드 설치 방법</summary>
-          <ol class="lan-steps">
-            <li>위 QR 스캔 → 인증서 파일 다운로드</li>
-            <li><b>설정 → 보안 → 암호화 및 사용자 인증서</b>(또는 '기타 보안 설정') → <b>CA 인증서 설치</b> → 받은 파일 선택</li>
-            <li>'네트워크가 감시될 수 있다'는 안내는 내 PC 인증서라 정상이에요 — 계속</li>
-          </ol>
-        </details>
-      </div>
-
-      <div class="lan-step">
-        <div class="lan-step-h">③ 앱 열고 '홈 화면에 추가' <span class="lan-step-sub">인증서 신뢰 후</span></div>
-        <p class="settings-desc" style="margin:6px 0 10px;">인증서를 신뢰한 뒤 아래 <b>보안 주소</b>로 접속하고, 브라우저 메뉴의 <b>'홈 화면에 추가'</b>를 누르면 앱으로 설치돼요. 그때부턴 홈 화면 아이콘으로 앱처럼 켜요.</p>
-        <div class="lan-addr-row">
-          <div class="lan-qr" id="lan-qr-https"></div>
-          <div class="lan-urls" id="lan-urls-https"></div>
-        </div>
-      </div>
 
       <p class="settings-desc" id="lan-restart-note" style="margin-top:14px; color: var(--accent);">지금 켰어요 — chaebo 를 껐다 켜면 위 주소로 접속돼요.</p>
     </div>
