@@ -376,7 +376,25 @@ def _run_app_window():
         pass  # 이벤트 등록 실패해도 앱은 정상(그 경우 X=종료로 폴백)
 
     _icon = _ICON if os.path.isfile(_ICON) else None
-    webview.start(_work, window, icon=_icon)  # 창 닫힐 때까지 블록
+    # ★WebView2 프로파일을 '고정 폴더 1개'로 재사용한다. pywebview 기본(private_mode=True)은 실행마다
+    #   %TEMP% 에 임시 프로파일을 새로 만들고 안 지워 무한 누적된다 — 실증(2026-07-20): EBWebView 63개·
+    #   0.67GB 잔재 + 디스크 압박으로 새 창이 안 뜨고 커서만 도는 증상. 고정 프로파일이면 누적 0(재사용)이고,
+    #   UI 설정·업데이트 '나중에' 표시도 실행 간 유지된다. 앱 창에선 pwa.js 가 SW 등록을 건너뛰므로(로컬 호스트)
+    #   이 프로파일에 서비스워커 상태가 쌓이지 않는다.
+    _profile = None
+    try:
+        _base = os.environ.get("LOCALAPPDATA") or os.environ.get("APPDATA") or os.path.expanduser("~")
+        _profile = os.path.join(_base, "chaebo", "webview")
+        os.makedirs(_profile, exist_ok=True)
+    except Exception:
+        _profile = None
+    try:
+        if _profile:
+            webview.start(_work, window, icon=_icon, private_mode=False, storage_path=_profile)
+        else:
+            webview.start(_work, window, icon=_icon)
+    except TypeError:
+        webview.start(_work, window, icon=_icon)  # 옛 pywebview 호환(private_mode/storage_path 미지원)
 
 
 if __name__ == "__main__":

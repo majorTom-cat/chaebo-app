@@ -1,9 +1,30 @@
 /* PWA 등록 + '새 버전 받기' 안내 — 모든 페이지가 로드(설치·오프라인·업데이트 담당).
    서비스워커(/sw.js)는 보안 컨텍스트(https 또는 localhost)에서만 등록된다 — LAN 평문에선 조용히 건너뜀
-   (그땐 설치가 안 될 뿐, 앱은 정상). 새 버전은 SW 가 감지 → 아래 토스트로 '받기' → skipWaiting+새로고침. */
+   (그땐 설치가 안 될 뿐, 앱은 정상). 새 버전은 SW 가 감지 → 아래 토스트로 '받기' → skipWaiting+새로고침.
+
+   ★데스크톱 앱 창(127.0.0.1/localhost)에선 SW 를 쓰지 않는다 — PWA(설치·오프라인)는 '폰·다른 기기에서 원격
+   접속'용이고, 데스크톱 앱은 자체 업데이트(빠른 업데이트)가 따로 있다. 앱 창에 SW 를 등록하면 캐시·네비게이션
+   폴백(/tuner)·controllerchange 재로드가 얽혀 창이 안 뜨는 재로드 정황이 관측됐다(2026-07-20, 실증). 그래서
+   로컬 호스트에선 등록을 건너뛰고, 예전에 등록돼 있던 SW·셸 캐시는 정리한다. 원격(폰: 100.x·192.168.x·*.ts.net
+   등 비-로컬 호스트)에서만 SW 를 켠다. */
 (function () {
   'use strict';
   if (!('serviceWorker' in navigator) || !window.isSecureContext) return;
+
+  var h = location.hostname;
+  var isLocalApp = h === '127.0.0.1' || h === 'localhost' || h === '::1' || h === '' || !!window.pywebview;
+  if (isLocalApp) {
+    // 앱 창/로컬 브라우저: 혹시 등록돼 있던 SW 해제 + 셸 캐시 삭제(오래된 재로드 루프 상태를 스스로 푼다).
+    try {
+      navigator.serviceWorker.getRegistrations().then(function (rs) {
+        rs.forEach(function (r) { r.unregister(); });
+      }).catch(function () {});
+      if (window.caches) caches.keys().then(function (ks) {
+        ks.forEach(function (k) { if (k.indexOf('chaebo-shell') === 0) caches.delete(k); });
+      }).catch(function () {});
+    } catch (e) { /* 무시 */ }
+    return;
+  }
 
   var reloaded = false;
   var hadController = !!navigator.serviceWorker.controller;   // 로드 시점에 이미 제어 중인 SW 가 있었나
