@@ -20,6 +20,16 @@
 .settings-section { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md); padding: var(--sp-6); margin-bottom: var(--sp-4); }
 .settings-section h2 { font-size: 15px; margin: 0 0 var(--sp-1); display: flex; align-items: center; gap: var(--sp-2); }
 .settings-section h2 svg { width: 18px; height: 18px; color: var(--muted); flex-shrink: 0; }
+/* 키별 구성음·코드표 — 넓은 표는 자기 컨테이너 안에서만 가로 스크롤(모바일 390px 넘침 방지) */
+.keychart-wrap summary { cursor: pointer; font-size: 13px; color: var(--accent); }
+.keychart-scroll { overflow-x: auto; margin-top: var(--sp-3); }
+.keychart { border-collapse: collapse; font-size: 12.5px; white-space: nowrap; }
+.keychart th, .keychart td { border: 1px solid var(--border); padding: 4px 10px; text-align: center; }
+.keychart thead th { background: var(--surface-2); color: var(--accent); }
+.keychart .ksig { color: var(--muted); font-size: 11px; }
+.keychart-7 td { font-size: 11.5px; }
+.keychart tbody th { background: var(--surface-2); font-weight: 600; }
+.keychart-hint { font-size: 12px; color: var(--muted); margin: var(--sp-2) 0 0; }
 .settings-desc { font-size: 13px; color: var(--muted); margin: 0 0 var(--sp-4); line-height: 1.6; max-width: 560px; }
 .status-box { display: flex; align-items: center; gap: var(--sp-3); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-sm); padding: var(--sp-3) var(--sp-4); font-size: 13px; }
 .status-box svg { width: 18px; height: 18px; color: var(--muted); flex-shrink: 0; }
@@ -196,6 +206,66 @@
     <div class="swatch-row" id="logo-symbols"></div>
     <p class="logo-label">글씨체</p>
     <div class="swatch-row" id="logo-fonts"></div>
+  </section>
+
+  <section class="settings-section">
+    <h2>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+      키별 구성음 · 코드표
+    </h2>
+    <p class="settings-desc">
+      각 키(조)의 구성음 7개와, 그 키에서 어울리는 기본 코드예요. 맨 윗줄의 <b>숫자(1~7)</b>는 연습
+      화면의 <b>코드 숫자 병기</b> 토글과 같은 체계 — 어느 키든 1=으뜸, 4·5=단짝, 6m=나란한 단조예요.
+      m이 붙으면 마이너(어두운 느낌), °는 잘 안 쓰는 반음 줄어든 코드예요.
+    </p>
+    <details class="keychart-wrap">
+      <summary>코드표 펼치기 (12키)</summary>
+      <div class="keychart-scroll">
+        <table class="keychart">
+          <thead>
+            <tr><th>키 (나란한 단조)</th><th>조표</th><th>1</th><th>2m</th><th>3m</th><th>4</th><th>5</th><th>6m</th><th>7°</th></tr>
+          </thead>
+          <tbody>
+            <tr><th>C (Am)</th><td class="ksig">없음</td><td>C</td><td>Dm</td><td>Em</td><td>F</td><td>G</td><td>Am</td><td>B°</td></tr>
+            <tr><th>D♭ (B♭m)</th><td class="ksig">♭5</td><td>D♭</td><td>E♭m</td><td>Fm</td><td>G♭</td><td>A♭</td><td>B♭m</td><td>C°</td></tr>
+            <tr><th>D (Bm)</th><td class="ksig">♯2</td><td>D</td><td>Em</td><td>F♯m</td><td>G</td><td>A</td><td>Bm</td><td>C♯°</td></tr>
+            <tr><th>E♭ (Cm)</th><td class="ksig">♭3</td><td>E♭</td><td>Fm</td><td>Gm</td><td>A♭</td><td>B♭</td><td>Cm</td><td>D°</td></tr>
+            <tr><th>E (C♯m)</th><td class="ksig">♯4</td><td>E</td><td>F♯m</td><td>G♯m</td><td>A</td><td>B</td><td>C♯m</td><td>D♯°</td></tr>
+            <tr><th>F (Dm)</th><td class="ksig">♭1</td><td>F</td><td>Gm</td><td>Am</td><td>B♭</td><td>C</td><td>Dm</td><td>E°</td></tr>
+            <tr><th>F♯ (D♯m)</th><td class="ksig">♯6</td><td>F♯</td><td>G♯m</td><td>A♯m</td><td>B</td><td>C♯</td><td>D♯m</td><td>F°(E♯°)</td></tr>
+            <tr><th>G (Em)</th><td class="ksig">♯1</td><td>G</td><td>Am</td><td>Bm</td><td>C</td><td>D</td><td>Em</td><td>F♯°</td></tr>
+            <tr><th>A♭ (Fm)</th><td class="ksig">♭4</td><td>A♭</td><td>B♭m</td><td>Cm</td><td>D♭</td><td>E♭</td><td>Fm</td><td>G°</td></tr>
+            <tr><th>A (F♯m)</th><td class="ksig">♯3</td><td>A</td><td>Bm</td><td>C♯m</td><td>D</td><td>E</td><td>F♯m</td><td>G♯°</td></tr>
+            <tr><th>B♭ (Gm)</th><td class="ksig">♭2</td><td>B♭</td><td>Cm</td><td>Dm</td><td>E♭</td><td>F</td><td>Gm</td><td>A°</td></tr>
+            <tr><th>B (G♯m)</th><td class="ksig">♯5</td><td>B</td><td>C♯m</td><td>D♯m</td><td>E</td><td>F♯</td><td>G♯m</td><td>A♯°</td></tr>
+          </tbody>
+        </table>
+        <p class="logo-label" style="margin-top:14px;">7화음으로 치면 (재즈·워십 표기)</p>
+        <table class="keychart keychart-7">
+          <thead>
+            <tr><th>키</th><th>1maj7</th><th>2m7</th><th>3m7</th><th>4maj7</th><th>5<sup>7</sup></th><th>6m7</th><th>7m7♭5</th></tr>
+          </thead>
+          <tbody>
+            <tr><th>C</th><td>Cmaj7</td><td>Dm7</td><td>Em7</td><td>Fmaj7</td><td>G7</td><td>Am7</td><td>Bm7♭5</td></tr>
+            <tr><th>D♭</th><td>D♭maj7</td><td>E♭m7</td><td>Fm7</td><td>G♭maj7</td><td>A♭7</td><td>B♭m7</td><td>Cm7♭5</td></tr>
+            <tr><th>D</th><td>Dmaj7</td><td>Em7</td><td>F♯m7</td><td>Gmaj7</td><td>A7</td><td>Bm7</td><td>C♯m7♭5</td></tr>
+            <tr><th>E♭</th><td>E♭maj7</td><td>Fm7</td><td>Gm7</td><td>A♭maj7</td><td>B♭7</td><td>Cm7</td><td>Dm7♭5</td></tr>
+            <tr><th>E</th><td>Emaj7</td><td>F♯m7</td><td>G♯m7</td><td>Amaj7</td><td>B7</td><td>C♯m7</td><td>D♯m7♭5</td></tr>
+            <tr><th>F</th><td>Fmaj7</td><td>Gm7</td><td>Am7</td><td>B♭maj7</td><td>C7</td><td>Dm7</td><td>Em7♭5</td></tr>
+            <tr><th>F♯</th><td>F♯maj7</td><td>G♯m7</td><td>A♯m7</td><td>Bmaj7</td><td>C♯7</td><td>D♯m7</td><td>Fm7♭5(E♯)</td></tr>
+            <tr><th>G</th><td>Gmaj7</td><td>Am7</td><td>Bm7</td><td>Cmaj7</td><td>D7</td><td>Em7</td><td>F♯m7♭5</td></tr>
+            <tr><th>A♭</th><td>A♭maj7</td><td>B♭m7</td><td>Cm7</td><td>D♭maj7</td><td>E♭7</td><td>Fm7</td><td>Gm7♭5</td></tr>
+            <tr><th>A</th><td>Amaj7</td><td>Bm7</td><td>C♯m7</td><td>Dmaj7</td><td>E7</td><td>F♯m7</td><td>G♯m7♭5</td></tr>
+            <tr><th>B♭</th><td>B♭maj7</td><td>Cm7</td><td>Dm7</td><td>E♭maj7</td><td>F7</td><td>Gm7</td><td>Am7♭5</td></tr>
+            <tr><th>B</th><td>Bmaj7</td><td>C♯m7</td><td>D♯m7</td><td>Emaj7</td><td>F♯7</td><td>G♯m7</td><td>A♯m7♭5</td></tr>
+          </tbody>
+        </table>
+        <p class="keychart-hint">구성음(스케일 음)은 위 표 각 코드의 근음과 같아요 — 예: E키 구성음 = E·F♯·G♯·A·B·C♯·D♯.
+        조표 열은 그 키의 악보에 붙는 ♯/♭ 개수예요. m7♭5('플랫 파이브')는 ° 자리의 7화음 버전 —
+        재즈·워십에서 마이너로 가는 2-5-1 에 자주 나와요. 표에 없는 코드가 곡에 나오면 다른 조에서
+        잠깐 빌려온 코드예요(그 마디는 근음·코드톤 위주가 안전 — 타브 화면 ● 코드를 누르면 가이드).</p>
+      </div>
+    </details>
   </section>
 
   <section class="settings-section">

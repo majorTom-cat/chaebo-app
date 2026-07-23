@@ -486,7 +486,144 @@ window.Shell = (function () {
   window.__setSyncMs = transport.setSyncMs;
   window.__shellView = function () { return active; }; // 배터리: 활성 뷰 단언
 
+  /* ---- 코드 이름 → 키 기준 숫자 (밴드 넘버 방식, req-candidate-nondiatonic-guide 8-c) ----
+     기준은 항상 메이저(마이너 곡은 나란한 장조) — 키 배지의 '메이저 기준 표시' 규칙과 동일.
+     E키: E→1, A→4, C#m→6m, D→♭7, G/B→♭3/5. 키가 없거나 못 읽는 라벨은 그대로 돌려준다. */
+  var _NUM_PC = { C: 0, 'C#': 1, Db: 1, D: 2, 'D#': 3, Eb: 3, E: 4, F: 5,
+                  'F#': 6, Gb: 6, G: 7, 'G#': 8, Ab: 8, A: 9, 'A#': 10, Bb: 10, B: 11 };
+  var _NUM_DEG = ['1', '♭2', '2', '♭3', '3', '4', '♯4', '5', '♭6', '6', '♭7', '7'];
+  function chordNum(label, keyJson) {
+    if (!keyJson || keyJson.tonic == null || !label) return label;
+    var base = keyJson.mode === 'minor' ? (keyJson.tonic + 3) % 12 : keyJson.tonic;
+    return String(label).split('/').map(function (part) {
+      var m = /^([A-G][#b♯♭]?)([\s\S]*)$/.exec(part.trim());
+      if (!m) return part;
+      var pc = _NUM_PC[m[1].replace('♯', '#').replace('♭', 'b')];
+      if (pc == null) return part;
+      return _NUM_DEG[(pc - base + 12) % 12] + m[2];
+    }).join('/');
+  }
+
+  /* ---- 빌린 코드(논 다이아토닉) 분류 — req-candidate-nondiatonic-guide §3.
+     반환 null=다이아토닉(배지 없음) / {cls:'secondary'|'borrowed'|'passing'|'outside', ...}.
+     분류는 근음+성질 기준(슬래시 베이스는 표시 문제라 무시). 키가 없으면 판정 안 함(null). */
+  var _MAJ_QUAL = { 0: '', 2: 'm', 4: 'm', 5: '', 7: '', 9: 'm', 11: 'dim' };   // 메이저 다이아토닉
+  var _AEO_QUAL = { 0: 'm', 2: 'dim', 3: '', 5: 'm', 7: 'm', 8: '', 10: '' };   // 같은으뜸음 단조(빌림 출처)
+  function _parseChord(label) {
+    var m = /^([A-G][#b♯♭]?)([^/]*)(?:\/.+)?$/.exec(String(label || '').trim());
+    if (!m) return null;
+    var pc = _NUM_PC[m[1].replace('♯', '#').replace('♭', 'b')];
+    if (pc == null) return null;
+    var suf = m[2] || '';
+    var q = /^(dim|°|o(?![a-z]))/.test(suf) ? 'dim' : (/^m(?!aj)/.test(suf) ? 'm' : '');
+    return { pc: pc, q: q, suf: suf };
+  }
+  function _majBase(keyJson) { return keyJson.mode === 'minor' ? (keyJson.tonic + 3) % 12 : keyJson.tonic; }
+  function chordInfo(label, keyJson, nextLabel) {
+    if (!keyJson || keyJson.tonic == null) return null;
+    var c = _parseChord(label);
+    if (!c) return null;
+    if (/^sus/.test(c.suf)) return null;               // sus 는 장·단 판정 불가 — 배지 안 붙임(과분류 방지)
+    var base = _majBase(keyJson);
+    var iv = (c.pc - base + 12) % 12;
+    if (_MAJ_QUAL[iv] != null && _MAJ_QUAL[iv] === c.q) return null;   // 다이아토닉
+    var nx = nextLabel ? _parseChord(nextLabel) : null;
+    if (c.q === '' && nx && (c.pc - nx.pc + 12) % 12 === 7 && nx.pc !== c.pc) {
+      var niv = (nx.pc - base + 12) % 12;
+      if (_MAJ_QUAL[niv] != null && _MAJ_QUAL[niv] === nx.q)           // 목표가 다이아토닉일 때만 V/x
+        return { cls: 'secondary', base: base, pc: c.pc, q: c.q, target: String(nextLabel).split('/')[0] };
+    }
+    if (_AEO_QUAL[iv] != null && _AEO_QUAL[iv] === c.q) return { cls: 'borrowed', base: base, pc: c.pc, q: c.q };
+    if (c.q === 'dim') return { cls: 'passing', base: base, pc: c.pc, q: c.q };
+    return { cls: 'outside', base: base, pc: c.pc, q: c.q };
+  }
+
+  /* ---- 가이드 문구(공용) — 흐름 타브·코드 악보가 같은 내용을 쓴다(뷰 간 세트 일관성, 사용자 지적).
+     ★슬래시 코드는 베이스 음=빗금 아래 음(사용자 버그 지적 2026-07-23: G/B 에 '근음 G' 안내는 오답). */
+  var _PCS_S = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+  var _PCS_F = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B'];
+  function pcName(pc, keyJson) {
+    var flat = /b/.test((keyJson && (keyJson.display || keyJson.label)) || '');
+    return (flat ? _PCS_F : _PCS_S)[((pc % 12) + 12) % 12];
+  }
+  var ND_TITLES = { borrowed: '다른 조에서 빌려온 코드 (추정)', secondary: '다음 코드로 끌어당기는 코드 (추정)',
+                    passing: '반음 다리 코드 (추정)', outside: '조 밖 코드 (추정)' };
+  function _escG(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;'); }
+  function chordGuideHtml(label, nd, keyJson) {
+    var slash = String(label).split('/')[1] || null;
+    var root = pcName(nd.pc, keyJson);
+    var tones = [root, pcName(nd.pc + (nd.q === 'm' || nd.q === 'dim' ? 3 : 4), keyJson), pcName(nd.pc + (nd.q === 'dim' ? 6 : 7), keyJson)];
+    var bass = slash || root;
+    var slashLine = slash
+      ? '<p>빗금 아래 <b>' + _escG(slash) + '</b>가 베이스 음이에요 — 낮은 음은 ' + _escG(slash) + ' 위주.</p>' : '';
+    var body = '';
+    if (nd.cls === 'borrowed') {
+      var clash = [4, 9, 11].map(function (i) { return pcName(nd.base + i, keyJson); }).join('·');
+      var instead = [3, 8, 10].map(function (i) { return pcName(nd.base + i, keyJson); }).join('·');
+      body = slashLine
+        + '<p>안전한 음: 베이스 음 <b>' + _escG(bass) + '</b> · 코드톤 <b>' + tones.join('·') + '</b></p>'
+        + '<p>이 마디 라인은 <b>' + pcName(nd.base, keyJson) + ' 마이너</b> 음들이 어울려요 — 곡 스케일의 '
+        + clash + ' 대신 <b>' + instead + '</b>.</p>';
+    } else if (nd.cls === 'secondary') {
+      body = '<p><b>' + _escG(nd.target) + '</b>(으)로 가려는 임시 5도 코드예요.</p>' + slashLine
+        + '<p>코드톤 <b>' + tones.join('·') + '</b>을 당당히 짚고, ' + _escG(nd.target)
+        + ' 근음으로 5도 내려가거나 반음으로 다가가면 자연스러워요.</p>';
+    } else if (nd.cls === 'passing') {
+      body = slashLine + '<p>앞뒤 코드를 반음으로 잇는 코드예요 — 베이스도 근음 반음 이동으로 지나가면 돼요.</p>';
+    } else {
+      body = slashLine + '<p>베이스 음 <b>' + _escG(bass) + '</b> 위주로 안전하게. 다음 코드로 반음 이동이면 그 흐름을 살리세요.</p>';
+    }
+    return '<p class="cg-title">' + _escG(label) + ' — ' + ND_TITLES[nd.cls] + '</p>' + body
+      + '<p class="cg-est">키·코드가 추정이라 판정이 틀릴 수 있어요</p>';
+  }
+
+  /* ---- 관용 진행 탐지 — 고유 코드 시퀀스(키 기준 도수, 슬래시 무시)에서 패턴 매칭 (req 8-b·8-e④).
+     겹침은 긴 패턴 우선(완전 포함되는 짧은 span 제거 — 위종지가 4코드 루프 안에서 매번 울리는 것 방지). */
+  var _PROGS = [
+    { name: '1·5·6m·4', seq: [[0, ''], [7, ''], [9, 'm'], [5, '']], title: '4코드 루프 — 팝에서 가장 흔한 진행' },
+    { name: '6m·4·1·5', seq: [[9, 'm'], [5, ''], [0, ''], [7, '']], title: '4코드 루프(돌린 형) — 애절한 시작' },
+    { name: '1·6m·4·5', seq: [[0, ''], [9, 'm'], [5, ''], [7, '']], title: '50년대풍 진행 — 올드팝·두왑' },
+    { name: '4·5·3m·6m', seq: [[5, ''], [7, ''], [4, 'm'], [9, 'm']], title: '왕도 진행 — 발라드·J/K-pop 단골' },
+    { name: '1·6·2·5', seq: [[0, ''], [9, '*'], [2, 'm'], [7, '']], title: '1-6-2-5 돌림 — 6이 메이저면 2로 끌어당기는 임시 5도' },
+    { name: '2·5·1', seq: [[2, 'm'], [7, ''], [0, '']], title: '2-5-1 — 재즈·마무리의 기본 문법' },
+    // 위종지(5→6m)는 제외 — 실측 48건/패턴 37%(곡12 에만 11개)로 스팸(워십·팝에선 일상 진행).
+    // 재도입하려면 '구간(섹션) 끝'에서만 울리는 조건부로(sections 데이터 결합) — req 8-e 기록.
+  ];
+  function findProgressions(chords, keyJson) {
+    if (!keyJson || keyJson.tonic == null || !chords || !chords.length) return [];
+    var base = _majBase(keyJson);
+    var seq = [];
+    chords.slice().sort(function (a, b) { return (a.bar - b.bar) || ((a.pos || 0) - (b.pos || 0)); })
+      .forEach(function (c) {
+        if (seq.length && seq[seq.length - 1].label === c.label) return;
+        var p = _parseChord(c.label);
+        seq.push({ label: c.label, iv: p ? (p.pc - base + 12) % 12 : null, q: p ? p.q : null, bar: c.bar });
+      });
+    var found = [];
+    _PROGS.forEach(function (pg) {
+      for (var i = 0; i + pg.seq.length - 1 < seq.length; i++) {
+        var hit = true;
+        for (var k = 0; k < pg.seq.length; k++) {
+          var s = seq[i + k], want = pg.seq[k];
+          if (s.iv !== want[0]) { hit = false; break; }
+          if (want[1] === '*' ? s.q === 'dim' : s.q !== want[1]) { hit = false; break; } // '*'=m/메이저 둘 다
+        }
+        if (hit) found.push({ fromBar: seq[i].bar, toBar: seq[i + pg.seq.length - 1].bar, name: pg.name, title: pg.title, len: pg.seq.length });
+      }
+    });
+    found.sort(function (a, b) { return (b.len - a.len) || (a.fromBar - b.fromBar); });
+    var kept = [];
+    found.forEach(function (f) {
+      if (!kept.some(function (k) { return f.fromBar >= k.fromBar && f.toBar <= k.toBar; })) kept.push(f);
+    });
+    return kept.sort(function (a, b) { return a.fromBar - b.fromBar; });
+  }
+
   return {
+    chordNum: chordNum,
+    chordInfo: chordInfo,
+    chordGuideHtml: chordGuideHtml,
+    findProgressions: findProgressions,
     songId: songId,
     player: player,
     state: state,

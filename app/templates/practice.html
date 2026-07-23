@@ -188,6 +188,28 @@ button.meta-badge:hover { border-color: var(--accent); }
 
 /* 스피드 트레이너 (REQ-PLAY-011) */
 .trainer-row { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; margin: var(--sp-3) 0 0; }
+.trainer-row .btn.active { background: var(--accent); border-color: var(--accent); color: #1a1408; }
+
+/* 빌린 코드(논 다이아토닉) 배지 + 연주 가이드 팝오버 — 다이아토닉은 무표시(배지 남발 금지) */
+.flow-chord.fc-nd { cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px; }
+.flow-chord.fc-nd::after { content: '●'; font-size: 7px; color: var(--accent); margin-left: 3px; vertical-align: 2px; }
+.chord-seg.chord-seg-nd { box-shadow: inset 0 2px 0 var(--accent); }
+.chord.chord-nd::after { content: '●'; font-size: 6px; color: var(--accent); margin-left: 2px; vertical-align: 3px; }
+/* 2-5-1 진행 밴드(흐름) + 셀 표시(코드 악보) — 클릭=구간 반복 */
+.flow-prog { position: absolute; top: 0; height: 21px; border: 1.5px solid rgba(240,168,72,.5); border-bottom: none; border-radius: 8px 8px 0 0; cursor: pointer; z-index: 1; }
+.flow-prog:hover { border-color: var(--accent); background: rgba(240,168,72,.08); }
+.flow-prog-chip { position: absolute; top: -1px; right: -1px; font-size: 9px; font-weight: 800; background: var(--accent); color: #1a1408; border-radius: 0 6px 0 6px; padding: 0 5px; line-height: 13px; pointer-events: none; }
+.cbar-prog { box-shadow: inset 0 0 0 1.5px rgba(240,168,72,.45); border-radius: 6px; }
+.cbar-prog-chip { font-size: 9px; font-weight: 800; background: var(--accent); color: #1a1408; border-radius: 4px; padding: 1px 4px; margin-right: 4px; align-self: center; flex-shrink: 0; }
+.grid-guide { position: fixed; z-index: 60; }
+.grid-guide::before { display: none; }
+.fc-num, .cnum { font-size: 9.5px; font-weight: 700; opacity: .72; }
+.chordguide-pop { width: 280px; font-size: 12px; }
+.chordguide-pop .cg-title { font-weight: 700; font-size: 13px; margin: 0 0 6px; color: var(--accent); }
+.chordguide-pop p { margin: 0 0 6px; line-height: 1.5; }
+.chordguide-pop .cg-est { color: var(--muted); font-size: 11px; }
+.chordguide-pop .cg-btns { display: flex; gap: 8px; margin-top: 8px; }
+@media (max-width: 480px) { .chordguide-pop { width: 230px; } }
 .trainer-panel { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; color: var(--muted); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-sm); padding: 6px 10px; }
 .trainer-panel label { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
 .trainer-panel input[type="number"] { width: 52px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-sm); color: var(--text); font-size: 12px; padding: 3px 6px; }
@@ -248,7 +270,7 @@ button.meta-badge:hover { border-color: var(--accent); }
   font-size: 9.5px; line-height: 1.1; color: #a3946e; text-align: right; }
 .flow-scroll { min-width: 0; flex: 1 1 auto; }
 .flow-bar-line { position: absolute; top: 20px; bottom: 6px; width: 1px; background: rgba(92, 86, 66, 0.45); }
-.flow-chord { position: absolute; top: 2px; font-size: 12.5px; font-weight: 800; color: #241f16; }
+.flow-chord { position: absolute; top: 2px; font-size: 12.5px; font-weight: 800; color: #241f16; z-index: 2; }
 .flow-chord.fc-same { color: #a89c7d; font-weight: 600; } /* 앞 마디와 같은 코드 — 변화가 눈에 띄게 */
 .flow-bar-num { position: absolute; top: 20px; font-size: 10px; color: #a3946e; font-variant-numeric: tabular-nums; }
 /* 수동 박자 앵커(드래그) — 마디선 손잡이를 실박으로 끌어 격자 워프(가변 템포 잔여 드리프트 보정) */
@@ -544,6 +566,9 @@ body.anchoring { cursor: ew-resize; user-select: none; }
 
     <!-- 스피드 트레이너 (REQ-PLAY-011) — 반복이 끝날 때마다 배속이 한 스텝씩 올라간다 -->
     <div class="trainer-row">
+      <button type="button" class="btn btn-outline btn-sm" id="btn-db-solo" title="베이스 카피의 정석 조합 — 드럼과 베이스만 남겨 킥에 딱 맞춰 연습해요. 다시 누르면 전체 소리로 돌아와요">
+        🥁🎸 드럼·베이스만 듣기
+      </button>
       <button type="button" class="btn btn-outline btn-sm" id="btn-trainer" title="반복 구간을 느리게 시작해 점점 빠르게 — 연습의 정석">
         스피드 트레이너
       </button>
@@ -604,6 +629,11 @@ body.anchoring { cursor: ew-resize; user-select: none; }
         <input type="checkbox" id="adlib-check" checked>
         <span class="toggle-track"><span class="toggle-thumb"></span></span>
         <span class="control-label">즉흥 표시</span>
+      </label>
+      <label class="count-toggle" title="코드 이름 옆에 키 기준 숫자를 작게 함께 표시해요 — F키면 F(1), Dm(6m), C(5). 키가 달라도 같은 진행이 같은 숫자라, 여러 곡을 카피하다 보면 진행 패턴이 눈에 익어요 (키 추정 기반 · 설정의 '키별 구성음·코드표' 참고)">
+        <input type="checkbox" id="num-check">
+        <span class="toggle-track"><span class="toggle-thumb"></span></span>
+        <span class="control-label">코드 숫자 병기</span>
       </label>
       <label class="count-toggle" title="파형에서 오른손 어택(픽) 지점을 진폭 높이의 세로선으로 표시 — 어느 봉우리가 어느 음인지 눈으로 이어져요">
         <input type="checkbox" id="attack-check" checked>

@@ -107,8 +107,64 @@
   });
   var metaOnce = function () {}; // 첫 메타 도착 신호 — 준비 플래그용(아래에서 배선)
 
+  // '코드를 숫자로' 토글 → 격자 라벨 재렌더 (활성일 때만 즉시, 아니면 활성화 때 1회)
+  document.getElementById('num-check').addEventListener('change', function () {
+    if (!barsCount) return;
+    if (Shell.active() === 'chords') renderGrid(); else _gridDirty = true;
+  });
+
   /* ---- 코드 격자 렌더 + 클릭 수정 ---- */
   var editingBar = null;
+  var ndAt = {};        // 'bar:pos' -> {info,label,bar} — 빌린 코드 가이드 데이터(renderGrid 마다 재구성)
+  var gridGuidePop = null;
+
+  /* 빌린 코드 가이드 — 흐름 타브와 같은 내용(Shell.chordGuideHtml), 격자에선 코드 글자 클릭으로.
+     셀 클릭=편집과 겹치지 않게 캡처 단계에서 가로챈다. */
+  function slotTimeM(g) {
+    var t = meta;
+    var BS = t.bar_slots || 16;
+    var slotDur = (60 / t.bpm) / (BS === 48 && t.meter !== '12/8' ? 12 : 4);
+    if (t.slots && t.slots.length > 1) {
+      var i = Math.max(0, Math.min(t.slots.length - 1, Math.floor(g)));
+      if (g < t.slots.length) return t.slots[i];
+      return t.slots[t.slots.length - 1] + (g - t.slots.length + 1) * slotDur;
+    }
+    return (t.offset || 0) + g * slotDur;
+  }
+  function closeGridGuide() { if (gridGuidePop) gridGuidePop.hidden = true; }
+  function openGridGuide(d, x, y) {
+    if (!gridGuidePop) {
+      gridGuidePop = document.createElement('div');
+      gridGuidePop.className = 'correction-popover chordguide-pop grid-guide';
+      document.body.appendChild(gridGuidePop);
+    }
+    gridGuidePop.innerHTML = Shell.chordGuideHtml(d.label, d.info, meta.key_json)
+      + '<div class="cg-btns"><button type="button" class="btn btn-primary btn-sm cg-loop">이 마디 반복</button>'
+      + '<button type="button" class="btn btn-outline btn-sm cg-close">닫기</button></div>';
+    gridGuidePop.style.left = Math.max(8, Math.min(x - 20, window.innerWidth - 300)) + 'px';
+    gridGuidePop.style.top = Math.min(y + 14, window.innerHeight - 240) + 'px';
+    gridGuidePop.hidden = false;
+    gridGuidePop.querySelector('.cg-loop').addEventListener('click', function () {
+      var BS = meta.bar_slots || 16;
+      var t0 = slotTimeM(d.bar * BS), t1 = slotTimeM((d.bar + 1) * BS);
+      var st = Shell.state;
+      st.loopA = Math.max(0, t0);
+      st.loopB = Math.min(t1, (Shell.player.duration() || t1) - 0.05);
+      st.activeLoop = null;
+      Shell.player.seek(st.loopA);
+      Shell.transport.renderLoopUI();
+      Shell.save({ loopA: st.loopA, loopB: st.loopB, activeLoop: null });
+      closeGridGuide();
+    });
+    gridGuidePop.querySelector('.cg-close').addEventListener('click', closeGridGuide);
+  }
+  document.getElementById('chord-grid').addEventListener('click', function (e) {
+    var el = e.target.closest('[data-ndkey]');
+    if (!el) return;
+    e.stopPropagation(); // 셀 클릭=편집으로 번지지 않게
+    var d = ndAt[el.dataset.ndkey];
+    if (d) openGridGuide(d, e.clientX, e.clientY);
+  }, true);
 
   function groupByBar(chords) { // 마디 -> [{pos,label,manual}] (pos 오름차순) — 반마디 코드 지원
     var m = {};
@@ -120,13 +176,17 @@
   }
   // 코드 라벨을 '베이스가 치는 음' 강조로 포맷(사용자 요청 2026-07-17: 베이스 음 크게·색). 슬래시면 슬래시
   // 음(F/C 의 C), 없으면 근음(Fm 의 F)이 베이스 → 그 부분을 .cbass 로 감싸 크게·진하게. 성질(m 등)은 그대로.
+  // 숫자 토글은 병기(작은 괄호) — 이름 대체는 뭘 칠지 모르게 됨(사용자 피드백). 수정 입력창은 항상 실코드명.
   function fmtChord(label) {
-    var parts = String(label).split('/');
+    var lb = String(label);
+    var numHtml = (Shell.state.numOn === true && meta && meta.key_json)
+      ? ' <small class="cnum">(' + _esc(Shell.chordNum(lb, meta.key_json)) + ')</small>' : '';
+    var parts = lb.split('/');
     if (parts.length > 1) {
-      return _esc(parts[0]) + '<span class="cbass">/' + _esc(parts[1]) + '</span>';
+      return _esc(parts[0]) + '<span class="cbass">/' + _esc(parts[1]) + '</span>' + numHtml;
     }
     var m = parts[0].match(/^([A-G][#b]?)(.*)$/);
-    return m ? '<span class="cbass">' + _esc(m[1]) + '</span>' + _esc(m[2]) : _esc(parts[0]);
+    return (m ? '<span class="cbass">' + _esc(m[1]) + '</span>' + _esc(m[2]) : _esc(parts[0])) + numHtml;
   }
   function _esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;'); }
   // 구간 색(같은 그룹=같은 색 → 반복되는 벌스/코러스가 한눈에). 은은한 배경.
@@ -150,6 +210,27 @@
     var html = '';
     var prev = null; // 직전 '칸'의 라벨(마디 경계 넘어 이어짐) — 반복은 옅게
     var secMap = sectionByBar(); // 구간(인트로/벌스/코러스) 시작 마디 → 라벨(사용자 요청 2026-07-17)
+    // 빌린 코드(논 다이아토닉) 배지 — 시퀀스 평탄화 후 '다음 다른 코드'로 분류(V/x 판정에 필요)
+    ndAt = {};
+    if (meta && meta.key_json) {
+      var flat = [];
+      for (var fb = 0; fb < barsCount; fb++) (byBar[fb] || []).forEach(function (c) { flat.push({ bar: fb, pos: c.pos || 0, label: c.label }); });
+      flat.forEach(function (c, fi) {
+        if (fi > 0 && flat[fi - 1].label === c.label) return; // 지속엔 배지 생략(흐름 타브와 동일)
+        var nextL = null;
+        for (var fj = fi + 1; fj < flat.length; fj++) { if (flat[fj].label !== c.label) { nextL = flat[fj].label; break; } }
+        var info = Shell.chordInfo(c.label, meta.key_json, nextL);
+        if (info) ndAt[c.bar + ':' + c.pos] = { info: info, label: c.label, bar: c.bar };
+      });
+    }
+    // 관용 진행 — 구간 셀 테두리 + 시작 마디 칩(흐름 타브 밴드와 세트, 이름·설명 공유)
+    var progStart = {}, progIn = {};
+    if (meta && meta.key_json) {
+      (Shell.findProgressions(meta.chords, meta.key_json) || []).forEach(function (sp) {
+        if (!progStart[sp.fromBar]) progStart[sp.fromBar] = sp; // 같은 마디 중복 시작이면 첫 것만
+        for (var pb = sp.fromBar; pb <= sp.toBar; pb++) progIn[pb] = true;
+      });
+    }
     for (var b = 0; b < barsCount; b++) {
       if (secMap[b]) {  // 구간 시작 마디 앞에 전폭 헤더 — 같은 그룹(반복 구간)은 같은 색
         var sc = secMap[b];
@@ -170,17 +251,20 @@
           var cls = 'chord' + sizeCls;
           if (c.label === prev) cls += ' same';
           if (c.manual) cls += ' manual';
+          var isNd = ndAt[b + ':' + (c.pos || 0)];
+          if (isNd) cls += ' chord-nd';
           prev = c.label;
           segs += '<span class="cseg" style="flex:' + w + '">' +
-            '<span class="' + cls + '">' + fmtChord(c.label) + '</span></span>';
+            '<span class="' + cls + '"' + (isNd ? ' data-ndkey="' + b + ':' + (c.pos || 0) + '" title="다른 조에서 온 코드(추정) — 누르면 연주 가이드"' : '') + '>' + fmtChord(c.label) + '</span></span>';
         }
       }
       var lyr = lyricByBar[b];
       var lyrHtml = lyr
         ? '<span class="cbar-lyric' + (lyr.manual ? ' manual' : '') + '">' + lyr.text + '</span>'
         : '';
-      html += '<div class="cbar" data-bar="' + b + '" title="누르면 코드·가사를 고칠 수 있어요 (여러 코드는 띄어서: Fm Db)">' +
+      html += '<div class="cbar' + (progIn[b] ? ' cbar-prog' : '') + '" data-bar="' + b + '" title="누르면 코드·가사를 고칠 수 있어요 (여러 코드는 띄어서: Fm Db)">' +
         '<span class="cbar-num">' + (b + 1) + '</span>' +
+        (progStart[b] ? '<span class="cbar-prog-chip" title="' + _esc(progStart[b].title) + '">' + _esc(progStart[b].name) + '</span>' : '') +
         '<span class="cbar-chords">' + segs + '</span>' + lyrHtml + '</div>';
     }
     grid.innerHTML = html;

@@ -21,6 +21,11 @@
   var duration = 0;
   var adlibShow = true;    // 즉흥(애드립) 표시 토글 — 끄면 흐름 가사에서 애드립 라벨을 아예 안 그림
                            // (숨기는 게 아니라 렌더 스킵 → 공식 가사가 애드립 라벨에 밀리지 않아 위치 정확)
+  var numOn = false;       // 코드를 숫자로(밴드 넘버) — 흐름 코드 라벨을 Shell.chordNum 으로 변환 표시
+                           // (조판 악보의 코드는 tex 에 박혀 있어 제외 — 인쇄물은 표준 코드명 유지)
+  var flowNdInfos = [];    // 빌린 코드 배지 → 가이드 데이터 (renderFlow 마다 재구성)
+  var ND_TITLES = { borrowed: '다른 조에서 빌려온 코드 (추정)', secondary: '다음 코드로 끌어당기는 코드 (추정)',
+                    passing: '반음 다리 코드 (추정)', outside: '조 밖 코드 (추정)' };
 
   /* ---- 셸 훅 — 타브 활성일 때만(숨은 커서 갱신은 헛일) ---- */
   Shell.on('tick', function () { updateCursor(); }, 'tab');
@@ -353,7 +358,7 @@
 
   function renderFlow() {
     var inner = document.getElementById('flow-inner');
-    inner.querySelectorAll('.flow-bar-line, .flow-bar-num, .flow-count, .flow-string, .flow-fret, .flow-sustain, .flow-chord, .flow-lyric, .flow-bar-grip, .flow-art-accent, .flow-art-slur, .flow-art-slide, .flow-art-label')
+    inner.querySelectorAll('.flow-bar-line, .flow-bar-num, .flow-count, .flow-string, .flow-fret, .flow-sustain, .flow-chord, .flow-lyric, .flow-bar-grip, .flow-art-accent, .flow-art-slur, .flow-art-slide, .flow-art-label, .flow-prog')
       .forEach(function (el) { el.remove(); });  // ★.flow-bar-grip 누락 시 재렌더마다 그립 누적 → WebView2 노드 누수(코드검사 2026-07-17)
     if (!tab || !tab.notes || !tab.notes.length) return;
 
@@ -377,13 +382,49 @@
     var chSorted = (tab.chords || []).slice().sort(function (a, b) {
       return (a.bar - b.bar) || ((a.pos || 0) - (b.pos || 0));
     });
+    closeChordGuide();
+    flowNdInfos = [];
     chSorted.forEach(function (ch, ci) {
       var el = document.createElement('div');
       var same = ci > 0 && chSorted[ci - 1].label === ch.label;
       el.className = 'flow-chord' + (same ? ' fc-same' : '');
       el.textContent = ch.label;
+      if (numOn) { // 숫자는 병기 — 이름을 대체하면 뭘 칠지 모르게 됨(사용자 피드백 2026-07-23)
+        var sm = document.createElement('small');
+        sm.className = 'fc-num';
+        sm.textContent = ' (' + Shell.chordNum(ch.label, tab.key_json) + ')';
+        el.appendChild(sm);
+      }
+      // 빌린 코드(논 다이아토닉) 배지 — 클릭하면 연주 가이드(req-candidate-nondiatonic-guide 본안)
+      var nextL = null;
+      for (var nj = ci + 1; nj < chSorted.length; nj++) {
+        if (chSorted[nj].label !== ch.label) { nextL = chSorted[nj].label; break; }
+      }
+      var nd = same ? null : Shell.chordInfo(ch.label, tab.key_json, nextL); // 지속 표시엔 배지 생략(남발 방지)
+      if (nd) {
+        el.classList.add('fc-nd');
+        el.dataset.nd = flowNdInfos.length;
+        el.title = ND_TITLES[nd.cls] + ' — 눌러서 연주 가이드 보기';
+        flowNdInfos.push({ info: nd, label: ch.label, bar: ch.bar, x: flowX(ch.bar * BAR + (ch.pos || 0)) });
+      }
       el.style.left = (flowX(ch.bar * BAR + (ch.pos || 0)) + 4) + 'px';
       frag.appendChild(el);
+    });
+    // 관용 진행 밴드(2-5-1·4코드 루프·왕도·위종지 등) — 코드 라벨 위 괄호 밴드+칩, 클릭=구간 반복(req 8-b)
+    (Shell.findProgressions(tab.chords, tab.key_json) || []).forEach(function (sp) {
+      var x0 = flowX(sp.fromBar * BAR), x1 = flowX((sp.toBar + 1) * BAR);
+      var band = document.createElement('div');
+      band.className = 'flow-prog';
+      band.style.left = x0 + 'px';
+      band.style.width = Math.max(30, x1 - x0) + 'px';
+      band.title = sp.title + ' — 누르면 이 구간을 반복해요';
+      band.dataset.from = sp.fromBar;
+      band.dataset.to = sp.toBar;
+      var chip = document.createElement('span');
+      chip.className = 'flow-prog-chip';
+      chip.textContent = sp.name;
+      band.appendChild(chip);
+      frag.appendChild(band);
     });
     var anchorSet = {};
     (tab.anchors || []).forEach(function (g) { anchorSet[g] = 1; });
@@ -729,9 +770,54 @@
     saveShared({ flowFixed: e.target.checked });
   });
 
+  /* ---- 빌린 코드 연주 가이드 팝오버 — 쉬운 말, 추정 표시, [이 마디 반복] (규칙 7·9) ---- */
+  var guidePop = null;
+  function guideHtml(d) { // 본문은 공용 빌더(Shell — 코드 악보와 동일 문구·슬래시 베이스 반영), 버튼만 여기서
+    return Shell.chordGuideHtml(d.label, d.info, tab.key_json)
+      + '<div class="cg-btns"><button type="button" class="btn btn-primary btn-sm cg-loop">이 마디 반복</button>'
+      + '<button type="button" class="btn btn-outline btn-sm cg-close">닫기</button></div>';
+  }
+  function loopRange(t0, t1) { // A-B 를 코드로 설정(마디 반복·2-5-1 구간 반복 공용)
+    sharedState.loopA = Math.max(0, t0);
+    sharedState.loopB = Math.min(t1, (duration || player.duration() || t1) - 0.05);
+    sharedState.activeLoop = null;
+    player.seek(sharedState.loopA);
+    Shell.transport.renderLoopUI();
+    saveShared({ loopA: sharedState.loopA, loopB: sharedState.loopB, activeLoop: null });
+  }
+  function openChordGuide(el) {
+    var d = flowNdInfos[parseInt(el.dataset.nd, 10)];
+    if (!d) return;
+    if (!guidePop) {
+      guidePop = document.createElement('div');
+      guidePop.className = 'correction-popover chordguide-pop';
+      document.getElementById('flow-inner').appendChild(guidePop);
+    }
+    guidePop.innerHTML = guideHtml(d);
+    guidePop.style.left = Math.max(4, d.x - 10) + 'px';
+    guidePop.style.top = '30px';
+    guidePop.hidden = false;
+    guidePop.querySelector('.cg-loop').addEventListener('click', function () {
+      var BAR = barSlots();
+      loopRange(slotTime(d.bar * BAR), slotTime((d.bar + 1) * BAR));
+      closeChordGuide();
+    });
+    guidePop.querySelector('.cg-close').addEventListener('click', closeChordGuide);
+  }
+  function closeChordGuide() { if (guidePop) guidePop.hidden = true; }
+
   document.getElementById('flow-inner').addEventListener('click', function (e) {
     if (!tab || !tab.bpm) return;
     if (grDrag) return; // 구간 드래그 선택 모드 — 클릭 seek 안 함(드래그가 우선)
+    if (e.target.closest('.chordguide-pop')) return; // 가이드 팝오버 내부 클릭은 통과(버튼 자체 핸들러)
+    var ndEl = e.target.closest('.flow-chord.fc-nd');
+    if (ndEl) { openChordGuide(ndEl); return; } // 빌린 코드 라벨 클릭 = 가이드(seek 아님)
+    var progEl = e.target.closest('.flow-prog');
+    if (progEl) { // 2-5-1 밴드 클릭 = 그 구간 반복
+      var BARp = barSlots();
+      loopRange(slotTime(parseInt(progEl.dataset.from, 10) * BARp), slotTime((parseInt(progEl.dataset.to, 10) + 1) * BARp));
+      return;
+    }
     if (e.target.closest('.correction-popover')) return; // 팝오버 내부 클릭은 통과
     if (e.target.closest('.flow-bar-grip')) return; // 박자 앵커 그립은 드래그 전용 — seek 안 함
     var rect = document.getElementById('flow-inner').getBoundingClientRect();
@@ -868,8 +954,28 @@
     });
     // 고정 300ms 대기 폐지 — boundsLookup 준비를 폴링(보통 즉시)해 편집마다 붙던 지연 제거
     api.renderFinished.on(function () { collectWhenReady(0); });
-    api.tex(tab.tex);
+    api.tex(scoreTex());
     window.__at = api; // 진단·배터리용(스코어 모델 접근)
+  }
+
+  // 조판 tex 의 ch "라벨" 토큰을 표시용으로 변환 — 숫자 토글·빌린 코드 ● 를 조판에도(뷰 세트 일관성,
+  // 사용자 지적 2026-07-23 "한쪽에만 기능이 있으면 안 돼"). 저장된 tex 는 불변(표시 직전 변환만).
+  function scoreTex() {
+    var tex = tab.tex;
+    if (!tex || !tab.key_json) return tex;
+    var labels = [];
+    var re = /\bch "([^"]+)"/g, m;
+    while ((m = re.exec(tex)) !== null) labels.push(m[1]);
+    if (!labels.length) return tex;
+    var idx = -1;
+    return tex.replace(/\bch "([^"]+)"/g, function (full, l) {
+      idx++;
+      var nextL = null;
+      for (var j = idx + 1; j < labels.length; j++) if (labels[j] !== l) { nextL = labels[j]; break; }
+      var shown = numOn ? l + '(' + Shell.chordNum(l, tab.key_json) + ')' : l; // 숫자는 병기
+      var nd = Shell.chordInfo(l, tab.key_json, nextL);
+      return 'ch "' + shown + (nd ? '●' : '') + '"';
+    });
   }
 
   function collectWhenReady(n) {
@@ -1141,6 +1247,12 @@
     adlibShow = e.target.checked;
     renderFlow();  // 재렌더 — 애드립 라벨을 넣고/빼며 공식 가사 위치를 다시 계산(밀림 제거)
     saveShared({ adlibOn: e.target.checked });
+  });
+  document.getElementById('num-check').addEventListener('change', function (e) {
+    numOn = e.target.checked;
+    renderFlow();  // 흐름 코드 라벨 이름↔숫자 재렌더 (믹서 스트립·코드 악보는 각자 리스너)
+    if (api && tab && tab.tex) { freezeScore(); renderScore(); } // 조판 코드도 함께(뷰 세트 일관성)
+    saveShared({ numOn: e.target.checked });
   });
 
   /* ---- 가사(받아쓰기 초안) — 단어를 '마디 안 실제 시각 위치'에(사용자 지시 2026-07-11:
@@ -1822,6 +1934,9 @@
         if (!adlibShow) renderFlow();  // 꺼진 상태 복원이면 애드립 없이 다시(초기 렌더는 켬 기준)
         flowFixed = sharedState.flowFixed === true;  // 진행바 고정(기본 끔) 복원
         document.getElementById('flowfix-check').checked = flowFixed;
+        numOn = sharedState.numOn === true;  // 코드를 숫자로(기본 끔) 복원
+        document.getElementById('num-check').checked = numOn;
+        if (numOn) renderFlow();  // 켜진 상태 복원이면 숫자로 다시(초기 렌더는 이름 기준)
         window.__stateRestored = true; // 배터리: 토글 조작 전 이 플래그 대기
       });
       Shell.ready.then(function () {

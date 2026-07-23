@@ -111,9 +111,12 @@
   /* ---- 코드 스트립 (REQ-CHORD-002) — 타브 분석의 코드 진행, 줌 창과 같은 x-스케일.
      마디 단위가 아니라 '변화 지점' 목록 — 반마디 코드(pos)도 제 위치에(사용자 지시 2026-07-10) ---- */
   var chordData = null; // {points: [{t, label}] 시각 오름차순}
+  var stripKey = null;  // 키(추정/수정) — '코드를 숫자로' 변환 기준 (Shell.chordNum)
 
   function renderChordStrip() {
     if (!chordData || !chordData.points.length) return;
+    var numOn = state.numOn === true;
+    document.getElementById('chord-label').textContent = numOn ? '코드 (숫자 병기·추정)' : '코드 (추정)';
     var strip = document.getElementById('chord-strip');
     var w = windowDur();
     var end = viewStart + w;
@@ -132,8 +135,11 @@
       }
       var pctW = (right - left) / w * 100;
       // 너무 좁은 구간은 라벨 생략(뭉개진 글자 방지) — 줌 인 하면 보인다
-      var label = (pctW / 100 * stripPx) >= 20 ? pts[i].label : '';
-      html += '<span class="chord-seg" data-i="' + i + '" style="width:' + pctW.toFixed(2) + '%">' + label + '</span>';
+      var shown = numOn ? pts[i].label + '(' + Shell.chordNum(pts[i].label, stripKey) + ')' : pts[i].label; // 숫자 병기
+      var label = (pctW / 100 * stripPx) >= 20 ? shown : '';
+      // 빌린 코드(논 다이아토닉) 배지 — 상세 가이드는 타브 화면 코드 라벨 클릭
+      var nd = Shell.chordInfo(pts[i].label, stripKey, i + 1 < pts.length ? pts[i + 1].label : null);
+      html += '<span class="chord-seg' + (nd ? ' chord-seg-nd" title="다른 조에서 온 코드(추정) — 타브 화면에서 이 코드를 누르면 연주 가이드가 나와요' : '') + '" data-i="' + i + '" style="width:' + pctW.toFixed(2) + '%">' + label + '</span>';
       cursor = right;
     }
     strip.innerHTML = html;
@@ -224,6 +230,7 @@
       renderSections();
     }
     if (t.status !== 'ready' || !t.bpm || !t.chords || !t.chords.length) return;
+    stripKey = t.key_json || null;
     var BS = t.bar_slots || 16;
     // 슬롯(16분 상당) 시간 — 혼합격자(48·비12/8)는 박당 12칸이라 /12. tab.js uSlotDur 와 일치.
     // (코드검사 2026-07-17: 종전 (60/bpm)/4 고정이라 48격자·동적slots부재 곡에서 3배 어긋남)
@@ -338,6 +345,9 @@
       b.classList.toggle('active', on);
       b.setAttribute('aria-pressed', String(on));
     });
+    var dbOn = solos.length === 2 && solos.indexOf('drums') >= 0 && solos.indexOf('bass') >= 0;
+    var dbBtn = document.getElementById('btn-db-solo');
+    if (dbBtn) { dbBtn.classList.toggle('active', dbOn); dbBtn.setAttribute('aria-pressed', String(dbOn)); }
   }
 
   // A-B 핸들 드래그 미세조정 (REQ-PLAY-004)
@@ -587,6 +597,15 @@
         });
       });
 
+      /* 드럼·베이스만 듣기 — 킥에 맞추는 베이스 카피 정석 조합 원터치 (req 8-c ⑤).
+         이미 그 조합이면 해제(전체 소리) — 솔로 상태는 기존 저장·복원 경로 그대로 탄다. */
+      document.getElementById('btn-db-solo').addEventListener('click', function () {
+        var cur = (Array.isArray(state.solo) ? state.solo : (state.solo ? [state.solo] : [])).slice().sort();
+        var isDB = cur.length === 2 && cur[0] === 'bass' && cur[1] === 'drums';
+        state.solo = player.setSolos(isDB ? [] : ['drums', 'bass']);
+        renderToggles(); saveState();
+      });
+
       /* 스피드 트레이너 */
       document.getElementById('btn-trainer').addEventListener('click', function () {
         var p = document.getElementById('trainer-panel');
@@ -594,6 +613,13 @@
       });
       document.getElementById('tr-go').addEventListener('click', startTrainer);
       document.getElementById('tr-stop').addEventListener('click', function () { stopTrainer(''); });
+
+      /* '코드를 숫자로' — 저장·흐름 재렌더는 tab.js 몫. 여기선 스트립만 다시 그리는데,
+         이 리스너가 tab.js 것보다 먼저 돌므로(스크립트 순서) state 를 직접 갱신 후 렌더 */
+      document.getElementById('num-check').addEventListener('change', function (e) {
+        state.numOn = e.target.checked;
+        renderChordStrip();
+      });
 
       /* 화면 고유 단축키: 1~6 스템 솔로 (공통 키는 transport.js) */
       document.addEventListener('keydown', function (e) {
@@ -621,6 +647,7 @@
         });
         renderToggles();
         renderChips();
+        renderChordStrip(); // '코드를 숫자로' 복원 반영 — 메타가 상태 복원보다 먼저 왔으면 이름으로 그려져 있음
         if (state.zoom && state.zoom > 1) { // 줌 상태 복원(재진입 초기화 방지, 사용자 지적)
           zoom = Math.max(1, Math.min(MAX_ZOOM, state.zoom));
           document.getElementById('zoom-badge').textContent = '×' + zoom;
