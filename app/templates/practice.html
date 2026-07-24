@@ -379,8 +379,10 @@ body.anchoring { cursor: ew-resize; user-select: none; }
 .sheet-head h2 { font-size: 20px; margin: 0 0 4px; }
 .sheet-meta { font-size: 13px; color: #6b6250; margin: 0 0 4px; }
 .sheet-draft { font-size: 11px; color: #a3946e; margin: 0; }
-.chord-grid { display: grid; grid-template-columns: repeat(4, 1fr); border-left: 2px solid #241f16; max-width: 720px; margin: 0 auto; }
-.cbar { position: relative; border-right: 2px solid #241f16; border-bottom: 1px solid #c9c2b0; min-height: 54px; display: flex; flex-direction: column; cursor: pointer; }
+/* minmax(0,1fr)+min-width:0 — 긴 가사(영어 즉흥 등)가 칸의 min-content 를 키워 격자를 터뜨리던 것 차단
+   (실증: 곡21 영어 가사 한 줄에 가로 1133px 넘침, 2026-07-24. 1fr 만으론 min-width:auto 가 이겨서 ellipsis 무력) */
+.chord-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-left: 2px solid #241f16; max-width: 720px; margin: 0 auto; }
+.cbar { position: relative; border-right: 2px solid #241f16; border-bottom: 1px solid #c9c2b0; min-height: 54px; display: flex; flex-direction: column; cursor: pointer; min-width: 0; }
 .cbar:hover { background: rgba(240, 168, 72, 0.12); }
 .cbar.now { background: rgba(240, 168, 72, 0.22); } /* 재생 중 현재 마디 */
 .chord-grid .cbar:nth-child(-n+4) { border-top: 1px solid #c9c2b0; }
@@ -421,7 +423,7 @@ body.anchoring { cursor: ew-resize; user-select: none; }
 /* 폰(≤480px): 코드 그리드 4열→2열. 4열이면 3~4코드 마디의 min-content가 열을 밀어 가로넘침(554>390)
    + 슬래시코드(Gm/C) 셀 클리핑(측정 감사 2026-07-16). 2열이면 마디폭 충분해 둘 다 해소. */
 @media (max-width: 480px) {
-  .chord-grid { grid-template-columns: repeat(2, 1fr); }
+  .chord-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 </style>
 </head>

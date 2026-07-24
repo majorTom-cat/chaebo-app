@@ -560,8 +560,8 @@ window.Shell = (function () {
     var slash = String(label).split('/')[1] || null;
     var tones = chordTones(nd, keyJson);
     // 안전음 한 줄 — 슬래시면 베이스 음을 그 안에 담백하게(별도 설교 문장 금지 — 사용자 "너무 당연" 2026-07-26)
-    var safe = '<p>안전한 음: 코드톤 <b>' + tones.join('·') + '</b>'
-      + (slash ? ' (베이스는 빗금 아래 <b>' + _escG(slash) + '</b>)' : '') + '</p>';
+    var safe = '<p>이 마디는 <b>' + tones.join('·') + '</b>(코드톤)만 짚어도 충분해요'
+      + (slash ? ' — 베이스는 빗금 아래 <b>' + _escG(slash) + '</b>부터' : '') + '.</p>';
     // 반음 접근 팁 — 다음 코드 근음이 반음 위/아래일 때만, 실제 음이름으로(추상 문구 금지 — 사용자 지적)
     var stepTip = '';
     if (nd.next != null) {
@@ -627,7 +627,8 @@ window.Shell = (function () {
     found.sort(function (a, b) { return (b.len - a.len) || (a.fromBar - b.fromBar); });
     var kept = [];
     found.forEach(function (f) {
-      if (!kept.some(function (k) { return f.fromBar >= k.fromBar && f.toBar <= k.toBar; })) kept.push(f);
+      // 부분 겹침도 억제(긴 패턴 우선) — 겹친 밴드·칩이 서로 가려 안 읽히던 것(사용자 지적 2026-07-24)
+      if (!kept.some(function (k) { return f.fromBar <= k.toBar && f.toBar >= k.fromBar; })) kept.push(f);
     });
     return kept.sort(function (a, b) { return a.fromBar - b.fromBar; });
   }
