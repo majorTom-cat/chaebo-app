@@ -500,7 +500,9 @@ window.Shell = (function () {
       if (!m) return part;
       var pc = _NUM_PC[m[1].replace('♯', '#').replace('♭', 'b')];
       if (pc == null) return part;
-      return _NUM_DEG[(pc - base + 12) % 12] + m[2];
+      var suf = m[2];
+      if (suf.charAt(0) === '7') suf = '⁷' + suf.slice(1); // C7→1⁷ ('17' 오독 방지, 내슈빌 위첨자 관례)
+      return _NUM_DEG[(pc - base + 12) % 12] + suf;
     }).join('/');
   }
 
@@ -528,14 +530,15 @@ window.Shell = (function () {
     var iv = (c.pc - base + 12) % 12;
     if (_MAJ_QUAL[iv] != null && _MAJ_QUAL[iv] === c.q) return null;   // 다이아토닉
     var nx = nextLabel ? _parseChord(nextLabel) : null;
+    var nxPc = nx ? nx.pc : null; // 다음 코드 근음 — 가이드의 '반음 접근' 팁을 실제 음이름으로 쓰기 위해
     if (c.q === '' && nx && (c.pc - nx.pc + 12) % 12 === 7 && nx.pc !== c.pc) {
       var niv = (nx.pc - base + 12) % 12;
       if (_MAJ_QUAL[niv] != null && _MAJ_QUAL[niv] === nx.q)           // 목표가 다이아토닉일 때만 V/x
-        return { cls: 'secondary', base: base, pc: c.pc, q: c.q, target: String(nextLabel).split('/')[0] };
+        return { cls: 'secondary', base: base, pc: c.pc, q: c.q, target: String(nextLabel).split('/')[0], next: nxPc };
     }
-    if (_AEO_QUAL[iv] != null && _AEO_QUAL[iv] === c.q) return { cls: 'borrowed', base: base, pc: c.pc, q: c.q };
-    if (c.q === 'dim') return { cls: 'passing', base: base, pc: c.pc, q: c.q };
-    return { cls: 'outside', base: base, pc: c.pc, q: c.q };
+    if (_AEO_QUAL[iv] != null && _AEO_QUAL[iv] === c.q) return { cls: 'borrowed', base: base, pc: c.pc, q: c.q, next: nxPc };
+    if (c.q === 'dim') return { cls: 'passing', base: base, pc: c.pc, q: c.q, next: nxPc };
+    return { cls: 'outside', base: base, pc: c.pc, q: c.q, next: nxPc };
   }
 
   /* ---- 가이드 문구(공용) — 흐름 타브·코드 악보가 같은 내용을 쓴다(뷰 간 세트 일관성, 사용자 지적).
@@ -549,29 +552,39 @@ window.Shell = (function () {
   var ND_TITLES = { borrowed: '다른 조에서 빌려온 코드 (추정)', secondary: '다음 코드로 끌어당기는 코드 (추정)',
                     passing: '반음 다리 코드 (추정)', outside: '조 밖 코드 (추정)' };
   function _escG(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;'); }
+  function chordTones(nd, keyJson) { // 안전음(코드톤) 이름 — 상시 미니 힌트·가이드 공용
+    return [pcName(nd.pc, keyJson), pcName(nd.pc + (nd.q === 'm' || nd.q === 'dim' ? 3 : 4), keyJson),
+            pcName(nd.pc + (nd.q === 'dim' ? 6 : 7), keyJson)];
+  }
   function chordGuideHtml(label, nd, keyJson) {
     var slash = String(label).split('/')[1] || null;
-    var root = pcName(nd.pc, keyJson);
-    var tones = [root, pcName(nd.pc + (nd.q === 'm' || nd.q === 'dim' ? 3 : 4), keyJson), pcName(nd.pc + (nd.q === 'dim' ? 6 : 7), keyJson)];
-    var bass = slash || root;
-    var slashLine = slash
-      ? '<p>빗금 아래 <b>' + _escG(slash) + '</b>가 베이스 음이에요 — 낮은 음은 ' + _escG(slash) + ' 위주.</p>' : '';
+    var tones = chordTones(nd, keyJson);
+    // 안전음 한 줄 — 슬래시면 베이스 음을 그 안에 담백하게(별도 설교 문장 금지 — 사용자 "너무 당연" 2026-07-26)
+    var safe = '<p>안전한 음: 코드톤 <b>' + tones.join('·') + '</b>'
+      + (slash ? ' (베이스는 빗금 아래 <b>' + _escG(slash) + '</b>)' : '') + '</p>';
+    // 반음 접근 팁 — 다음 코드 근음이 반음 위/아래일 때만, 실제 음이름으로(추상 문구 금지 — 사용자 지적)
+    var stepTip = '';
+    if (nd.next != null) {
+      var rel = (nd.next - nd.pc + 12) % 12;
+      if (rel === 1 || rel === 11) {
+        stepTip = '<p>다음 코드 근음 <b>' + pcName(nd.next, keyJson) + '</b>' + (rel === 1 ? '(반음 위)' : '(반음 아래)')
+          + '라 <b>' + tones[0] + '→' + pcName(nd.next, keyJson) + '</b>로 붙여 가면 자연스러워요.</p>';
+      }
+    }
     var body = '';
     if (nd.cls === 'borrowed') {
       var clash = [4, 9, 11].map(function (i) { return pcName(nd.base + i, keyJson); }).join('·');
       var instead = [3, 8, 10].map(function (i) { return pcName(nd.base + i, keyJson); }).join('·');
-      body = slashLine
-        + '<p>안전한 음: 베이스 음 <b>' + _escG(bass) + '</b> · 코드톤 <b>' + tones.join('·') + '</b></p>'
+      body = safe
         + '<p>이 마디 라인은 <b>' + pcName(nd.base, keyJson) + ' 마이너</b> 음들이 어울려요 — 곡 스케일의 '
-        + clash + ' 대신 <b>' + instead + '</b>.</p>';
+        + clash + ' 대신 <b>' + instead + '</b>.</p>' + stepTip;
     } else if (nd.cls === 'secondary') {
-      body = '<p><b>' + _escG(nd.target) + '</b>(으)로 가려는 임시 5도 코드예요.</p>' + slashLine
-        + '<p>코드톤 <b>' + tones.join('·') + '</b>을 당당히 짚고, ' + _escG(nd.target)
-        + ' 근음으로 5도 내려가거나 반음으로 다가가면 자연스러워요.</p>';
+      body = '<p><b>' + _escG(nd.target) + '</b>(으)로 가려는 임시 5도 코드예요.</p>' + safe
+        + '<p>' + _escG(nd.target) + ' 근음으로 5도 내려가면 진행감이 살아요.</p>' + stepTip;
     } else if (nd.cls === 'passing') {
-      body = slashLine + '<p>앞뒤 코드를 반음으로 잇는 코드예요 — 베이스도 근음 반음 이동으로 지나가면 돼요.</p>';
+      body = safe + '<p>앞뒤 코드를 반음으로 잇는 코드예요 — 베이스도 근음 반음 이동으로 지나가면 돼요.</p>';
     } else {
-      body = slashLine + '<p>베이스 음 <b>' + _escG(bass) + '</b> 위주로 안전하게. 다음 코드로 반음 이동이면 그 흐름을 살리세요.</p>';
+      body = safe + stepTip;
     }
     return '<p class="cg-title">' + _escG(label) + ' — ' + ND_TITLES[nd.cls] + '</p>' + body
       + '<p class="cg-est">키·코드가 추정이라 판정이 틀릴 수 있어요</p>';
@@ -623,6 +636,7 @@ window.Shell = (function () {
     chordNum: chordNum,
     chordInfo: chordInfo,
     chordGuideHtml: chordGuideHtml,
+    chordTones: chordTones,
     findProgressions: findProgressions,
     songId: songId,
     player: player,

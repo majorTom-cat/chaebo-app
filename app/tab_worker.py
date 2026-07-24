@@ -1830,6 +1830,31 @@ def chroma_chords(stems_dir, notes, slots, bpm, offset, bar_slots, key=None):
             return int(_bpcs[j]), int(_bglens[j])
         return None, 0
 
+    # ★7화음 승격(보수적) — 템플릿을 늘리면 3화음끼리 혼동이 커지므로(과검출 교훈 2026-07-15 계열),
+    #   3화음을 먼저 확정한 뒤 '7음 크로마가 가장 약한 코드톤만큼 강할 때만' 접미사를 붙인다.
+    #   (사용자 지적 2026-07-26: C7·Dm7 이 어떤 곡에도 안 나옴 — 후보 자체가 없었음.)
+    sev_on = os.environ.get("CHAEBO_SEVENTH", "1") != "0"
+    sev_th = float(os.environ.get("CHAEBO_SEVENTH_TH", "1.0"))  # 최약 코드톤 대비 비율(1.0=가장 보수 — 실측 기본)
+    # 키 기준(메이저 환산) 으뜸음 — 자리별 '다이아토닉 7화음'만 후보로(1·4→maj7, 5→돔7, 마이너→m7).
+    # 실측(2026-07-26): 무제한 후보는 maj7 과검출(곡20 에서 111개, V 자리 Emaj7 같은 이론상 희귀형) —
+    # maj7 음은 근음 반음 아래라 CQT 크로마 누설로 부풀기 때문. 이론(내슈빌 7화음 표)으로 후보를 묶는다.
+    sev_base = None
+    if key and key.get("tonic") is not None:
+        sev_base = key["tonic"] if key.get("mode") != "minor" else (key["tonic"] + 3) % 12
+
+    def _seventh_suffix(c, r, minor):
+        tones = [r, (r + (3 if minor else 4)) % 12, (r + 7) % 12]
+        floor_e = min(float(c[t]) for t in tones)
+        b7 = float(c[(r + 10) % 12]); M7 = float(c[(r + 11) % 12])
+        th = floor_e * sev_th
+        if minor:  # 다이아토닉 마이너 7화음은 전부 m7(b7) — m 뒤에 붙어 m7
+            return "7" if (b7 >= th and b7 > M7) else ""
+        iv = None if sev_base is None else (r - sev_base) % 12
+        if iv in (0, 5):   # 1·4 자리 → maj7 만. 누설 가드: 근음 반대편 이웃(b9 빈)보다 뚜렷이 커야 실제 7음
+            return "maj7" if (M7 >= th and M7 > b7 * 1.1 and M7 > float(c[(r + 1) % 12]) * 1.25) else ""
+        # 5 자리·조 밖 메이저(세컨더리 도미넌트 등) → 돔7 만
+        return "7" if (b7 >= th and b7 > M7 * 1.1) else ""
+
     def chord_at(t0, t1):
         i0 = max(0, int(t0 / tpf)); i1 = min(chroma.shape[1], int(t1 / tpf))
         if i1 - i0 < 1:
@@ -1841,8 +1866,12 @@ def chroma_chords(stems_dir, notes, slots, bpm, offset, bar_slots, key=None):
         n = float(np.linalg.norm(c))
         if n < 1e-6:
             return None
-        k = int(((T @ (c / n)) * dia_prior).argmax())
-        return labels[k], k // 2   # (라벨, 근음 pitch class)
+        cn = c / n
+        k = int(((T @ cn) * dia_prior).argmax())
+        lab = labels[k]
+        if sev_on:
+            lab = lab + _seventh_suffix(cn, k // 2, k % 2 == 1)
+        return lab, k // 2, k   # (라벨, 근음 pc, 트라이어드 id — 분할 비교는 k 로(7 접미사 노이즈에 안 갈리게))
 
     def slashed(lo, hi, label, root_pc):
         # ★슬래시 베이스 음 — 우선 실제 베이스 스템 chroma(정확, 사용자 선택 2026-07-17). 베이스가 근음 아닌
@@ -1871,7 +1900,7 @@ def chroma_chords(stems_dir, notes, slots, bpm, offset, bar_slots, key=None):
             return [(lo, slashed(lo, hi, res[0], res[1]))]
         mid = (lo + hi) // 2
         a = chord_at(slot_time(lo), slot_time(mid)); b = chord_at(slot_time(mid), slot_time(hi))
-        if a and b and a[0] != b[0]:   # 전·후반 코드 상이 → 분할
+        if a and b and a[2] != b[2]:   # 전·후반 '3화음'이 상이할 때만 분할(7 접미사 차이로는 안 쪼갬)
             return split_region(lo, mid, depth - 1) + split_region(mid, hi, depth - 1)
         return [(lo, slashed(lo, hi, res[0], res[1]))]
 

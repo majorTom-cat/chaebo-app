@@ -406,6 +406,15 @@
         el.dataset.nd = flowNdInfos.length;
         el.title = ND_TITLES[nd.cls] + ' — 눌러서 연주 가이드 보기';
         flowNdInfos.push({ info: nd, label: ch.label, bar: ch.bar, x: flowX(ch.bar * BAR + (ch.pos || 0)) });
+        // 상시 미니 힌트(안전음) — 클릭 없이 바로 보이게(사용자 요청). 다음 코드가 가까우면 생략(겹침 방지)
+        var myX = flowX(ch.bar * BAR + (ch.pos || 0));
+        var nextX = ci + 1 < chSorted.length ? flowX(chSorted[ci + 1].bar * BAR + (chSorted[ci + 1].pos || 0)) : Infinity;
+        if (nextX - myX >= 120) {
+          var hint = document.createElement('small');
+          hint.className = 'fc-hint';
+          hint.textContent = '안전 ' + Shell.chordTones(nd, tab.key_json).join('·');
+          el.appendChild(hint);
+        }
       }
       el.style.left = (flowX(ch.bar * BAR + (ch.pos || 0)) + 4) + 'px';
       frag.appendChild(el);
@@ -804,14 +813,27 @@
     });
     guidePop.querySelector('.cg-close').addEventListener('click', closeChordGuide);
   }
-  function closeChordGuide() { if (guidePop) guidePop.hidden = true; }
+  function closeChordGuide() { if (guidePop) guidePop.hidden = true; guidePinned = false; }
+  // 호버로도 가이드가 바로 열림(클릭=고정) — "눌러야 보인다" 불편 해소(사용자 2026-07-26)
+  var guidePinned = false;
+  document.getElementById('flow-inner').addEventListener('mouseover', function (e) {
+    var ndEl = e.target.closest('.flow-chord.fc-nd');
+    if (ndEl && !guidePinned) openChordGuide(ndEl);
+  });
+  document.getElementById('flow-inner').addEventListener('mouseout', function (e) {
+    var ndEl = e.target.closest('.flow-chord.fc-nd');
+    if (ndEl && !guidePinned && guidePop && !guidePop.hidden
+        && !(e.relatedTarget && e.relatedTarget.closest && e.relatedTarget.closest('.chordguide-pop'))) {
+      guidePop.hidden = true; // 고정 안 된 호버 미리보기만 닫기
+    }
+  });
 
   document.getElementById('flow-inner').addEventListener('click', function (e) {
     if (!tab || !tab.bpm) return;
     if (grDrag) return; // 구간 드래그 선택 모드 — 클릭 seek 안 함(드래그가 우선)
     if (e.target.closest('.chordguide-pop')) return; // 가이드 팝오버 내부 클릭은 통과(버튼 자체 핸들러)
     var ndEl = e.target.closest('.flow-chord.fc-nd');
-    if (ndEl) { openChordGuide(ndEl); return; } // 빌린 코드 라벨 클릭 = 가이드(seek 아님)
+    if (ndEl) { openChordGuide(ndEl); guidePinned = true; return; } // 클릭 = 가이드 고정(호버는 미리보기)
     var progEl = e.target.closest('.flow-prog');
     if (progEl) { // 2-5-1 밴드 클릭 = 그 구간 반복
       var BARp = barSlots();
