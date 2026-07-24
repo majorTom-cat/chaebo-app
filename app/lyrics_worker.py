@@ -9,6 +9,7 @@ SP-5 실측(2026-07-10) 근거:
 - PyAV(FFmpeg 동봉) 디코딩을 피하려고 soundfile 로 직접 읽어 numpy 로 넣는다(라이선스 게이트 메모).
 모델 가중치(MIT)는 첫 실행에 HF 에서 다운로드(동봉 금지 정책 부합)."""
 import json
+import os
 import sys
 
 import numpy as np
@@ -137,7 +138,7 @@ def merge_adlib(base_segs, extra_segs, audio):
     return sorted(base_segs + add, key=lambda s: s["s"]) if add else base_segs
 
 
-def _slice_asr(model, audio, gs, ge, sr=16000):
+def _slice_asr(model, audio, gs, ge, sr=16000, language=None):
     """애드립 공백 구간만 잘라 받아쓰기 재시도 — 짧은 클립이 전곡 패스가 놓친 애드립을 잡는다
     (사용자 요청 2026-07-17: 빈 ♪보다 틀려도 초안이 있으면 고치기 쉬움). 에너지로 보컬이 확정된
     구간이라 no_speech 필터를 안 걸고 초안으로 남긴다. 반환: 그 구간 안에 드는 초안 세그 리스트."""
@@ -146,7 +147,7 @@ def _slice_asr(model, audio, gs, ge, sr=16000):
     b = min(len(audio), int((ge + pad) * sr))
     if b - a < int(sr * 0.6):
         return []
-    seg2, _ = model.transcribe(audio[a:b], vad_filter=False, beam_size=5,
+    seg2, _ = model.transcribe(audio[a:b], vad_filter=False, beam_size=5, language=language,
                                word_timestamps=True, condition_on_previous_text=False)
     base_t, out = a / sr, []
     for s in seg2:
@@ -165,7 +166,7 @@ def _slice_asr(model, audio, gs, ge, sr=16000):
     return out
 
 
-def fill_vocal_gaps(segs, audio, model=None, sr=16000):
+def fill_vocal_gaps(segs, audio, model=None, sr=16000, language=None):
     """받아쓰기(초안 포함)가 여전히 못 채운 '보컬 있는 구간'을 채운다. model 이 있으면 그 구간만 잘라
     받아쓰기를 재시도해 초안 텍스트를 넣고(고치기 쉽게), 그래도 안 나오면 placeholder(♪)로 위치만 잡는다.
     (긴 세그먼트는 clean_segments 가 이미 단어 경계로 쪼개 골격이 촘촘하므로, 절 틈엔 공백이 안 생긴다.)"""
@@ -174,7 +175,7 @@ def fill_vocal_gaps(segs, audio, model=None, sr=16000):
         return segs
     added = []
     for gs, ge, onsets in spans:
-        drafts = _slice_asr(model, audio, gs, ge, sr=sr) if model is not None else []
+        drafts = _slice_asr(model, audio, gs, ge, sr=sr, language=language) if model is not None else []
         if drafts:
             added.extend(drafts)  # 슬라이스 받아쓰기 초안(틀려도 고칠 거리)
         else:
@@ -184,6 +185,27 @@ def fill_vocal_gaps(segs, audio, model=None, sr=16000):
     return sorted(segs + added, key=lambda s: s["s"]) if added else segs
 
 
+def detect_lang_loud_window(model, audio, sr=16000):
+    """언어 감지를 '보컬 에너지가 가장 큰 30초'에서 — whisper 기본은 파일 첫 30초로 감지하는데,
+    인트로(연주·허밍·영어풍 발성)에 걸리면 한국어 곡 전체가 영어 환각이 된다(실증: 곡21 WELOVE
+    '오라 우리가' 전곡 영어 오전사, 사용자 지적 2026-07-24). env CHAEBO_LYRICS_LANG 로 강제 가능."""
+    forced = os.environ.get("CHAEBO_LYRICS_LANG", "").strip()
+    if forced:
+        return forced
+    win = 30 * sr
+    if len(audio) <= win:
+        return None  # 짧은 곡은 기본(첫 구간) 감지로 충분
+    step = 10 * sr
+    best_a, best_e = 0, -1.0
+    for a in range(0, len(audio) - win + 1, step):
+        seg = audio[a:a + win]
+        e = float((seg * seg).mean())
+        if e > best_e:
+            best_e, best_a = e, a
+    _, info = model.transcribe(audio[best_a:best_a + win], vad_filter=True, beam_size=1)
+    return info.language  # 감지는 transcribe 호출 시점에 즉시 수행됨(디코딩은 지연이라 비용 미미)
+
+
 def main():
     vocals, out_json = sys.argv[1], sys.argv[2]
     print("PROG 5", flush=True)
@@ -191,15 +213,17 @@ def main():
     model = WhisperModel("small", device="cpu", compute_type="int8")
     print("PROG 20", flush=True)
     audio = load_16k_mono(vocals)
-    segments, info = model.transcribe(audio, vad_filter=True, beam_size=5,
+    lang = detect_lang_loud_window(model, audio)  # 전 패스에 같은 언어 고정(패스별 재감지 오염 방지)
+    segments, info = model.transcribe(audio, vad_filter=True, beam_size=5, language=lang,
                                       word_timestamps=True)  # 절 골격 — VAD 로 환각 억제, 타이밍 정확
     segs = clean_segments(segments)
     # 애드립 등 골격이 빈 '보컬 있는' 구간이 있으면, VAD 꺼 초안 텍스트를 뽑아 그 구간만 채운다(교차검증).
     if _vocal_gap_spans(segs, audio):
         print("PROG 60", flush=True)
-        seg2, _ = model.transcribe(audio, vad_filter=False, beam_size=5, word_timestamps=True)
+        seg2, _ = model.transcribe(audio, vad_filter=False, beam_size=5, word_timestamps=True,
+                                   language=lang or info.language)
         segs = merge_adlib(segs, clean_segments(seg2), audio)
-    segs = fill_vocal_gaps(segs, audio, model=model)  # 남은 공백은 슬라이스 받아쓰기 초안, 안 되면 ♪
+    segs = fill_vocal_gaps(segs, audio, model=model, language=lang or info.language)
     print("PROG 95", flush=True)
     with open(out_json, "w", encoding="utf-8") as f:
         json.dump({"language": info.language, "segments": segs}, f, ensure_ascii=False)

@@ -197,13 +197,13 @@ button.meta-badge:hover { border-color: var(--accent); }
 .chord.chord-nd::after { content: '●'; font-size: 6px; color: var(--accent); margin-left: 2px; vertical-align: 3px; }
 /* 진행 밴드(흐름) + 셀 표시(코드 악보) — 클릭=구간 반복. 칩은 구간 '시작'에(미리 보임 — 사용자 지적),
    구간 전체를 옅은 채움+양끝 두꺼운 괄호선으로 명확히. */
-.flow-prog { position: absolute; top: 0; height: 21px; background: rgba(240,168,72,.07); border: 1.5px solid rgba(240,168,72,.6); border-bottom: none; border-left-width: 3px; border-right-width: 3px; border-radius: 8px 8px 0 0; cursor: pointer; z-index: 1; }
-.flow-prog:hover { border-color: var(--accent); background: rgba(240,168,72,.16); }
+.flow-prog { position: absolute; top: 0; height: 21px; background: rgba(240,168,72,.16); border: 2px solid rgba(240,168,72,.85); border-bottom: none; border-left-width: 4px; border-right-width: 4px; border-radius: 8px 8px 0 0; cursor: pointer; z-index: 1; }
+.flow-prog:hover { border-color: var(--accent); background: rgba(240,168,72,.26); }
 /* 칩은 구간 시작선 '왼쪽 바깥'에 매달림 — 첫 코드 글자를 안 덮는다(사용자 지적 2026-07-26) */
-.flow-prog-chip { position: absolute; top: -1px; left: -2px; transform: translateX(-100%); font-size: 9px; font-weight: 800; background: var(--accent); color: #1a1408; border-radius: 6px 0 0 6px; padding: 0 5px; line-height: 13px; pointer-events: none; white-space: nowrap; }
+.flow-prog-chip { position: absolute; top: -1px; left: -4px; transform: translateX(-100%); font-size: 10px; font-weight: 800; background: var(--accent); color: #1a1408; border-radius: 6px 0 0 6px; padding: 1px 6px; line-height: 15px; pointer-events: none; white-space: nowrap; box-shadow: 0 1px 3px rgba(0,0,0,.25); }
 /* 빌린 코드 상시 미니 힌트(안전음) — 클릭 없이 바로 보임. 다음 코드와 가까우면 렌더 생략(겹침 방지) */
 .fc-hint { font-size: 9px; font-weight: 700; color: #8a5a2b; opacity: .85; margin-left: 4px; }
-.cbar-prog { box-shadow: inset 0 0 0 1.5px rgba(240,168,72,.45); border-radius: 6px; background: rgba(240,168,72,.06); }
+.cbar-prog { box-shadow: inset 0 0 0 2px rgba(240,168,72,.65); border-radius: 6px; background: rgba(240,168,72,.12); }
 .cbar-prog-chip { font-size: 9px; font-weight: 800; background: var(--accent); color: #1a1408; border-radius: 4px; padding: 1px 4px; margin-right: 4px; align-self: center; flex-shrink: 0; }
 .grid-guide { position: fixed; z-index: 60; }
 .grid-guide::before { display: none; }
@@ -395,7 +395,8 @@ body.anchoring { cursor: ew-resize; user-select: none; }
 .cseg { flex: 1; display: flex; align-items: center; justify-content: center; min-width: 0; border-left: 1px dashed #c9c2b0; overflow: hidden; }
 .cseg:first-child { border-left: none; }
 /* 가사 줄(받아쓰기 초안) — 코드 아래, 마디 폭 안에서 말줄임 */
-.cbar-lyric { font-size: 10.5px; color: #6b6250; padding: 0 6px 4px; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 가사는 줄바꿈으로 전부 보여준다(사용자 지시 2026-07-24: 칸이 짧으니 줄바꿈 OK — 말줄임은 가사를 숨김) */
+.cbar-lyric { font-size: 10.5px; color: #6b6250; padding: 0 6px 4px; text-align: center; white-space: normal; word-break: break-word; line-height: 1.35; }
 .cbar-lyric.manual { color: #2e6b2a; } /* 직접 고친 가사 — 자동과 구분(정직 UI) */
 .cbar .chord { font-size: 20px; font-weight: 800; letter-spacing: 0.2px; } /* 사용자 요청 2026-07-17: 좀 더 크게 */
 .cbar .chord.duo { font-size: 16px; }    /* 두 코드 — 반칸에 들어가게 */
