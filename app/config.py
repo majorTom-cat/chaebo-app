@@ -22,6 +22,7 @@ DATA_DIR = Path(os.environ.get("CHAEBO_DATA", _default_data_dir()))
 LEGACY_DATA_DIR = BASE_DIR / "data"
 RAW_DIR = DATA_DIR / "raw"
 STEMS_DIR = DATA_DIR / "stems"
+SHEETS_DIR = DATA_DIR / "sheets"   # 팀 악보(이미지/PDF) — 로컬 열람 전용, 공유·내보내기 없음
 DB_PATH = DATA_DIR / "chaebo.sqlite3"
 
 # 분리 엔진(MSST) — 스파이크 검증 경로 재사용. Phase 3 포장 시 재배치.
@@ -54,7 +55,7 @@ ALLOWED_EXTS = {".mp3", ".wav", ".flac", ".m4a"}
 STEMS = ["vocals", "drums", "bass", "guitar", "piano", "other"]
 
 # 런타임 표시·업데이트 비교용 버전(설치기 버전은 chaebo.iss/readme 별도 — 릴리스마다 함께 올린다).
-APP_VERSION = "0.7.37"
+APP_VERSION = "0.7.38"
 
 # 소리-화면 싱크 '공식 세대'(사용자 지적 2026-07-13: 싱크 구현이 바뀌면 옛 보정값이 stale 해진다).
 # 표시시계 공식(heardTime·워크릿 _latency·drift 수식 등)이 바뀔 때마다 이 값을 올린다. 저장된
@@ -78,5 +79,5 @@ WORK_THREADS = int(os.environ.get("CHAEBO_WORK_THREADS", max(2, (os.cpu_count() 
 
 
 def ensure_dirs():
-    for d in (DATA_DIR, RAW_DIR, STEMS_DIR):
+    for d in (DATA_DIR, RAW_DIR, STEMS_DIR, SHEETS_DIR):
         d.mkdir(parents=True, exist_ok=True)

@@ -8,6 +8,7 @@ import json
 import mimetypes
 import os
 import re
+import urllib.parse
 import shutil
 import sys
 from contextlib import asynccontextmanager
@@ -76,6 +77,7 @@ config.ensure_dirs()
 mimetypes.add_type("text/javascript", ".js")
 mimetypes.add_type("text/javascript", ".mjs")
 app.mount("/stems", StaticFiles(directory=config.STEMS_DIR), name="stems")
+app.mount("/sheets", StaticFiles(directory=config.SHEETS_DIR), name="sheets")  # 팀 악보(로컬 열람 전용)
 app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")
 
 
@@ -259,6 +261,61 @@ async def practice_page(request: Request, song_id: int):
 @app.get("/songs/{song_id}/tab", response_class=HTMLResponse)
 async def tab_page(request: Request, song_id: int):
     return await _practice_shell(request, song_id, "tab")
+
+
+@app.get("/songs/{song_id}/sheet", response_class=HTMLResponse)
+async def sheet_page(request: Request, song_id: int):
+    return await _practice_shell(request, song_id, "sheet")
+
+
+# ---- 팀 악보(이미지/PDF) — 로컬 저장·본인 열람만, 공유·내보내기 없음(docs/design-team-sheet-2026-07-27) ----
+SHEET_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".pdf"}
+MAX_SHEET_MB = 25
+
+
+def _sheet_files(song_id: int):
+    d = config.SHEETS_DIR / str(song_id)
+    if not d.exists():
+        return []
+    names = sorted(f.name for f in d.iterdir() if f.is_file() and f.suffix.lower() in SHEET_EXTS)
+    return [{"name": n, "url": f"/sheets/{song_id}/{urllib.parse.quote(n)}",
+             "pdf": n.lower().endswith(".pdf")} for n in names]
+
+
+@app.get("/api/songs/{song_id}/sheets")
+async def list_sheets(song_id: int):
+    return {"files": _sheet_files(song_id)}
+
+
+@app.post("/api/songs/{song_id}/sheets", status_code=201)
+async def upload_sheets(song_id: int, files: list[UploadFile] = File(...)):
+    song = await db.get_song(song_id)
+    if not song:
+        raise HTTPException(404, "곡을 찾을 수 없어요")
+    d = config.SHEETS_DIR / str(song_id)
+    d.mkdir(parents=True, exist_ok=True)
+    n0 = len(_sheet_files(song_id))
+    for i, uf in enumerate(files):
+        ext = Path(uf.filename or "").suffix.lower()
+        if ext not in SHEET_EXTS:
+            raise HTTPException(422, "이미지(jpg·png·webp)나 PDF 파일만 올릴 수 있어요")
+        data = await uf.read()
+        if len(data) > MAX_SHEET_MB * 1024 * 1024:
+            raise HTTPException(422, f"파일이 너무 커요 — {MAX_SHEET_MB}MB까지 올릴 수 있어요")
+        # 파일명 정리(경로문자 제거) + 순서 접두사 — 올린 순서대로 보이게
+        base = re.sub(r"[^\w가-힣 .\-]", "_", Path(uf.filename or "악보").stem).strip()[:60] or "악보"
+        (d / f"{n0 + i + 1:03d}_{base}{ext}").write_bytes(data)
+    return {"files": _sheet_files(song_id)}
+
+
+@app.delete("/api/songs/{song_id}/sheets/{name}")
+async def delete_sheet(song_id: int, name: str):
+    if "/" in name or "\\" in name or ".." in name:   # 경로 탈출 차단
+        raise HTTPException(422, "잘못된 파일 이름이에요")
+    p = (config.SHEETS_DIR / str(song_id) / name)
+    if p.exists() and p.is_file():
+        p.unlink()
+    return {"files": _sheet_files(song_id)}
 
 
 class ChordEdit(BaseModel):

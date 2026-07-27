@@ -469,7 +469,7 @@ window.Shell = (function () {
     });
   });
   window.addEventListener('popstate', function () {
-    var m = location.pathname.match(/\/(practice|tab|chords)$/);
+    var m = location.pathname.match(/\/(practice|tab|chords|sheet)$/);
     var v = m ? (m[1] === 'practice' ? 'mixer' : m[1]) : 'mixer';
     if (v !== active) show(v, { nopush: true });
   });

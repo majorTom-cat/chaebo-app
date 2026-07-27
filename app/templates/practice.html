@@ -203,6 +203,16 @@ button.meta-badge:hover { border-color: var(--accent); }
 .flow-prog-chip { position: absolute; top: -1px; left: -4px; transform: translateX(-100%); font-size: 10px; font-weight: 800; background: var(--accent); color: #1a1408; border-radius: 6px 0 0 6px; padding: 1px 6px; line-height: 15px; pointer-events: none; white-space: nowrap; box-shadow: 0 1px 3px rgba(0,0,0,.25); }
 /* 빌린 코드 상시 미니 힌트(안전음) — 클릭 없이 바로 보임. 다음 코드와 가까우면 렌더 생략(겹침 방지) */
 .fc-hint { font-size: 9px; font-weight: 700; color: #8a5a2b; opacity: .85; margin-left: 4px; }
+
+/* 팀 악보(뷰 4) — 원본 악보 이미지/PDF 열람(로컬 전용) */
+.teamsheet-bar { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; margin-bottom: var(--sp-4); }
+.teamsheet-empty { background: var(--surface); border: 1px dashed var(--border); border-radius: var(--r-md); padding: var(--sp-6); text-align: center; color: var(--muted); font-size: 13.5px; }
+.teamsheet-list { display: flex; flex-direction: column; gap: var(--sp-4); max-width: 900px; margin: 0 auto; }
+.teamsheet-item { position: relative; background: #f5f2ea; border-radius: var(--r-md); overflow: hidden; }
+.teamsheet-item img { display: block; width: 100%; height: auto; }
+.teamsheet-item iframe { display: block; width: 100%; height: 80vh; border: 0; background: #fff; }
+.teamsheet-del { position: absolute; top: 8px; right: 8px; opacity: .85; }
+.teamsheet-name { position: absolute; top: 8px; left: 8px; font-size: 11px; color: #6b6250; background: rgba(245,242,234,.9); border-radius: 4px; padding: 1px 6px; max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cbar-prog { box-shadow: inset 0 0 0 2px rgba(240,168,72,.65); border-radius: 6px; background: rgba(240,168,72,.12); }
 .cbar-prog-chip { font-size: 9px; font-weight: 800; background: var(--accent); color: #1a1408; border-radius: 4px; padding: 1px 4px; margin-right: 4px; align-self: center; flex-shrink: 0; }
 .grid-guide { position: fixed; z-index: 60; }
@@ -521,6 +531,10 @@ body.anchoring { cursor: ew-resize; user-select: none; }
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/><line x1="15" y1="21" x2="15" y2="9"/></svg>
       코드 악보
     </a>
+    <a class="view-switch-btn" data-view="sheet" href="/songs/{{ song.id }}/sheet" role="tab" aria-selected="false">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg>
+      팀 악보
+    </a>
   </div>
   <!-- 전체 가사 보기·수정 — 세 화면 공통 데이터(사용자 요청 2026-07-11) -->
   <button type="button" class="btn btn-outline btn-sm" id="btn-lyrics-view" hidden>전체 가사</button>
@@ -801,6 +815,19 @@ body.anchoring { cursor: ew-resize; user-select: none; }
 
   </section>
 
+  <!-- ======== 뷰 4: 팀 악보 (원본 악보 이미지/PDF — 로컬 열람 전용, 공유·내보내기 없음) ======== -->
+  <section id="view-sheet" data-view-section="sheet" aria-label="팀 악보" {% if view != 'sheet' %}hidden{% endif %}>
+    <div class="teamsheet-bar">
+      <label class="btn btn-primary btn-sm" for="ts-file-input">악보 올리기</label>
+      <input type="file" id="ts-file-input" accept=".jpg,.jpeg,.png,.webp,.pdf" multiple hidden>
+      <span class="control-label">팀에서 쓰는 악보 사진·PDF를 올려두고 여기서 봐요 — 내 컴퓨터에만 저장돼요(외부 전송 없음)</span>
+    </div>
+    <div class="teamsheet-empty" id="ts-empty" hidden>
+      <p>아직 올린 악보가 없어요 — 위의 <b>악보 올리기</b>로 팀 악보 사진이나 PDF를 올려두면, 연습하면서 바로 볼 수 있어요.</p>
+    </div>
+    <div class="teamsheet-list" id="ts-list"></div>
+  </section>
+
   <!-- 분석 방법 선택 — '다시 분석'을 누르면 뜨는 창. 같은 곡을 방법 바꿔가며 분석해 비교(사용자 요청). -->
   <div class="lyr-overlay" id="analyze-modal" hidden>
     <div class="am-box" role="dialog" aria-modal="true" aria-label="분석 방법 선택">
@@ -953,6 +980,7 @@ body.anchoring { cursor: ew-resize; user-select: none; }
 <script src="/static/practice.js"></script>
 <script src="/static/tab.js"></script>
 <script src="/static/chords.js"></script>
+<script src="/static/sheet.js"></script>
 <script src="/static/logo.js"></script>
 <script src="/static/pwa.js"></script>
 <script src="/static/offline.js"></script>
