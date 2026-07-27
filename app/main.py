@@ -318,6 +318,39 @@ async def delete_sheet(song_id: int, name: str):
     return {"files": _sheet_files(song_id)}
 
 
+class SheetAnchors(BaseModel):
+    anchors: list[dict]
+
+
+@app.get("/api/songs/{song_id}/sheets/anchors")
+async def get_sheet_anchors(song_id: int):
+    p = config.SHEETS_DIR / str(song_id) / "anchors.json"
+    if not p.exists():
+        return {"anchors": []}
+    try:
+        return {"anchors": json.loads(p.read_text(encoding="utf-8"))}
+    except Exception:  # noqa: BLE001 — 깨진 파일이면 빈 목록(재설정 가능)
+        return {"anchors": []}
+
+
+@app.put("/api/songs/{song_id}/sheets/anchors")
+async def put_sheet_anchors(song_id: int, body: SheetAnchors):
+    """악보 위치 연결(앵커) 저장 — [{t: 초, name: 악보 파일명, y: 0~1 상대높이}] (design-team-sheet 2단계)."""
+    clean = []
+    for a in body.anchors[:500]:
+        t, name, y = a.get("t"), a.get("name"), a.get("y")
+        if not isinstance(t, (int, float)) or t < 0 or not isinstance(y, (int, float)):
+            raise HTTPException(422, "앵커 형식이 잘못됐어요")
+        if not isinstance(name, str) or "/" in name or "\\" in name or ".." in name:
+            raise HTTPException(422, "앵커 형식이 잘못됐어요")
+        clean.append({"t": round(float(t), 3), "name": name, "y": round(min(1.0, max(0.0, float(y))), 4)})
+    clean.sort(key=lambda a: a["t"])
+    d = config.SHEETS_DIR / str(song_id)
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "anchors.json").write_text(json.dumps(clean, ensure_ascii=False), encoding="utf-8")
+    return {"anchors": clean}
+
+
 class ChordEdit(BaseModel):
     bar: int
     label: str | None = None  # None/빈 문자열 = 수동 수정 해제(자동 추정으로 복귀)

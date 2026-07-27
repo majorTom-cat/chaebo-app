@@ -207,7 +207,16 @@ button.meta-badge:hover { border-color: var(--accent); }
 /* 팀 악보(뷰 4) — 원본 악보 이미지/PDF 열람(로컬 전용) */
 .teamsheet-bar { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; margin-bottom: var(--sp-4); }
 .teamsheet-empty { background: var(--surface); border: 1px dashed var(--border); border-radius: var(--r-md); padding: var(--sp-6); text-align: center; color: var(--muted); font-size: 13.5px; }
-.teamsheet-list { display: flex; flex-direction: column; gap: var(--sp-4); max-width: 900px; margin: 0 auto; }
+.teamsheet-wrap { position: relative; max-width: 900px; margin: 0 auto; }
+.teamsheet-list { display: flex; flex-direction: column; gap: var(--sp-4); }
+/* 실시간 위치 표시선(앵커 보간) — 악보 위를 가로지르는 밴드 */
+.ts-band { position: absolute; left: -6px; right: -6px; height: 26px; transform: translateY(-50%); background: rgba(240,168,72,.22); border-top: 2px solid var(--accent); border-bottom: 2px solid var(--accent); border-radius: 4px; pointer-events: none; z-index: 3; }
+/* 위치 연결(앵커) 표시 — 악보 위 가로 점선 + 시각 칩 */
+.ts-anchor { position: absolute; left: 0; right: 0; border-top: 2px dashed rgba(226,121,63,.8); z-index: 2; pointer-events: none; }
+.ts-anchor-chip { position: absolute; left: 4px; top: -10px; font-size: 11px; font-weight: 700; background: var(--accent); color: #1a1408; border-radius: 4px; padding: 0 4px 0 6px; line-height: 19px; pointer-events: auto; white-space: nowrap; }
+.ts-anchor-del { border: 0; background: transparent; font-size: 13px; font-weight: 800; cursor: pointer; color: #1a1408; padding: 0 2px; }
+.ts-anchoring .teamsheet-item img { cursor: crosshair; }
+.ts-anchoring .teamsheet-item::after { content: ''; position: absolute; inset: 0; outline: 2px dashed rgba(240,168,72,.6); outline-offset: -2px; pointer-events: none; border-radius: var(--r-md); }
 .teamsheet-item { position: relative; background: #f5f2ea; border-radius: var(--r-md); overflow: hidden; }
 .teamsheet-item img { display: block; width: 100%; height: auto; }
 .teamsheet-item iframe { display: block; width: 100%; height: 80vh; border: 0; background: #fff; }
@@ -820,12 +829,24 @@ body.anchoring { cursor: ew-resize; user-select: none; }
     <div class="teamsheet-bar">
       <label class="btn btn-primary btn-sm" for="ts-file-input">악보 올리기</label>
       <input type="file" id="ts-file-input" accept=".jpg,.jpeg,.png,.webp,.pdf" multiple hidden>
-      <span class="control-label">팀에서 쓰는 악보 사진·PDF를 올려두고 여기서 봐요 — 내 컴퓨터에만 저장돼요(외부 전송 없음)</span>
+      <button type="button" class="btn btn-outline btn-sm" id="ts-anchor-mode" aria-pressed="false"
+        title="켠 뒤, 지금 소리가 나는 자리를 악보에서 누르면 그 위치가 연결돼요 — 몇 군데만 연결하면 재생 위치가 악보 위에 실시간으로 표시돼요">📍 위치 연결</button>
+      <label class="count-toggle" title="재생 중 표시선을 따라 화면이 자동으로 내려가요">
+        <input type="checkbox" id="ts-follow" checked>
+        <span class="toggle-track"><span class="toggle-thumb"></span></span>
+        <span class="control-label">따라가기</span>
+      </label>
+      <span class="control-label" id="ts-anchor-count"></span>
+      <span class="control-label">팀 악보 사진·PDF — 내 컴퓨터에만 저장돼요(외부 전송 없음)</span>
     </div>
+    <p class="deck-hint" id="ts-hint" style="text-align:left;"></p>
     <div class="teamsheet-empty" id="ts-empty" hidden>
       <p>아직 올린 악보가 없어요 — 위의 <b>악보 올리기</b>로 팀 악보 사진이나 PDF를 올려두면, 연습하면서 바로 볼 수 있어요.</p>
     </div>
-    <div class="teamsheet-list" id="ts-list"></div>
+    <div class="teamsheet-wrap">
+      <div class="teamsheet-list" id="ts-list"></div>
+      <div class="ts-band" id="ts-band" hidden aria-hidden="true"></div>
+    </div>
   </section>
 
   <!-- 분석 방법 선택 — '다시 분석'을 누르면 뜨는 창. 같은 곡을 방법 바꿔가며 분석해 비교(사용자 요청). -->
