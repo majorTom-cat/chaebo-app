@@ -132,6 +132,19 @@
     var lab = document.getElementById('ts-anchor-count');
     lab.textContent = n ? '연결 ' + n + '개' : '';
     document.getElementById('ts-band').hidden = n < 2 || !posAt(Shell.visualTime());
+    updateHint();
+  }
+
+  function updateHint() { // 악보만 올리고 끝나는 사용자 안내(실증 2026-07-27: "재생해도 달라지는 게 없네")
+    var hint = document.getElementById('ts-hint');
+    if (anchorMode) {
+      hint.textContent = '곡을 틀어놓고(또는 원하는 위치에 멈춰두고), 지금 소리가 나는 자리를 악보에서 눌러주세요 — 몇 군데만 연결하면 사이는 자동으로 이어져요';
+      return;
+    }
+    var hasFiles = document.querySelectorAll('.teamsheet-item').length > 0;
+    hint.textContent = (hasFiles && anchors.length < 2)
+      ? '💡 재생 위치를 악보 위에 표시하려면 — [📍 위치 연결]을 켜고, 곡을 들으며 지금 나오는 자리를 악보에서 2군데 이상 눌러 연결해주세요'
+      : '';
   }
 
   /* ---- 시간 ↔ 악보 위치 보간 ---- */
@@ -254,9 +267,7 @@
     this.classList.toggle('active', anchorMode);
     this.setAttribute('aria-pressed', String(anchorMode));
     document.getElementById('ts-list').classList.toggle('ts-anchoring', anchorMode);
-    document.getElementById('ts-hint').textContent = anchorMode
-      ? '곡을 틀어놓고(또는 원하는 위치에 멈춰두고), 지금 소리가 나는 자리를 악보에서 눌러주세요 — 몇 군데만 연결하면 사이는 자동으로 이어져요'
-      : '';
+    updateHint();
   });
   document.getElementById('ts-follow').addEventListener('change', function (e) {
     follow = e.target.checked;
