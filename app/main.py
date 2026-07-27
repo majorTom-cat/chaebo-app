@@ -339,11 +339,14 @@ async def put_sheet_anchors(song_id: int, body: SheetAnchors):
     clean = []
     for a in body.anchors[:500]:
         t, name, y = a.get("t"), a.get("name"), a.get("y")
-        if not isinstance(t, (int, float)) or t < 0 or not isinstance(y, (int, float)):
+        x = a.get("x", 0.5)  # 가로 위치(0~1) — 악보는 줄 안에서 왼→오른쪽으로 읽으므로 점 단위 연결(구 데이터는 0.5)
+        if not isinstance(t, (int, float)) or t < 0 or not isinstance(y, (int, float)) or not isinstance(x, (int, float)):
             raise HTTPException(422, "앵커 형식이 잘못됐어요")
         if not isinstance(name, str) or "/" in name or "\\" in name or ".." in name:
             raise HTTPException(422, "앵커 형식이 잘못됐어요")
-        clean.append({"t": round(float(t), 3), "name": name, "y": round(min(1.0, max(0.0, float(y))), 4)})
+        clean.append({"t": round(float(t), 3), "name": name,
+                      "y": round(min(1.0, max(0.0, float(y))), 4),
+                      "x": round(min(1.0, max(0.0, float(x))), 4)})
     clean.sort(key=lambda a: a["t"])
     d = config.SHEETS_DIR / str(song_id)
     d.mkdir(parents=True, exist_ok=True)

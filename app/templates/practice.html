@@ -209,11 +209,12 @@ button.meta-badge:hover { border-color: var(--accent); }
 .teamsheet-empty { background: var(--surface); border: 1px dashed var(--border); border-radius: var(--r-md); padding: var(--sp-6); text-align: center; color: var(--muted); font-size: 13.5px; }
 .teamsheet-wrap { position: relative; max-width: 900px; margin: 0 auto; }
 .teamsheet-list { display: flex; flex-direction: column; gap: var(--sp-4); }
-/* 실시간 위치 표시선(앵커 보간) — 악보 위를 가로지르는 밴드 */
-.ts-band { position: absolute; left: -6px; right: -6px; height: 26px; transform: translateY(-50%); background: rgba(240,168,72,.22); border-top: 2px solid var(--accent); border-bottom: 2px solid var(--accent); border-radius: 4px; pointer-events: none; z-index: 3; }
-/* 위치 연결(앵커) 표시 — 악보 위 가로 점선 + 시각 칩 */
-.ts-anchor { position: absolute; left: 0; right: 0; border-top: 2px dashed rgba(226,121,63,.8); z-index: 2; pointer-events: none; }
-.ts-anchor-chip { position: absolute; left: 4px; top: -10px; font-size: 11px; font-weight: 700; background: var(--accent); color: #1a1408; border-radius: 4px; padding: 0 4px 0 6px; line-height: 19px; pointer-events: auto; white-space: nowrap; }
+/* 실시간 위치 커서 — 악보 '줄' 위를 왼→오른쪽으로 지나가는 세로 선(연주자가 읽는 방식 그대로) */
+.ts-band { position: absolute; width: 4px; height: 60px; transform: translate(-50%, -50%); background: var(--accent); border-radius: 2px; opacity: .85; box-shadow: 0 0 0 2px rgba(240,168,72,.25), 0 0 12px rgba(240,168,72,.6); pointer-events: none; z-index: 3; }
+/* 위치 연결(앵커) 표시 — 클릭한 '그 지점'의 점 핀 + 시각 칩 */
+.ts-anchor { position: absolute; transform: translate(-50%, -50%); z-index: 2; pointer-events: none; }
+.ts-anchor-dot { display: block; width: 11px; height: 11px; border-radius: 50%; background: var(--accent); border: 2px solid #241f16; box-shadow: 0 1px 3px rgba(0,0,0,.35); }
+.ts-anchor-chip { position: absolute; left: 10px; top: -22px; font-size: 11px; font-weight: 700; background: var(--accent); color: #1a1408; border-radius: 4px; padding: 0 4px 0 6px; line-height: 19px; pointer-events: auto; white-space: nowrap; box-shadow: 0 1px 3px rgba(0,0,0,.25); }
 .ts-anchor-del { border: 0; background: transparent; font-size: 13px; font-weight: 800; cursor: pointer; color: #1a1408; padding: 0 2px; }
 .ts-anchoring .teamsheet-item img { cursor: crosshair; }
 .ts-anchoring .teamsheet-item::after { content: ''; position: absolute; inset: 0; outline: 2px dashed rgba(240,168,72,.6); outline-offset: -2px; pointer-events: none; border-radius: var(--r-md); }

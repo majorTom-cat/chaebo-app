@@ -123,8 +123,9 @@
       var mk = document.createElement('div');
       mk.className = 'ts-anchor';
       mk.style.top = (a.y * 100) + '%';
+      mk.style.left = ((a.x == null ? 0.5 : a.x) * 100) + '%';
       mk.dataset.i = i;
-      mk.innerHTML = '<span class="ts-anchor-chip">' + fmt(a.t)
+      mk.innerHTML = '<span class="ts-anchor-dot"></span><span class="ts-anchor-chip">' + fmt(a.t)
         + ' <button type="button" class="ts-anchor-del" aria-label="이 연결 지우기">×</button></span>';
       item.appendChild(mk);
     });
@@ -147,61 +148,109 @@
       : '';
   }
 
-  /* ---- 시간 ↔ 악보 위치 보간 ---- */
-  function absY(a) { // 앵커의 문서 기준 y(px) — 목록 컨테이너 좌표
+  /* ---- 시간 ↔ 악보 위치 (악보 읽기 모델) ----
+     악보는 줄(단) 안에서 왼→오른쪽, 줄이 끝나면 다음 줄 — 그래서 보간 경로를 '가로 조각'들로 만든다
+     (사용자 비판 2026-07-27 "악보를 모르고 만든 기능": 종전 세로 보간+전폭 밴드는 악보 읽기와 무관했음).
+     앵커쌍 (A,B): 같은 줄이면 A→B 가로 이동 한 조각. 다른 줄이면 A→(A줄 오른끝) + (B줄 왼끝)→B 두 조각
+     (시간은 가로 거리 비례 분배). 커서는 그 지점의 세로 선(한 줄 높이)으로 그린다. */
+  function pos(a) { // 앵커 → 목록 컨테이너 절대 좌표(px)
     var item = itemOf(a.name);
     if (!item) return null;
-    return item.offsetTop + a.y * item.offsetHeight;
+    return { item: item, y: item.offsetTop + a.y * item.offsetHeight,
+             x: item.offsetLeft + (a.x == null ? 0.5 : a.x) * item.offsetWidth };
   }
 
-  function posAt(t) { // 재생 시각 → 목록 컨테이너 y(px). 앵커 2개 미만이면 null
+  function lineHeight() { // 한 줄(단) 높이 추정 — 서로 다른 줄 앵커들의 y 간격 최솟값(px), 없으면 60
+    var ys = [];
+    anchors.forEach(function (a) { var p = pos(a); if (p) ys.push(p.y); });
+    ys.sort(function (a, b) { return a - b; });
+    var best = null;
+    for (var i = 1; i < ys.length; i++) {
+      var d = ys[i] - ys[i - 1];
+      if (d > 14 && (best == null || d < best)) best = d;
+    }
+    return Math.max(30, Math.min(160, best || 60));
+  }
+
+  function segments() { // 시간순 앵커쌍 → 가로 조각 [{y,x1,x2,t1,t2}] 목록
+    var segs = [], tol = lineHeight() * 0.5;
+    for (var i = 0; i < anchors.length - 1; i++) {
+      var A = pos(anchors[i]), B = pos(anchors[i + 1]);
+      if (!A || !B) continue;
+      var t1 = anchors[i].t, t2 = anchors[i + 1].t;
+      if (Math.abs(B.y - A.y) <= tol) {           // 같은 줄 — 가로 이동
+        segs.push({ y: A.y, x1: A.x, x2: B.x, t1: t1, t2: t2 });
+      } else {                                     // 줄 바뀜 — A줄 나머지 + B줄 시작부(시간=가로거리 비례)
+        var rightA = A.item.offsetLeft + A.item.offsetWidth;
+        var leftB = B.item.offsetLeft;
+        var w1 = Math.max(8, rightA - A.x), w2 = Math.max(8, B.x - leftB);
+        var tm = t1 + (t2 - t1) * (w1 / (w1 + w2));
+        segs.push({ y: A.y, x1: A.x, x2: rightA, t1: t1, t2: tm });
+        segs.push({ y: B.y, x1: leftB, x2: B.x, t1: tm, t2: t2 });
+      }
+    }
+    return segs;
+  }
+
+  function posAt(t) { // 재생 시각 → {x, y}(px). 앵커 2개 미만이면 null
     if (anchors.length < 2) return null;
-    if (t <= anchors[0].t) return absY(anchors[0]);
-    for (var i = 0; i < anchors.length - 1; i++) {
-      var a = anchors[i], b = anchors[i + 1];
-      if (t <= b.t) {
-        var ya = absY(a), yb = absY(b);
-        if (ya == null || yb == null) return ya != null ? ya : yb;
-        var r = (t - a.t) / Math.max(0.001, b.t - a.t);
-        return ya + (yb - ya) * r;
+    var first = pos(anchors[0]), last = pos(anchors[anchors.length - 1]);
+    if (first && t <= anchors[0].t) return { x: first.x, y: first.y };
+    if (last && t >= anchors[anchors.length - 1].t) return { x: last.x, y: last.y };
+    var segs = segments();
+    for (var i = 0; i < segs.length; i++) {
+      var s = segs[i];
+      if (t <= s.t2) {
+        var r = (t - s.t1) / Math.max(0.001, s.t2 - s.t1);
+        return { x: s.x1 + (s.x2 - s.x1) * Math.max(0, Math.min(1, r)), y: s.y };
       }
     }
-    return absY(anchors[anchors.length - 1]);
+    return last ? { x: last.x, y: last.y } : null;
   }
 
-  function timeAt(item, relY) { // 악보 클릭 위치 → 재생 시각(역보간). 그 지점을 지나는 첫 구간 기준
+  function timeAt(item, relX, relY) { // 악보 클릭 → 시각: 가장 가까운 '줄 조각'에 사영
     if (!anchors.length) return null;
+    var x = item.offsetLeft + relX * item.offsetWidth;
     var y = item.offsetTop + relY * item.offsetHeight;
-    for (var i = 0; i < anchors.length - 1; i++) {
-      var ya = absY(anchors[i]), yb = absY(anchors[i + 1]);
-      if (ya == null || yb == null) continue;
-      var lo = Math.min(ya, yb), hi = Math.max(ya, yb);
-      if (y >= lo && y <= hi && hi - lo > 1) {
-        var r = (y - ya) / (yb - ya);
-        return anchors[i].t + (anchors[i + 1].t - anchors[i].t) * Math.max(0, Math.min(1, r));
+    var segs = segments(), best = null, bd = Infinity;
+    segs.forEach(function (s) {
+      var lo = Math.min(s.x1, s.x2), hi = Math.max(s.x1, s.x2);
+      var cx = Math.max(lo, Math.min(hi, x));
+      var d = Math.abs(y - s.y) + Math.abs(x - cx) * 0.15; // 줄(세로) 거리 우선, 가로는 보조
+      if (d < bd) {
+        bd = d;
+        var r = (cx - s.x1) / ((s.x2 - s.x1) || 1);
+        best = s.t1 + (s.t2 - s.t1) * Math.max(0, Math.min(1, r));
       }
-    }
-    // 구간 밖 — 가장 가까운 앵커의 시각
-    var best = null, bd = Infinity;
-    anchors.forEach(function (a) {
-      var ay = absY(a);
-      if (ay == null) return;
-      var d = Math.abs(ay - y);
-      if (d < bd) { bd = d; best = a.t; }
     });
-    return best;
+    if (best != null) return best;
+    var bt = null, bdd = Infinity;   // 조각이 없으면(앵커 1개) 최근접 앵커
+    anchors.forEach(function (a) {
+      var p = pos(a);
+      if (!p) return;
+      var d = Math.abs(p.y - y);
+      if (d < bdd) { bdd = d; bt = a.t; }
+    });
+    return bt;
   }
 
-  /* ---- 실시간 하이라이트 + 따라가기 ---- */
+  /* ---- 실시간 커서(세로 선) + 따라가기 ---- */
+  var userScrollUntil = 0; // 직접 스크롤하면 잠시 따라가기 양보(스크롤 강탈 금지 — 사용자 비판)
+  ['wheel', 'touchmove', 'keydown'].forEach(function (ev) {
+    window.addEventListener(ev, function () { userScrollUntil = Date.now() + 4000; }, { passive: true });
+  });
+
   function updateBand(t) {
     var band = document.getElementById('ts-band');
-    var y = posAt(t == null ? Shell.visualTime() : t);
-    if (y == null) { band.hidden = true; return; }
+    var p = posAt(t == null ? Shell.visualTime() : t);
+    if (p == null) { band.hidden = true; return; }
     band.hidden = false;
-    band.style.top = y + 'px';
-    if (follow && player.isPlaying && player.isPlaying()) {
+    band.style.top = p.y + 'px';
+    band.style.left = p.x + 'px';
+    band.style.height = Math.round(lineHeight() * 0.9) + 'px';
+    if (follow && !anchorMode && player.isPlaying && player.isPlaying() && Date.now() > userScrollUntil) {
       var list = document.getElementById('ts-list');
-      var abs = list.getBoundingClientRect().top + window.scrollY + y; // 페이지 기준
+      var abs = list.getBoundingClientRect().top + window.scrollY + p.y; // 페이지 기준
       var vh = window.innerHeight;
       var cur = window.scrollY;
       if (abs < cur + vh * 0.2 || abs > cur + vh * 0.7) {
@@ -211,6 +260,7 @@
   }
   Shell.on('tick', function (t) { updateBand(t); }, 'sheet');
   Shell.on('seek', function (t) { updateBand(t); }, 'sheet');
+  window.__sheetUpdate = updateBand; // 검증 배터리 관례(직접 seek 후 갱신 트리거용)
 
   /* ---- 업로드·삭제 ---- */
   document.getElementById('ts-file-input').addEventListener('change', function (e) {
@@ -249,14 +299,16 @@
     var item = e.target.closest('.teamsheet-item');
     if (!item || !(item.querySelector('img') || item.querySelector('canvas'))) return; // iframe 폴백만 제외
     var rect = item.getBoundingClientRect();
+    var relX = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
     var relY = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
     if (anchorMode) {
       var t = player.currentTime ? player.currentTime() : 0;
-      anchors.push({ t: Math.round(t * 1000) / 1000, name: item.dataset.name, y: Math.round(relY * 10000) / 10000 });
+      anchors.push({ t: Math.round(t * 1000) / 1000, name: item.dataset.name,
+                     y: Math.round(relY * 10000) / 10000, x: Math.round(relX * 10000) / 10000 });
       anchors.sort(function (a, b) { return a.t - b.t; });
       saveAnchors(); renderAnchors(); updateBand();
     } else {
-      var to = timeAt(item, relY);
+      var to = timeAt(item, relX, relY);
       if (to != null) { player.seek(to); updateBand(to); }
     }
   });
