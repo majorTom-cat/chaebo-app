@@ -16,21 +16,80 @@
   function fmt(t) { return Shell.fmt ? Shell.fmt(t) : (Math.floor(t / 60) + ':' + ('0' + Math.floor(t % 60)).slice(-2)); }
 
   /* ---- 목록 렌더 ---- */
+  var pdfLibP = null; // pdf.js(vendor, Apache-2.0) — PDF 를 페이지별 캔버스로 직접 그림.
+                      // iframe 내장 뷰어는 클릭을 삼켜 위치 연결이 불가했음(사용자 지적 2026-07-27).
+  function pdfLib() {
+    if (!pdfLibP) {
+      pdfLibP = import('/static/vendor/pdfjs/pdf.min.mjs').then(function (lib) {
+        lib.GlobalWorkerOptions.workerSrc = '/static/vendor/pdfjs/pdf.worker.min.mjs';
+        return lib;
+      });
+    }
+    return pdfLibP;
+  }
+
+  function renderPdf(f, holder) {
+    return pdfLib().then(function (lib) {
+      return lib.getDocument(f.url).promise;
+    }).then(function (doc) {
+      var chain = Promise.resolve();
+      var frag = document.createDocumentFragment();
+      for (var n = 1; n <= doc.numPages; n++) {
+        (function (pageNo) {
+          chain = chain.then(function () { return doc.getPage(pageNo); }).then(function (page) {
+            var holderW = holder.clientWidth || 860;
+            var vp1 = page.getViewport({ scale: 1 });
+            var scale = Math.min((holderW * (window.devicePixelRatio || 1)) / vp1.width, 3);
+            var vp = page.getViewport({ scale: scale });
+            var item = document.createElement('div');
+            item.className = 'teamsheet-item';
+            item.dataset.name = f.name + '#p' + pageNo; // 앵커는 페이지 단위로 연결
+            var canvas = document.createElement('canvas');
+            canvas.width = vp.width; canvas.height = vp.height;
+            item.innerHTML = '<span class="teamsheet-name">' + esc(f.name.replace(/^\d{3}_/, ''))
+              + (doc.numPages > 1 ? ' · ' + pageNo + '/' + doc.numPages : '') + '</span>'
+              + (pageNo === 1 ? '<button type="button" class="btn btn-outline-danger btn-sm teamsheet-del" data-name="' + esc(f.name) + '">삭제</button>' : '');
+            item.appendChild(canvas);
+            frag.appendChild(item);
+            return page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
+          });
+        })(n);
+      }
+      return chain.then(function () { holder.replaceWith(frag); });
+    }).catch(function () {
+      // 렌더 실패(깨진 PDF 등) — 내장 뷰어 폴백(보기만 가능, 위치 연결은 안 됨)
+      var item = document.createElement('div');
+      item.className = 'teamsheet-item';
+      item.dataset.name = f.name;
+      item.innerHTML = '<span class="teamsheet-name">' + esc(f.name.replace(/^\d{3}_/, '')) + '</span>'
+        + '<button type="button" class="btn btn-outline-danger btn-sm teamsheet-del" data-name="' + esc(f.name) + '">삭제</button>'
+        + '<iframe src="' + esc(f.url) + '" title="' + esc(f.name) + '"></iframe>';
+      holder.replaceWith(item);
+    });
+  }
+
   function render(files) {
     var list = document.getElementById('ts-list');
     var empty = document.getElementById('ts-empty');
     empty.hidden = files.length > 0;
     var html = '';
-    files.forEach(function (f) {
-      html += '<div class="teamsheet-item" data-name="' + esc(f.name) + '">'
-        + '<span class="teamsheet-name">' + esc(f.name.replace(/^\d{3}_/, '')) + '</span>'
-        + '<button type="button" class="btn btn-outline-danger btn-sm teamsheet-del" data-name="' + esc(f.name) + '">삭제</button>'
-        + (f.pdf
-          ? '<iframe src="' + esc(f.url) + '" title="' + esc(f.name) + '"></iframe>'
-          : '<img src="' + esc(f.url) + '" alt="' + esc(f.name) + '" loading="lazy">')
-        + '</div>';
+    files.forEach(function (f, i) {
+      html += f.pdf
+        ? '<div class="teamsheet-pdfholder" data-i="' + i + '"><span class="control-label">PDF 여는 중…</span></div>'
+        : '<div class="teamsheet-item" data-name="' + esc(f.name) + '">'
+          + '<span class="teamsheet-name">' + esc(f.name.replace(/^\d{3}_/, '')) + '</span>'
+          + '<button type="button" class="btn btn-outline-danger btn-sm teamsheet-del" data-name="' + esc(f.name) + '">삭제</button>'
+          + '<img src="' + esc(f.url) + '" alt="' + esc(f.name) + '" loading="lazy">'
+          + '</div>';
     });
     list.innerHTML = html;
+    var pdfJobs = [];
+    files.forEach(function (f, i) {
+      if (!f.pdf) return;
+      var holder = list.querySelector('.teamsheet-pdfholder[data-i="' + i + '"]');
+      if (holder) pdfJobs.push(renderPdf(f, holder));
+    });
+    if (pdfJobs.length) Promise.all(pdfJobs).then(function () { renderAnchors(); updateBand(); window.__pdfRendered = true; });
     renderAnchors();
   }
 
@@ -175,7 +234,7 @@
     }
     if (e.target.closest('.ts-anchor')) return; // 칩 나머지 부분 클릭은 무시
     var item = e.target.closest('.teamsheet-item');
-    if (!item || !item.querySelector('img')) return; // PDF 는 클릭 좌표 못 받음(iframe) — 이미지에만
+    if (!item || !(item.querySelector('img') || item.querySelector('canvas'))) return; // iframe 폴백만 제외
     var rect = item.getBoundingClientRect();
     var relY = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
     if (anchorMode) {
