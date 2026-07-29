@@ -418,7 +418,8 @@ async def _regen_score_lyrics(song_id: int, lyrics: dict):
     tex = build_tab_tex(json.loads(row["notes"]), row["bpm"], song["title"][:80],
                         json.loads(row.get("key_json") or "null"),
                         json.loads(row.get("chords") or "null"),
-                        row.get("meter") or "4/4", row.get("grid_v") or 1, lyrics=lyrics)
+                        row.get("meter") or "4/4", row.get("grid_v") or 1, lyrics=lyrics,
+                        slots=json.loads(row["slots"]) if row.get("slots") else None)
     await db.upsert_transcription(song_id, tex=tex)
 
 

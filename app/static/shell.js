@@ -565,6 +565,7 @@ window.Shell = (function () {
   var _SCALE_IV = [0, 2, 4, 5, 7, 9, 11];   // 장음계 도수(곡 스케일 = 장조 기준 base 로 통일)
   var _LETTERS = ['C', 'D', 'E', 'F', 'G', 'A', 'B'];
   var _LET_PC = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
+  var _NATURAL_PC = { 0: 1, 2: 1, 4: 1, 5: 1, 7: 1, 9: 1, 11: 1 };  // 임시표 없이 부르는 음(흰건반)
   /* 음이름 철자는 **글자(도수) 기준**으로 — 반음 개수만으로 이름을 붙이면 F장조에서 E♭ 을 'D#' 이라
      쓰는 오표기가 난다(실측 2026-07-29). 코드 근음 글자에서 3도=글자+2, 5도=글자+4 로 세고,
      남는 차이를 ♯/♭ 로 채운다(A 의 3도는 C♯, E♭ 의 5도는 B♭). 조표와 무관하게 항상 맞다. */
@@ -573,7 +574,15 @@ window.Shell = (function () {
     var letter = _LETTERS[li];
     var diff = (((pc - _LET_PC[letter]) % 12) + 12) % 12;
     if (diff > 6) diff -= 12;                       // -1(♭) ~ +1(♯) 범위로
-    var acc = diff === 0 ? '' : (diff > 0 ? new Array(diff + 1).join('♯') : new Array(-diff + 1).join('♭'));
+    // ★연주자가 짚을 수 있는 이름으로 — 이론상 맞아도 헷갈리는 표기는 쉬운 이름으로 바꾼다(규칙 9).
+    //   ①겹올림·겹내림(D♯의 3도 F♯♯) ②흰건반 음에 붙은 임시표(B♯=C, E♯=F, F♭=E, C♭=B).
+    //   지판에서는 어차피 같은 자리이고, '무엇을 짚나'가 이 표시의 목적이다.
+    //   표기는 앱 전체 관례(ASCII '#'·'b')를 따른다 — 코드 라벨·키 배지·안전음이 전부 그 표기라
+    //   여기만 ♯/♭ 를 쓰면 같은 화면에서 두 표기가 섞인다(실측 2026-07-29).
+    var p12 = ((pc % 12) + 12) % 12;
+    if (diff > 1 || diff < -1) return _PCS_S[p12];
+    if (diff !== 0 && _NATURAL_PC[p12]) return _PCS_S[p12];
+    var acc = diff === 0 ? '' : (diff > 0 ? '#' : 'b');
     return letter + acc;
   }
   function _rootParts(label) {

@@ -399,7 +399,7 @@ async def edit_chord(song_id: int, body: ChordEdit):
         notes2, families = sanitize_mixed(notes2)
     key = effective_key(notes2, row.get("key_override"))
     tex = to_alphatex(notes2, row["bpm"], song["title"][:80], key=key, chords=chords,
-                      meter=meter2, families=families, lyrics=_row_lyrics(row))
+                      meter=meter2, families=families, lyrics=_row_lyrics(row), slots=_row_slots(row))
     await db.upsert_transcription(
         song_id, chords=json.dumps(chords, ensure_ascii=False), tex=tex)
     return {"ok": True, "chords": chords}
@@ -563,7 +563,8 @@ async def _regen_score_lyrics(song_id: int, lyrics: dict):
     tex = build_tab_tex(json.loads(row["notes"]), row["bpm"], song["title"][:80],
                         json.loads(row.get("key_json") or "null"),
                         json.loads(row.get("chords") or "null"),
-                        row.get("meter") or "4/4", row.get("grid_v") or 1, lyrics=lyrics)
+                        row.get("meter") or "4/4", row.get("grid_v") or 1, lyrics=lyrics,
+                        slots=json.loads(row["slots"]) if row.get("slots") else None)
     await db.upsert_transcription(song_id, tex=tex)
 
 
@@ -657,7 +658,7 @@ async def edit_key(song_id: int, body: KeyEdit):
         json.loads(row.get("chords") or "[]"))
     song = await db.get_song(song_id)
     tex = to_alphatex(notes, row["bpm"], song["title"][:80], key=key, chords=chords,
-                      meter=meter, families=families, lyrics=_row_lyrics(row))
+                      meter=meter, families=families, lyrics=_row_lyrics(row), slots=_row_slots(row))
     await db.upsert_transcription(
         song_id, key_override=override,
         key_json=json.dumps(key, ensure_ascii=False),
@@ -800,7 +801,7 @@ async def get_tab(song_id: int):
             notes, key, bar_slots=48 if (meter == "12/8" or (row.get("grid_v") or 1) >= 2) else 16)
         song = await db.get_song(song_id)
         tex = to_alphatex(notes, row["bpm"], song["title"][:80], key=key, chords=chords, meter=meter,
-                          lyrics=_row_lyrics(row))
+                          lyrics=_row_lyrics(row), slots=_row_slots(row))
         fields = dict(tex=tex,
                       key_json=json.dumps(key, ensure_ascii=False),
                       chords=json.dumps(chords, ensure_ascii=False))
@@ -811,6 +812,34 @@ async def get_tab(song_id: int):
                     tab_file.read_text(encoding="utf-8")).get("offset") or 0
         await db.upsert_transcription(song_id, **fields)
         row = await db.get_transcription(song_id)
+    # ★자가 보정 — 마지막 음표 뒤에도 가사가 있는데 악보가 거기서 끊겨 있으면 tex 를 다시 만든다.
+    #   (세션이 빠지고 보컬만 남는 아웃트로: 종전엔 그 구간이 통째로 안 그려졌다 — 사용자 실증 2026-07-29.
+    #    tex 는 전부 파생물이라 재생성해도 손실 없음. 한 번 저장되면 다음부턴 조건에 안 걸린다.)
+    if row and row.get("tex") and row.get("lyrics") and row.get("notes") and row.get("slots"):
+        try:
+            _notes = json.loads(row["notes"])
+            _ly = json.loads(row["lyrics"])
+            _segs = (_ly or {}).get("segments") or []
+            _ly_end = max((float(g.get("e") or g.get("s") or 0) for g in _segs), default=0.0)
+            _n_end = max((float(n["start"]) for n in _notes), default=0.0)
+            if _ly_end > _n_end + 2.0:   # 노트 뒤에 가사가 남아 있다 → 악보가 덮는지 확인
+                _bar_slots = 48 if ((row.get("meter") or "4/4") == "12/8" or (row.get("grid_v") or 1) >= 2) else 16
+                _have = row["tex"].splitlines()[-1].count(" | ") + 1
+                _slots = json.loads(row["slots"])
+                from app.tab_worker import _lyrics_by_gi, build_tab_tex
+                _gl = _lyrics_by_gi(_ly, _notes, slots=_slots, bar_slots=_bar_slots)
+                _need = (max(_gl) // _bar_slots) + 1 if _gl else 0
+                if _need > _have:
+                    song = await db.get_song(song_id)
+                    tex = build_tab_tex(_notes, row["bpm"], (song["title"] or "")[:80],
+                                        json.loads(row["key_json"]) if row.get("key_json") else None,
+                                        json.loads(row["chords"]) if row.get("chords") else None,
+                                        row.get("meter") or "4/4", row.get("grid_v") or 1,
+                                        lyrics=_ly, slots=_slots)
+                    await db.upsert_transcription(song_id, tex=tex)
+                    row = await db.get_transcription(song_id)
+        except Exception:  # noqa: BLE001 — 보정 실패는 조용히(기존 악보 그대로 보여주면 됨)
+            pass
     for field in ("notes", "key_json", "chords", "slots", "lyrics", "sections", "tab_anchors"):
         if row.get(field):
             row[field] = json.loads(row[field])
@@ -850,6 +879,18 @@ async def shift_tab_phase(song_id: int, body: TabShift):
         return await _shift_tab_phase(song_id, body)
 
 
+def _row_slots(row):
+    """격자(gi→절대시각). tex 재생성 시 '음표 없는 구간의 가사'를 배치하는 데 쓴다 —
+    안 넘기면 세션이 빠진 아웃트로 가사가 통째로 사라진다(실증 2026-07-29). row 는 파싱 전/후 모두 허용."""
+    v = row.get("slots") if row else None
+    if isinstance(v, str):
+        try:
+            v = json.loads(v)
+        except Exception:  # noqa: BLE001
+            return None
+    return v or None
+
+
 def _row_lyrics(row):
     """저장된 가사(JSON) → dict — tex 를 재생성하는 '모든' 경로가 이걸 lyrics= 로 넘겨야 한다.
     빼먹으면 그 경로를 탈 때마다 오선 아래 가사가 통째로 사라진다(실증 2026-07-18: 재분석·코드/키
@@ -866,7 +907,7 @@ def _tex_from_notes(row, song, notes, key_override, existing_chords, bar_slots, 
     key = effective_key(notes, key_override)
     chords = merge_manual_chords(estimate_chords(notes, key, bar_slots=bar_slots), existing_chords)
     tex = to_alphatex(notes, row["bpm"], song["title"][:80], key=key, chords=chords,
-                      meter=row.get("meter") or "4/4", families=families, lyrics=_row_lyrics(row))
+                      meter=row.get("meter") or "4/4", families=families, lyrics=_row_lyrics(row), slots=_row_slots(row))
     return key, chords, tex
 
 
@@ -934,7 +975,7 @@ async def _shift_tab_phase(song_id: int, body: TabShift):
         shifted_chords.append({**c, "bar": g // bar_slots, "pos": g % bar_slots})
     key = json.loads(row["key_json"]) if row.get("key_json") else None
     tex = to_alphatex(notes, row["bpm"], song["title"][:80], key=key,
-                      chords=shifted_chords, meter=meter, families=families, lyrics=_row_lyrics(row))
+                      chords=shifted_chords, meter=meter, families=families, lyrics=_row_lyrics(row), slots=_row_slots(row))
     await db.upsert_transcription(
         song_id, notes=json.dumps(notes, ensure_ascii=False), tex=tex,
         beat_offset=new_offset,
@@ -1439,7 +1480,7 @@ async def update_song_meta(song_id: int, body: SongMeta):
                 estimate_chords(notes, key, bar_slots=bar_slots),
                 json.loads(row.get("chords") or "[]"))
             tex = to_alphatex(notes, row["bpm"], fields["title"][:80], key=key, chords=chords,
-                              meter=meter, families=families, lyrics=_row_lyrics(row))
+                              meter=meter, families=families, lyrics=_row_lyrics(row), slots=_row_slots(row))
             await db.upsert_transcription(song_id, tex=tex)
     return await db.get_song(song_id)
 

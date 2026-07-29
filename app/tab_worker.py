@@ -1933,16 +1933,19 @@ def chroma_chords(stems_dir, notes, slots, bpm, offset, bar_slots, key=None):
     return [c for c in chords if c["label"] is not None]
 
 
-def build_tab_tex(notes, bpm, title, key, chords, meter, grid_v, lyrics=None):
+def build_tab_tex(notes, bpm, title, key, chords, meter, grid_v, lyrics=None, slots=None):
     """tex 재생성 공통 진입점 — grid_v>=2 면 families(sanitize_mixed) 재계산 후 to_alphatex.
     가사 변경 시 악보(오선 아래 가사) 갱신·편집 경로 공용. 순수 함수(db 접근 없음)라 순환 임포트 없음."""
     ns, fam = (sanitize_mixed(notes) if (grid_v or 1) >= 2 and meter != "12/8" else (notes, None))
-    return to_alphatex(ns, bpm, title, key=key, chords=chords, meter=meter, families=fam, lyrics=lyrics)
+    return to_alphatex(ns, bpm, title, key=key, chords=chords, meter=meter, families=fam, lyrics=lyrics, slots=slots)
 
 
-def _lyrics_by_gi(lyrics, notes):
+def _lyrics_by_gi(lyrics, notes, slots=None, bar_slots=None):
     """가사 단어를 '가장 가까운 노트(start)'에 붙여 {gi: [단어...]} 로 — 악보 오선 아래 가사(노래책 느낌).
-    ASR은 단어별 시각, 붙여넣기는 세그 텍스트를 [s,e]에 균등 분배. ♪ placeholder는 제외."""
+    ASR은 단어별 시각, 붙여넣기는 세그 텍스트를 [s,e]에 균등 분배. ♪ placeholder는 제외.
+    ★마지막 음표 뒤(세션이 빠지고 보컬만 남는 아웃트로)의 가사는 붙일 노트가 없다 — 종전엔 통째로
+    버려져 악보가 곡 중간에서 끝났다(사용자 실증 2026-07-29, 성령이 오셨네: 곡 265.9초 중 232.2초에서 끊김).
+    slots 를 주면 그 구간 단어를 **격자 박 슬롯**에 직접 얹어 쉼표 마디로 이어간다."""
     out = {}
     if not lyrics or lyrics.get("status") != "ready" or not notes:
         return out
@@ -1972,6 +1975,23 @@ def _lyrics_by_gi(lyrics, notes):
         best = min(cand, key=lambda x: abs(starts[x] - t))
         if abs(starts[best] - t) <= 0.7:  # 0.7초 이내 노트에만(먼 가사는 안 붙임 — 간주 등)
             out.setdefault(ns[best]["gi"], []).append(w)
+    # ---- 마지막 음표 이후의 가사 = 격자 박 슬롯에 직접 (노트가 없어 위 루프가 못 붙인 것) ----
+    if slots is not None and len(slots) > 1 and bar_slots:
+        last_note = ns[-1]
+        tail_t = float(last_note["start"]) + 0.7
+        beat = max(1, bar_slots // 4)          # 박 단위로 스냅 — 쉼표 조판이 읽히게(칸이 잘게 쪼개지지 않게)
+        step = (float(slots[-1]) - float(slots[0])) / max(1, len(slots) - 1)   # 슬롯 1칸 시간
+        for t, w in sorted(pairs):
+            if t <= tail_t:
+                continue
+            if t <= float(slots[-1]):
+                gi = int(np.searchsorted(np.asarray(slots, dtype=float), t))
+            else:                                # 격자 밖 — 마지막 간격으로 등속 연장(재분석 없이 기존 곡도 적용)
+                gi = int(len(slots) - 1 + round((t - float(slots[-1])) / max(step, 1e-6)))
+            gi = int(round(gi / beat) * beat)     # 박에 스냅
+            if gi <= last_note["gi"]:
+                continue
+            out.setdefault(gi, []).append(w)
     return out
 
 
@@ -2189,7 +2209,7 @@ def _note_fx_brace(art):
     return "{" + " ".join(fx) + "}" if fx else ""
 
 
-def to_alphatex(notes, bpm, title, key=None, chords=None, meter="4/4", families=None, lyrics=None):
+def to_alphatex(notes, bpm, title, key=None, chords=None, meter="4/4", families=None, lyrics=None, slots=None):
     """alphaTex 생성 — 베이스 표준(낮은음자리표 F4 + 조표 + 마디 코드), 튜닝 표기 G2 D2 A1 E1.
     그리드: 4/4 v1(마디 16칸, 균일 폴백) / 4/4 v2(마디 48칸 + families 로 박별 16분·셋잇단
     가족 — Longview 류 부분 셋잇단을 {tu 3} 괄호로 조판) / 12/8(마디 48칸, 펄스=8분)."""
@@ -2240,12 +2260,16 @@ def to_alphatex(notes, bpm, title, key=None, chords=None, meter="4/4", families=
             chord_marks.append((c["bar"] * bar_len + pos, c["label"]))
         _prev_label = c["label"]
     # alphaTex 현 번호: 1=가장 높은 현(G2) → 우리 string 0(E1)=4
-    slots = {nt["gi"]: nt for nt in notes}
-    gi_lyric = _lyrics_by_gi(lyrics, notes)  # {gi: [단어...]} — 오선 아래 가사
+    note_slots = {nt["gi"]: nt for nt in notes}   # gi → 노트 (인자 slots(격자 시각)와 이름 충돌 회피)
+    gi_lyric = _lyrics_by_gi(lyrics, notes, slots=slots, bar_slots=bar_len)  # {gi: [단어...]} — 오선 아래 가사
     # 아티큘레이션은 notes[].art → 음표효과 중괄호(길이 앞)로 방출 — 2026-07-18 렌더까지 실증 완료
     #   (한때 "파서 충돌·렌더 불가"로 보류했던 것: 길이 뒤 중괄호가 원인이었음. 설계문서 참조).
-    slot_keys = sorted(slots)  # 쉼표 다음경계 조회용 정렬 키 — bisect O(log n)(코드검사 2026-07-17: 종전 매 쉼표 전수스캔 O(노트²))
-    end_gi = max(slots) + slots[max(slots)]["glen"] if slots else bar_len
+    slot_keys = sorted(set(list(note_slots) + list(gi_lyric)))  # 쉼표 경계 = 다음 노트 '또는 가사' 자리 — bisect O(log n)(코드검사 2026-07-17: 종전 매 쉼표 전수스캔 O(노트²))
+    end_gi = max(note_slots) + note_slots[max(note_slots)]["glen"] if note_slots else bar_len
+    # ★음표가 끝나도 가사가 남아 있으면 거기까지 이어간다(쉼표 마디) — 세션이 빠지고 보컬만 남는
+    #   아웃트로에서 악보가 곡 중간에 끊기던 문제(사용자 실증 2026-07-29)
+    if gi_lyric:
+        end_gi = max(end_gi, max(gi_lyric) + 1)
     bars = []
     bar, filled = [], 0
     gi = 0
@@ -2282,8 +2306,8 @@ def to_alphatex(notes, bpm, title, key=None, chords=None, meter="4/4", families=
             cur_table = _DUR48_T if cur_fam == "T" else _DUR48_S
         else:
             cur_table = table
-        if gi in slots:
-            nt = slots[gi]
+        if gi in note_slots:
+            nt = note_slots[gi]
             token_len = min(nt["glen"], remaining_in_bar)
             name, dotted, tup, used = _dur_token(token_len, cur_table)
             # 아티큘레이션은 음 머리 토큰에 — 단 슬라이드(sl/ss)는 다음 음과 맞닿는 토큰에 그려지므로,
@@ -2334,7 +2358,9 @@ def to_alphatex(notes, bpm, title, key=None, chords=None, meter="4/4", families=
             # 쉼표 — 다음 노트/마디(가족) 경계까지 (정렬 키 bisect 로 다음 gi 조회)
             sustain = None
             _j = bisect.bisect_right(slot_keys, gi)
-            nxt = slot_keys[_j] if _j < len(slot_keys) else end_gi
+            # 마지막 내용(노트·가사) 뒤 = 마디 끝까지 한 번에 쉼표로 채운다
+            # (안 그러면 8분쉼표가 줄줄이 깔려 마지막 마디가 지저분 — 실측 2026-07-29)
+            nxt = slot_keys[_j] if _j < len(slot_keys) else max(end_gi, gi + remaining_in_bar)
             token_len = min(nxt - gi, remaining_in_bar)
             name, dotted, tup, used = _dur_token(token_len, cur_table)
             reffects = []
@@ -2347,6 +2373,8 @@ def to_alphatex(notes, bpm, title, key=None, chords=None, meter="4/4", families=
                 # 마디마다 코드 위치가 들쭉날쭉(사용자 실증 2026-07-10). 쉼표 부착은 스모크 검증 완료
                 reffects.append(f'ch "{chord_pending}"')
                 chord_pending = None
+            if gi in gi_lyric and gi not in note_slots:  # 음표 없는 자리의 가사(아웃트로) — 쉼표에 얹는다
+                reffects.append('lyrics "%s"' % " ".join(gi_lyric[gi]).replace('"', ""))
             bar.append(f'r.{name}' + ("{" + " ".join(reffects) + "}" if reffects else ""))
         gi += used
         filled += used
@@ -2675,7 +2703,8 @@ def main():
             chords = None
     if not chords:
         chords = estimate_chords(notes, key, bar_slots=bar_slots)
-    tex = to_alphatex(notes, bpm, title, key=key, chords=chords, meter=meter, families=families)
+    tex = to_alphatex(notes, bpm, title, key=key, chords=chords, meter=meter, families=families,
+                      slots=(list(slots) if slots is not None else None))
     max_gi = (notes[-1]["gi"] + notes[-1]["glen"] + 32) if notes else 0
     with open(out_json, "w", encoding="utf-8") as f:
         json.dump({"bpm": bpm, "offset": offset, "notes": notes, "tex": tex,

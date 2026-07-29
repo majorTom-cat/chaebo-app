@@ -405,6 +405,14 @@
     }
   }
 
+  function flowCoveredSec() {   // 지금 그려진 흐름 띠가 덮는 마지막 시각(초)
+    if (!tab || !tab.bpm) return 0;
+    var inner = document.getElementById('flow-inner');
+    var w = parseFloat(inner && inner.style.width) || 0;
+    if (!w) return 0;
+    return slotTime(Math.max(0, (w - FLOW_PAD * 2) / subPx()));
+  }
+
   function renderFlow() {
     window.__tab = tab; // 검증 배터리 관례(앵커·격자 상태 확인용 — __flowReady·__sheetUpdate 와 같은 훅)
     var inner = document.getElementById('flow-inner');
@@ -420,6 +428,17 @@
     var BAR = barSlots();
     var lastEnd = 0;
     tab.notes.forEach(function (nt) { lastEnd = Math.max(lastEnd, nt.gi + nt.glen); });
+    // ★음표가 끝나도 곡은 계속된다 — 세션이 빠지고 보컬만 남는 아웃트로에서 격자를 끊으면
+    //   그 구간 가사·파형·진행바가 통째로 사라진다(사용자 실증 2026-07-29: 265.9초 곡이 232.2초에서 끝남).
+    //   가사 끝·곡 길이까지 격자를 이어간다(시각→슬롯 변환은 마지막 간격으로 등속 연장됨).
+    var ly = tab.lyrics;
+    if (ly && ly.segments && ly.segments.length) {
+      var lyEnd = 0;
+      ly.segments.forEach(function (sg) { lyEnd = Math.max(lyEnd, sg.e || sg.s || 0); });
+      if (lyEnd > 0) lastEnd = Math.max(lastEnd, timeSlot(lyEnd) + 1);
+    }
+    var songDur = (player && player.duration && player.duration()) || duration || 0;
+    if (songDur > 0) lastEnd = Math.max(lastEnd, timeSlot(songDur));
     var totalBars = Math.ceil(lastEnd / BAR) + 1; // 여분 1마디 — 곡 끝 뒤에도 음 추가 가능(편집)
     inner.style.width = (FLOW_PAD * 2 + totalBars * BAR * subPx()) + 'px';
 
@@ -2083,6 +2102,9 @@
       Shell.ready.then(function () {
         duration = player.duration();
         updateCursor(); // 로드 직후에도 현재 위치 표시(악보가 늦게 렌더되면 collectBeats 가 재호출)
+        // 흐름 띠가 스템 로드 전에 그려졌으면 곡 길이를 몰라 짧게 끝나 있다 — 모자라면 다시 그린다
+        // (곡 끝까지 파형·가사·진행바가 이어지도록. 이미 충분하면 재렌더 없음 — 비싼 작업이라 조건부)
+        if (tab && tab.notes && duration > 0 && flowCoveredSec() + 1 < duration) renderFlow();
       });
       refreshTab();
     },
