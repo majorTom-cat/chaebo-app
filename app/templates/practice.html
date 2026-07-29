@@ -193,8 +193,26 @@ button.meta-badge:hover { border-color: var(--accent); }
 /* 빌린 코드(논 다이아토닉) 배지 + 연주 가이드 팝오버 — 다이아토닉은 무표시(배지 남발 금지) */
 .flow-chord.fc-nd { cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px; }
 .flow-chord.fc-nd::after { content: '●'; font-size: 7px; color: var(--accent); margin-left: 3px; vertical-align: 2px; }
+/* ★곡 스케일 그대로 치면 어긋나는 코드 — 근음까지 조 밖이면 '강'(칩으로 크게), 3·5도만 다르면 '중'.
+   (사용자 요청 2026-07-29: "키 구성음 아닌 근음… 그 키 스케일 치면 안 된다는 유의사항을 더 눈에 띄게") */
+.flow-chord.fc-strong { background: rgba(200, 72, 30, 0.13); border: 1px solid rgba(200, 72, 30, 0.5);
+  border-radius: 6px; padding: 1px 5px; text-decoration: none; }
+.flow-chord.fc-strong::after { content: none; }
+.flow-chord.fc-strong::before { content: '⚠ '; font-size: 10px; color: #b8431b; }
+.fc-clash { font-size: 11px; font-weight: 800; color: #b8431b; margin-left: 5px; white-space: nowrap; }
+.fc-clash .fcx { opacity: .55; font-weight: 700; }   /* 화살표 — 음이름이 주인공 */
 .chord-seg.chord-seg-nd { box-shadow: inset 0 2px 0 var(--accent); }
 .chord.chord-nd::after { content: '●'; font-size: 6px; color: var(--accent); margin-left: 2px; vertical-align: 3px; }
+/* 코드 악보 격자도 같은 2단계 — 강은 칩+바꿔 짚을 음, 중은 점만(뷰 간 세트 일관성) */
+.chord.chord-strong { background: rgba(200, 72, 30, 0.12); border: 1px solid rgba(200, 72, 30, 0.45);
+  border-radius: 6px; padding: 0 5px; }
+.chord.chord-strong::after { content: '⚠'; font-size: 9px; color: #b8431b; margin-left: 2px; vertical-align: 2px; }
+.cwrap { display: flex; flex-direction: column; align-items: center; min-width: 0; }
+.chord-clash { display: block; font-size: 10.5px; font-weight: 800; color: #b8431b; line-height: 1.2;
+  margin-top: 1px; white-space: nowrap; }
+.chord-clash .fcx { opacity: .55; }
+.cg-warn { background: rgba(200, 72, 30, 0.1); border-left: 3px solid #b8431b; border-radius: 4px;
+  padding: 6px 8px; margin: 0 0 6px; }
 /* 진행 밴드(흐름) + 셀 표시(코드 악보) — 클릭=구간 반복. 칩은 구간 '시작'에(미리 보임 — 사용자 지적),
    구간 전체를 옅은 채움+양끝 두꺼운 괄호선으로 명확히. */
 .flow-prog { position: absolute; top: 0; height: 21px; background: rgba(240,168,72,.16); border: 2px solid rgba(240,168,72,.85); border-bottom: none; border-left-width: 4px; border-right-width: 4px; border-radius: 8px 8px 0 0; cursor: pointer; z-index: 1; }
@@ -202,7 +220,7 @@ button.meta-badge:hover { border-color: var(--accent); }
 /* 칩은 구간 시작선 '왼쪽 바깥'에 매달림 — 첫 코드 글자를 안 덮는다(사용자 지적 2026-07-26) */
 .flow-prog-chip { position: absolute; top: -1px; left: -4px; transform: translateX(-100%); font-size: 10px; font-weight: 800; background: var(--accent); color: #1a1408; border-radius: 6px 0 0 6px; padding: 1px 6px; line-height: 15px; pointer-events: none; white-space: nowrap; box-shadow: 0 1px 3px rgba(0,0,0,.25); }
 /* 빌린 코드 상시 미니 힌트(안전음) — 클릭 없이 바로 보임. 다음 코드와 가까우면 렌더 생략(겹침 방지) */
-.fc-hint { font-size: 9px; font-weight: 700; color: #8a5a2b; opacity: .85; margin-left: 4px; }
+.fc-hint { font-size: 10px; font-weight: 700; color: #8a5a2b; opacity: .85; margin-left: 5px; white-space: nowrap; }
 
 /* 팀 악보(뷰 4) — 원본 악보 이미지/PDF 열람(로컬 전용) */
 .teamsheet-bar { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; margin-bottom: var(--sp-4); }
@@ -794,7 +812,7 @@ body.anchoring { cursor: ew-resize; user-select: none; }
       인쇄 / PDF 저장
     </button>
     <button type="button" class="btn btn-outline btn-sm" id="btn-lyrics" hidden>가사 받아쓰기</button>
-    <span class="control-label">마디를 누르면 코드·가사를 고칠 수 있어요 · 초록 = 직접 고친 것</span>
+    <span class="control-label">마디를 누르면 코드·가사를 고칠 수 있어요 · 초록 = 직접 고친 것 · <b style="color:#b8431b">빨강 ⚠</b> = 곡 스케일 밖(눌러서 설명)</span>
   </div>
 
   <div id="sheet-wrap" style="position: relative;">

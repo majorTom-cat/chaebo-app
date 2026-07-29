@@ -252,10 +252,21 @@
           if (c.label === prev) cls += ' same';
           if (c.manual) cls += ' manual';
           var isNd = ndAt[b + ':' + (c.pos || 0)];
-          if (isNd) cls += ' chord-nd';
+          // ★곡 스케일 그대로 치면 어긋나는 음(사용자 요청 2026-07-29) — 근음까지 조 밖이면 '강'
+          var clash = isNd ? Shell.scaleClash(c.label, isNd.info, meta.key_json) : null;
+          if (isNd) cls += ' chord-nd' + (clash && clash.level === 'strong' ? ' chord-strong' : '');
           prev = c.label;
+          var ttl = isNd ? ('다른 조에서 온 코드(추정)'
+            + (clash ? ' · ' + clash.keyName + ' 스케일 그대로는 안 맞아요(' + Shell.clashShort(clash) + ')' : '')
+            + ' — 누르면 연주 가이드') : '';
+          var clashHtml = (clash && clash.level === 'strong')   // 격자는 좁다 — '강'에만 글자로(중은 점)
+            ? '<span class="chord-clash">' + clash.swaps.map(function (w2) {
+                return (w2.from ? w2.from + '<span class="fcx">→</span>' : '') + w2.to;
+              }).join('<span class="fcx">·</span>') + '</span>' : '';
           segs += '<span class="cseg" style="flex:' + w + '">' +
-            '<span class="' + cls + '"' + (isNd ? ' data-ndkey="' + b + ':' + (c.pos || 0) + '" title="다른 조에서 온 코드(추정) — 누르면 연주 가이드"' : '') + '>' + fmtChord(c.label) + '</span></span>';
+            '<span class="cwrap">' +
+            '<span class="' + cls + '"' + (isNd ? ' data-ndkey="' + b + ':' + (c.pos || 0) + '" title="' + ttl + '"' : '') + '>' + fmtChord(c.label) + '</span>'
+            + clashHtml + '</span></span>';
         }
       }
       var lyr = lyricByBar[b];

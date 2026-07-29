@@ -457,12 +457,27 @@
       if (nd) {
         el.classList.add('fc-nd');
         el.dataset.nd = flowNdInfos.length;
-        el.title = ND_TITLES[nd.cls] + ' — 눌러서 연주 가이드 보기';
+        // ★곡 스케일 그대로 치면 어긋나는 음을 계산 — 근음까지 조 밖이면 '강'(칩으로 크게)
+        var clash = Shell.scaleClash(ch.label, nd, tab.key_json);
+        if (clash && clash.level === 'strong') el.classList.add('fc-strong');
+        el.title = ND_TITLES[nd.cls]
+          + (clash ? ' · ' + clash.keyName + ' 스케일 그대로는 안 맞아요(' + Shell.clashShort(clash) + ')' : '')
+          + ' — 눌러서 연주 가이드 보기';
         flowNdInfos.push({ info: nd, label: ch.label, bar: ch.bar, x: flowX(ch.bar * BAR + (ch.pos || 0)) });
-        // 상시 미니 힌트(안전음) — 클릭 없이 바로 보이게(사용자 요청). 다음 코드가 가까우면 생략(겹침 방지)
+        // 상시 표시 — 클릭 없이 바로 보이게(사용자 요청). 다음 코드가 가까우면 생략(겹침 방지).
+        // 우선순위: ①바꿔 짚을 음(E→E♭) ②자리가 더 있으면 안전음까지.
         var myX = flowX(ch.bar * BAR + (ch.pos || 0));
         var nextX = ci + 1 < chSorted.length ? flowX(chSorted[ci + 1].bar * BAR + (chSorted[ci + 1].pos || 0)) : Infinity;
-        if (nextX - myX >= 120) {
+        var room = nextX - myX;
+        if (clash && room >= 110) {
+          var cl = document.createElement('small');
+          cl.className = 'fc-clash';
+          cl.innerHTML = clash.swaps.map(function (w) {
+            return (w.from ? w.from + '<span class="fcx">→</span>' : '') + w.to;
+          }).join('<span class="fcx">·</span>');
+          el.appendChild(cl);
+        }
+        if (room >= (clash ? 230 : 110)) {
           var hint = document.createElement('small');
           hint.className = 'fc-hint';
           hint.textContent = '안전 ' + Shell.chordTones(nd, tab.key_json).join('·');

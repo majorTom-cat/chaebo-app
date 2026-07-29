@@ -556,6 +556,78 @@ window.Shell = (function () {
     return [pcName(nd.pc, keyJson), pcName(nd.pc + (nd.q === 'm' || nd.q === 'dim' ? 3 : 4), keyJson),
             pcName(nd.pc + (nd.q === 'dim' ? 6 : 7), keyJson)];
   }
+
+  /* ★조 밖 코드에서 '곡 스케일의 어느 음이 어긋나는가'를 음이름으로 (사용자 요청 2026-07-29:
+     "키 구성음이 아닌 근음… 그 키 메이저 스케일 치면 안 된다는 유의사항을 더 눈에 띄게").
+     추상적 경고("주의") 대신 **바꿔 짚을 음**을 준다: 코드톤 중 곡 스케일에 없는 음을 찾고,
+     그 음이 밀어낸 스케일 음(반음 이웃)을 짝지어 'E 대신 E♭' 형태로. 근음 자체가 스케일 밖이면
+     '강'(그 스케일 그대로는 못 씀), 근음은 안이고 3·5·7도만 다르면 '중'. 둘 다 아니면 null. */
+  var _SCALE_IV = [0, 2, 4, 5, 7, 9, 11];   // 장음계 도수(곡 스케일 = 장조 기준 base 로 통일)
+  var _LETTERS = ['C', 'D', 'E', 'F', 'G', 'A', 'B'];
+  var _LET_PC = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
+  /* 음이름 철자는 **글자(도수) 기준**으로 — 반음 개수만으로 이름을 붙이면 F장조에서 E♭ 을 'D#' 이라
+     쓰는 오표기가 난다(실측 2026-07-29). 코드 근음 글자에서 3도=글자+2, 5도=글자+4 로 세고,
+     남는 차이를 ♯/♭ 로 채운다(A 의 3도는 C♯, E♭ 의 5도는 B♭). 조표와 무관하게 항상 맞다. */
+  function _spell(rootLetter, rootAcc, letterStep, pc) {
+    var li = (_LETTERS.indexOf(rootLetter) + letterStep) % 7;
+    var letter = _LETTERS[li];
+    var diff = (((pc - _LET_PC[letter]) % 12) + 12) % 12;
+    if (diff > 6) diff -= 12;                       // -1(♭) ~ +1(♯) 범위로
+    var acc = diff === 0 ? '' : (diff > 0 ? new Array(diff + 1).join('♯') : new Array(-diff + 1).join('♭'));
+    return letter + acc;
+  }
+  function _rootParts(label) {
+    var m = /^([A-G])([#b♯♭]?)/.exec(String(label || '').trim());
+    return m ? { letter: m[1], acc: m[2].replace('♯', '#').replace('♭', 'b') } : null;
+  }
+  function scaleClash(label, nd, keyJson) {
+    if (!nd || !keyJson) return null;
+    var rp = _rootParts(label);
+    if (!rp) return null;
+    var base = nd.base;
+    var inScale = {};
+    _SCALE_IV.forEach(function (i) { inScale[(base + i) % 12] = true; });
+    // 곡 스케일 7음을 **글자 순서대로** 철자한다(F장조 = F G A B♭ C D E). 글자가 하나씩 순서대로
+    // 나오는 게 조표의 정의라, 이걸로 '같은 글자의 스케일 음'을 정확히 찾을 수 있다.
+    var kp = _rootParts(keyJson.display || keyJson.label || '');
+    var li0 = kp ? _LETTERS.indexOf(kp.letter) : 0;
+    if (keyJson.mode === 'minor') li0 = (li0 + 2) % 7;   // 단조 → 나란한장조 글자(A단조 → C장조)
+    var scaleByLetter = {};
+    _SCALE_IV.forEach(function (iv, d) {
+      var letter = _LETTERS[(li0 + d) % 7];
+      scaleByLetter[letter] = _spell(letter, '', 0, (base + iv) % 12);
+    });
+    // 코드톤(근음·3도·5도) + 슬래시 베이스음 — 실제로 짚는 음들
+    var tones = [{ step: 0, pc: nd.pc },
+                 { step: 2, pc: nd.pc + (nd.q === 'm' || nd.q === 'dim' ? 3 : 4) },
+                 { step: 4, pc: nd.pc + (nd.q === 'dim' ? 6 : 7) }];
+    var slash = String(label).split('/')[1];
+    var sp = slash ? _parseChord(slash) : null;
+    var slashParts = slash ? _rootParts(slash) : null;
+    var swaps = [], seen = {};
+    var add = function (name, pc) {
+      pc = ((pc % 12) + 12) % 12;
+      if (inScale[pc] || seen[pc]) return;
+      seen[pc] = 1;
+      // 반음으로 변한 음은 **같은 글자의 스케일 음**을 밀어낸 것 — 그래서 'E 대신 E♭' 로 짝이 맞는다
+      var from = scaleByLetter[name.charAt(0)] || null;
+      swaps.push({ from: from, to: name });
+    };
+    tones.forEach(function (t) { add(_spell(rp.letter, rp.acc, t.step, t.pc), t.pc); });
+    if (sp && slashParts) add(_spell(slashParts.letter, slashParts.acc, 0, sp.pc), sp.pc);
+    if (!swaps.length) return null;
+    // ★'강'의 기준은 **베이스가 실제로 짚는 음**(슬래시면 빗금 아래 음, 아니면 근음)이 곡 스케일 밖인가.
+    //   베이스 앱이라 코드 근음보다 이게 우선이다 — F장조의 G/B 는 근음 G 는 스케일 안이지만 짚는 음은 B(밖).
+    var bassPc = ((((sp ? sp.pc : nd.pc) % 12) + 12) % 12);
+    var rootOut = !inScale[bassPc];
+    return { level: rootOut ? 'strong' : 'mild', rootOut: rootOut, swaps: swaps,
+             keyName: (keyJson.display || keyJson.label || pcName(keyJson.tonic, keyJson)) };
+  }
+  // 한 줄 요약(배지 옆 상시 표시) — 'E 대신 E♭' / 여러 개면 '·' 로
+  function clashShort(sc) {
+    if (!sc) return '';
+    return sc.swaps.map(function (s) { return s.from ? s.from + '→' + s.to : s.to; }).join('·');
+  }
   function chordGuideHtml(label, nd, keyJson) {
     var slash = String(label).split('/')[1] || null;
     var tones = chordTones(nd, keyJson);
@@ -586,7 +658,14 @@ window.Shell = (function () {
     } else {
       body = safe + stepTip;
     }
-    return '<p class="cg-title">' + _escG(label) + ' — ' + ND_TITLES[nd.cls] + '</p>' + body
+    var sc = scaleClash(label, nd, keyJson);
+    var warn = '';
+    if (sc) {  // ★맨 앞에 '곡 스케일 그대로 치면 어긋나는 음' — 사용자 요청(2026-07-29)
+      warn = '<p class="cg-warn"><b>' + _escG(sc.keyName) + ' 스케일 그대로는 안 맞아요</b> — '
+        + sc.swaps.map(function (x) { return x.from ? ('<b>' + _escG(x.from) + '</b> 대신 <b>' + _escG(x.to) + '</b>') : ('<b>' + _escG(x.to) + '</b>'); }).join(', ')
+        + '.</p>';
+    }
+    return '<p class="cg-title">' + _escG(label) + ' — ' + ND_TITLES[nd.cls] + '</p>' + warn + body
       + '<p class="cg-est">키·코드가 추정이라 판정이 틀릴 수 있어요</p>';
   }
 
@@ -638,6 +717,8 @@ window.Shell = (function () {
     chordInfo: chordInfo,
     chordGuideHtml: chordGuideHtml,
     chordTones: chordTones,
+    scaleClash: scaleClash,
+    clashShort: clashShort,
     findProgressions: findProgressions,
     songId: songId,
     player: player,
