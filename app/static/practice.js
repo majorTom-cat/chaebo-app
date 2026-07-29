@@ -307,19 +307,29 @@
 
   function pct(t) { return ((t - viewStart) / windowDur() * 100); }
 
+  // 프레임당 left(%) 쓰기 = 매 틱 문서 레이아웃(성능 코드검사 2026-07-28) — 폭 캐시 + transform 이동
+  var _phW = 0, _phShown = null, _loopKey = null;
+  function measureOverlay() { _phW = playhead.parentElement ? playhead.parentElement.clientWidth : 0; }
+  window.addEventListener('resize', measureOverlay);
   function renderOverlay() {
     var t = visualTime();
     var p = pct(t);
-    playhead.style.left = Math.max(0, Math.min(100, p)) + '%';
-    playhead.style.display = (p < 0 || p > 100) ? 'none' : '';
+    if (!_phW) measureOverlay();
+    var show = p >= 0 && p <= 100;
+    if (show !== _phShown) { playhead.style.display = show ? '' : 'none'; _phShown = show; }
+    if (show) playhead.style.transform = 'translateX(' + (Math.max(0, Math.min(100, p)) / 100 * _phW) + 'px)';
 
     var has = state.loopA != null && state.loopB != null;
-    loopRegion.hidden = !has;
-    if (has) {
-      var a = Math.max(0, Math.min(100, pct(state.loopA)));
-      var b = Math.max(0, Math.min(100, pct(state.loopB)));
-      loopRegion.style.left = a + '%';
-      loopRegion.style.width = Math.max(0, b - a) + '%';
+    var key = has ? state.loopA + '/' + state.loopB + '/' + viewStart + '/' + zoom : '';
+    if (key !== _loopKey) { // 루프 영역은 루프·창이 바뀔 때만 쓰기(재생 틱마다 아님)
+      _loopKey = key;
+      loopRegion.hidden = !has;
+      if (has) {
+        var a = Math.max(0, Math.min(100, pct(state.loopA)));
+        var b = Math.max(0, Math.min(100, pct(state.loopB)));
+        loopRegion.style.left = a + '%';
+        loopRegion.style.width = Math.max(0, b - a) + '%';
+      }
     }
   }
 

@@ -66,6 +66,40 @@
     return this.ctx;
   };
 
+  /* 동시 디코드 개수 제한 — 6스템을 한꺼번에 디코드하면 (디코드 결과 + 전달용 사본)이 6벌 겹쳐
+     메모리 순간 최대치가 2GB 가까이 치솟는다(실측 2026-07-29: 5분43초 곡 1945MB). 소리 데이터도
+     전달 순서도 그대로고 '언제 디코드하나'만 바뀌므로 싱크와 무관(사용자 제약: 싱크는 절대 불가).
+     결과 순서는 입력 순서 그대로 — 워크릿 지연 실측이 audios[0] 기준이라 순서가 곧 동작이다.
+     개수는 A/B 실측으로 3(곡 15·5분43초 기준 6개→3개: 메모리 -250MB, 로드 +0.8초. 2개는 -257MB 로
+     거의 같은데 로드가 +2.7초로 비싸다 — 받기를 동시에 두고 디코드만 제한한 뒤의 수치). */
+  var LOAD_CONCURRENCY = 3;
+  function mapLimit(items, limit, fn) {
+    return new Promise(function (resolve, reject) {
+      var results = new Array(items.length);
+      var next = 0, active = 0, done = 0, firstErr = null;
+      function finish() {
+        if (done < items.length) return;
+        if (firstErr) reject(firstErr); else resolve(results);
+      }
+      function start(i) {
+        active++;
+        Promise.resolve().then(function () { return fn(items[i], i); })
+          .then(function (v) { results[i] = v; }, function (e) { if (!firstErr) firstErr = e; })
+          .then(function () { active--; done++; pump(); finish(); });
+      }
+      function pump() {
+        while (active < limit && next < items.length) {
+          // 이미 실패했으면 남은 건 시작조차 안 한다(헛디코드·헛메모리 방지). 단, 거부는 진행 중인
+          // 것들이 모두 끝난 뒤에 — 정리(cleanup) 도중에 늦게 도착한 노드가 유령으로 남던 여지 제거.
+          if (firstErr) { done += (items.length - next); next = items.length; break; }
+          start(next++);
+        }
+        finish();
+      }
+      pump();
+    });
+  }
+
   /* 로딩: 압축 스템을 통째로 받아 디코드 → 채널 배열을 워크릿에 transfer(복사 0회).
      디코드 원본(AudioBuffer)은 여기서 버려져 GC — 메모리는 워크릿 쪽 1벌만 남는다. */
   SyncPlayer.prototype.load = function (stems) {
@@ -73,12 +107,19 @@
     var ctx = this._ensureCtx();
     var created = []; // 부분 성공 노드 추적 — 실패 시 정리(누수·유령 재생 방지, 적대 리뷰 확정)
     var p = loadVendor().then(function (SignalsmithStretch) {
-      return Promise.all(Object.keys(stems).map(function (name) {
-        return fetch(stems[name])
-          .then(function (r) {
-            if (!r.ok) throw new Error(name + ' 스템을 불러오지 못했어요(' + r.status + ')');
-            return r.arrayBuffer();
-          })
+      var names = Object.keys(stems);
+      // 받기는 6개 동시에(압축본이라 다 합쳐도 수십MB — 여기 줄 세우면 로드만 느려진다, 실측),
+      // 무거운 건 디코드부터다: 스템 하나가 디코드되는 순간 수백MB 로 부푸는 쪽만 개수를 제한한다.
+      var fetched = names.map(function (name) {
+        var f = fetch(stems[name]).then(function (r) {
+          if (!r.ok) throw new Error(name + ' 스템을 불러오지 못했어요(' + r.status + ')');
+          return r.arrayBuffer();
+        });
+        f.catch(function () {}); // 실패로 중단돼 아무도 안 기다릴 때의 미처리 거부 경고 방지
+        return f;
+      });
+      return mapLimit(names, LOAD_CONCURRENCY, function (name, i) {
+        return fetched[i]
           .then(function (ab) { return ctx.decodeAudioData(ab); })
           .then(function (buf) {
             return SignalsmithStretch(ctx).then(function (node) {
@@ -91,6 +132,10 @@
               var ch1 = buf.numberOfChannels > 1 ? buf.getChannelData(1) : ch0;
               // getChannelData 는 AudioBuffer 소유 메모리의 뷰 — 사본을 떠서 그 사본을 transfer
               var copies = [ch0.slice(0), ch1.slice(0)];
+              // 길이는 지금 읽어둔다 — 아래 콜백이 buf 를 참조하면 워크릿 왕복이 끝날 때까지
+              // 디코드 원본(수백MB)이 붙잡혀 사본과 겹친다(메모리 실측 2026-07-29).
+              var dur = buf.duration;
+              buf = null; ch0 = null; ch1 = null;
               return node.addBuffers(copies, copies.map(function (c) { return c.buffer; }))
                 .then(function () {
                   var g = ctx.createGain();
@@ -98,13 +143,13 @@
                   g.connect(self.masterGain);
                   if (!(name in self.volumes)) self.volumes[name] = 1.0;
                   if (!(name in self.muted)) self.muted[name] = false;
-                  var entry = { name: name, node: node, gain: g, duration: buf.duration };
+                  var entry = { name: name, node: node, gain: g, duration: dur };
                   created.push(entry);
                   return entry;
                 });
             });
           });
-      }));
+      });
     }).then(function (audios) {
       self.audios = audios;
       self._dur = 0;
@@ -154,21 +199,28 @@
       self.audios.forEach(function (a) { byName[a.name] = a; });
       // 1단계: 전 스템 fetch+decode 를 먼저 끝낸다(버퍼는 아직 안 건드림) — 하나라도 실패하면
       // 여기서 throw 되어 스템 간 키가 섞이는 일이 없다(원자적 교체, 적대 리뷰 확정). 옛 키는 계속 재생.
-      return Promise.all(Object.keys(stems).map(function (name) {
+      // 동시 개수 제한(load 와 같은 이유): 키 변경 때는 옛 버퍼가 워크릿에 그대로 살아 있어서
+      // 새 6벌을 한꺼번에 디코드하면 메모리가 두 배로 겹친다.
+      var names = Object.keys(stems);
+      var fetched = names.map(function (name) { // 받기는 동시에, 디코드만 제한(load 와 동일)
+        var f = fetch(stems[name]).then(function (r) {
+          if (!r.ok) throw new Error(name + ' 스템을 불러오지 못했어요(' + r.status + ')');
+          return r.arrayBuffer();
+        });
+        f.catch(function () {});
+        return f;
+      });
+      return mapLimit(names, LOAD_CONCURRENCY, function (name, i) {
         var a = byName[name];
         if (!a) return null; // 6종 고정 — 방어만
-        return fetch(stems[name])
-          .then(function (r) {
-            if (!r.ok) throw new Error(name + ' 스템을 불러오지 못했어요(' + r.status + ')');
-            return r.arrayBuffer();
-          })
+        return fetched[i]
           .then(function (ab) { return ctx.decodeAudioData(ab); })
           .then(function (buf) {
             var ch0 = buf.getChannelData(0);
             var ch1 = buf.numberOfChannels > 1 ? buf.getChannelData(1) : ch0;
             return { a: a, copies: [ch0.slice(0), ch1.slice(0)], duration: buf.duration };
           });
-      })).then(function (decoded) {
+      }).then(function (decoded) {
         // 2단계: 전부 성공 → 이제서야 상태 스냅샷 + 정지 + 버퍼 교체 + 복원
         var st = { t: self.currentTime(), playing: self.isPlaying() };
         self.pause();

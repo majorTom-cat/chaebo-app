@@ -160,7 +160,7 @@ button.meta-badge:hover { border-color: var(--accent); }
 .loop-handle { position: absolute; top: 2px; width: 12px; height: 16px; border-radius: 4px; background: var(--accent); box-shadow: 0 1px 3px rgba(0,0,0,0.5); pointer-events: auto; cursor: ew-resize; }
 .loop-handle-start { left: 0; transform: translateX(-50%); }
 .loop-handle-end { right: 0; transform: translateX(50%); }
-.deck-playhead-line { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--text); opacity: 0.7; }
+.deck-playhead-line { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--text); opacity: 0.7; will-change: transform; }
 
 .stem-controls { border-left: 3px solid var(--stem-color, var(--border)); padding: 4px 0 4px var(--sp-3); display: flex; flex-direction: column; gap: 4px; }
 .stem-controls-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; row-gap: 4px; }
@@ -210,7 +210,7 @@ button.meta-badge:hover { border-color: var(--accent); }
 .teamsheet-wrap { position: relative; max-width: 900px; margin: 0 auto; }
 .teamsheet-list { display: flex; flex-direction: column; gap: var(--sp-4); }
 /* 실시간 위치 커서 — 악보 '줄' 위를 왼→오른쪽으로 지나가는 세로 선(연주자가 읽는 방식 그대로) */
-.ts-band { position: absolute; width: 4px; height: 60px; transform: translate(-50%, -50%); background: var(--accent); border-radius: 2px; opacity: .85; box-shadow: 0 0 0 2px rgba(240,168,72,.25), 0 0 12px rgba(240,168,72,.6); pointer-events: none; z-index: 3; }
+.ts-band { position: absolute; width: 4px; height: 60px; will-change: transform; transform: translate(-50%, -50%); background: var(--accent); border-radius: 2px; opacity: .85; box-shadow: 0 0 0 2px rgba(240,168,72,.25), 0 0 12px rgba(240,168,72,.6); pointer-events: none; z-index: 3; }
 /* 위치 연결(앵커) 표시 — 클릭한 '그 지점'의 점 핀 + 시각 칩 */
 .ts-anchor { position: absolute; transform: translate(-50%, -50%); z-index: 2; pointer-events: none; }
 .ts-anchor-dot { display: block; width: 11px; height: 11px; border-radius: 50%; background: var(--accent); border: 2px solid #241f16; box-shadow: 0 1px 3px rgba(0,0,0,.35); }
@@ -271,7 +271,7 @@ button.meta-badge:hover { border-color: var(--accent); }
 /* 흐름 타브(시간 비례 뷰) — 자체 렌더: 칸=고정 폭이라 간격 균일·커서 등속 */
 .flow-wrap { position: relative; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md); padding: var(--sp-3); margin-bottom: var(--sp-3); }
 .flow-scroll { overflow-x: auto; overflow-y: hidden; border-radius: var(--r-sm); background: #f5f2ea; }
-.flow-inner { position: relative; height: 292px; }  /* 264 + 가사 레인 28px(드럼 파형 밑) */
+.flow-inner { position: relative; height: 292px; contain: layout style; }  /* 수천 요소 레이아웃 격리 — 프레임당 문서 레이아웃에서 제외(성능 코드검사) */  /* 264 + 가사 레인 28px(드럼 파형 밑) */
 /* 파형 띠 — 위=베이스·아래=드럼 두 칸(각 50px). 믹서와 같은 스템 색(사용자 지적 2026-07-15: 겹치지 말고
    각각 제 크기로·믹서처럼 다른 색). 흐름 타브 칸(grid) 축에 맞춰 그려 진행바가 음표·파형을 동시에 관통. */
 .flow-wave { position: absolute; left: 0; top: 158px; height: 100px; display: block; }
@@ -315,7 +315,7 @@ body.anchoring { cursor: ew-resize; user-select: none; }
 .flow-fret { position: absolute; transform: translate(-50%, -55%); font-size: 12px; font-weight: 700; color: #241f16; background: #f5f2ea; padding: 0 2px; line-height: 1.2; border-radius: 3px; }
 .flow-fret.fc-low { color: var(--lowconf, #e2793f); }
 .flow-sustain { position: absolute; height: 3px; border-radius: 2px; background: rgba(36, 31, 22, 0.25); transform: translateY(-50%); }
-.flow-playhead { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--accent); box-shadow: 0 0 8px rgba(240, 168, 72, 0.7); z-index: 3; }
+.flow-playhead { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--accent); box-shadow: 0 0 8px rgba(240, 168, 72, 0.7); z-index: 3; will-change: transform; }
 .flow-caption { margin: var(--sp-2) 0 0; font-size: 11px; color: var(--muted); text-align: center; }
 
 /* 실제 alphaTab 렌더 영역 */
@@ -362,7 +362,7 @@ body.anchoring { cursor: ew-resize; user-select: none; }
 .lowconf-ring { position: absolute; width: 28px; height: 28px; border-radius: 50%; border: 2px solid var(--lowconf); background: rgba(226, 121, 63, 0.14); transform: translate(-50%, -50%); }
 .score-fidelity-note { margin: var(--sp-2) 0 0; font-size: 11px; color: var(--muted); text-align: center; }
 .playhead-highlight { position: absolute; background: rgba(240, 168, 72, 0.08); border-left: 1px solid rgba(240, 168, 72, 0.35); border-right: 1px solid rgba(240, 168, 72, 0.35); }
-.playhead-line { position: absolute; width: 3px; background: var(--accent); box-shadow: 0 0 10px rgba(240, 168, 72, 0.7); border-radius: 2px; }
+.playhead-line { position: absolute; width: 3px; background: var(--accent); box-shadow: 0 0 10px rgba(240, 168, 72, 0.7); border-radius: 2px; will-change: transform; }
 .playhead-caption-row { position: relative; margin-top: var(--sp-2); }
 .playhead-caption { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 600; color: var(--accent); background: rgba(240, 168, 72, 0.12); border: 1px solid rgba(240, 168, 72, 0.35); border-radius: 999px; padding: 4px 10px; white-space: nowrap; }
 

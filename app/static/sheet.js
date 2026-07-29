@@ -132,7 +132,8 @@
     var n = anchors.length;
     var lab = document.getElementById('ts-anchor-count');
     lab.textContent = n ? '연결 ' + n + '개' : '';
-    document.getElementById('ts-band').hidden = n < 2 || !posAt(Shell.visualTime());
+    rebuildGeo(); // 앵커 변경 = 지오메트리 캐시 재구축(틱에서는 DOM 안 읽음)
+    document.getElementById('ts-band').hidden = n < 2 || !posAtCached(Shell.visualTime());
     updateHint();
   }
 
@@ -234,23 +235,54 @@
     return bt;
   }
 
-  /* ---- 실시간 커서(세로 선) + 따라가기 ---- */
+  /* ---- 실시간 커서(세로 선) + 따라가기 ----
+     프레임당 DOM 읽기 금지(성능 코드검사 2026-07-28): 조각·줄높이·목록 위치는 앵커 렌더/리사이즈 때
+     캐시하고, 틱에서는 계산+transform 쓰기만 한다(강제 리플로우 0). */
   var userScrollUntil = 0; // 직접 스크롤하면 잠시 따라가기 양보(스크롤 강탈 금지 — 사용자 비판)
   ['wheel', 'touchmove', 'keydown'].forEach(function (ev) {
     window.addEventListener(ev, function () { userScrollUntil = Date.now() + 4000; }, { passive: true });
   });
 
+  var geo = null; // {segs, lineH, first:{x,y}, last:{x,y}, listDocTop}
+  function rebuildGeo() {
+    if (anchors.length < 2) { geo = null; return; }
+    var list = document.getElementById('ts-list');
+    geo = { segs: segments(), lineH: lineHeight(),
+            first: pos(anchors[0]), last: pos(anchors[anchors.length - 1]),
+            listDocTop: list.getBoundingClientRect().top + window.scrollY };
+  }
+  window.addEventListener('resize', function () { if (geo) rebuildGeo(); });
+  // 이미지·PDF 페이지가 늦게 로드되면 좌표가 전부 바뀐다 — 목록 크기 변화 = 재계산(프레임 경로 아님)
+  new ResizeObserver(function () { if (anchors.length >= 2) rebuildGeo(); })
+    .observe(document.getElementById('ts-list'));
+
+  function posAtCached(t) {
+    if (!geo) return null;
+    if (geo.first && t <= anchors[0].t) return geo.first;
+    if (geo.last && t >= anchors[anchors.length - 1].t) return geo.last;
+    for (var i = 0; i < geo.segs.length; i++) {
+      var s = geo.segs[i];
+      if (t <= s.t2) {
+        var r = (t - s.t1) / Math.max(0.001, s.t2 - s.t1);
+        return { x: s.x1 + (s.x2 - s.x1) * Math.max(0, Math.min(1, r)), y: s.y };
+      }
+    }
+    return geo.last;
+  }
+
+  var _bandH = -1;
   function updateBand(t) {
     var band = document.getElementById('ts-band');
-    var p = posAt(t == null ? Shell.visualTime() : t);
+    if (!geo) rebuildGeo();
+    var p = posAtCached(t == null ? Shell.visualTime() : t);
     if (p == null) { band.hidden = true; return; }
     band.hidden = false;
-    band.style.top = p.y + 'px';
-    band.style.left = p.x + 'px';
-    band.style.height = Math.round(lineHeight() * 0.9) + 'px';
+    band.style.left = '0px'; band.style.top = '0px'; // 정적 위치가 아니라 컨테이너 원점 기준으로 이동(회귀 실증: 배터리 2c)
+    band.style.transform = 'translate(' + p.x + 'px,' + p.y + 'px) translate(-50%,-50%)';
+    var h = Math.round(geo.lineH * 0.9);
+    if (h !== _bandH) { band.style.height = h + 'px'; _bandH = h; }
     if (follow && !anchorMode && player.isPlaying && player.isPlaying() && Date.now() > userScrollUntil) {
-      var list = document.getElementById('ts-list');
-      var abs = list.getBoundingClientRect().top + window.scrollY + p.y; // 페이지 기준
+      var abs = geo.listDocTop + p.y; // 페이지 기준(캐시)
       var vh = window.innerHeight;
       var cur = window.scrollY;
       if (abs < cur + vh * 0.2 || abs > cur + vh * 0.7) {

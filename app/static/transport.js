@@ -106,8 +106,12 @@
     });
     player.onTick = function (t, dur) {
       var td = displayTime(); // 진행바·시간·커서 전부 같은 표시 시계(재생 중 커서와 어긋나지 않게)
-      el('time-now').textContent = fmt(td);
-      if (!seekbarDragging && dur) seekbar.value = Math.round(td / dur * 1000);
+      var tn = el('time-now'), ts = fmt(td);
+      if (tn.textContent !== ts) tn.textContent = ts; // 같은 문자열 재대입도 텍스트 노드 교체 → 매 프레임 문서 전체 레이아웃·페인트 유발(실측)
+      if (!seekbarDragging && dur) {
+        var sv = Math.round(td / dur * 1000);
+        if (seekbar.value != sv) seekbar.value = sv;
+      }
       onTick(td, dur);
     };
     // 곡 끝에서 엔진이 스스로 멈추면 재생 버튼 아이콘을 '재생'으로 되돌린다(고착 방지)

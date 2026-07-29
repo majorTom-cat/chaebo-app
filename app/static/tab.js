@@ -608,6 +608,7 @@
     drawFlowWave(); // 베이스 파형 띠 — 폭 확정 뒤(같은 grid 축)
     renderGutter(); // 좌측 고정 줄이름 라벨(스크롤 무관)
     renderGRBands(); // 기타 지정 구간 음영
+    measureFlow();  // 커서용 치수 캐시 갱신(프레임마다 scrollWidth 읽기 금지 — 성능 실측)
   }
 
   // 좌측 고정 칸(gutter) — 각 가로줄 의미를 항상 좌측에 표시(사용자 요청 2026-07-14: 스크롤 옮겨도 유지).
@@ -760,17 +761,36 @@
   if (window.Shell && Shell.ready && Shell.ready.then) Shell.ready.then(function () { ensureBassPeaks(); });
 
   var flowFixed = false;  // 진행바 고정 모드 — 진행바를 가운데 두고 흐름 타브가 스크롤
+  /* ★프레임당 비용 다이어트(코드검사 2026-07-28 — 사용자 '재생 버벅' 제보의 주범, 프로파일 실측
+     updateFlowCursor 초당 ~360ms): ①left 쓰기 대신 transform(수천 요소 흐름 DOM 의 레이아웃 무효화 0)
+     ②scrollWidth/clientWidth 는 매 프레임 강제 리플로우 유발 — 렌더·리사이즈 때만 재서 캐시
+     ③scrollLeft 읽기는 스타일 쓰기 '전'에(쓰기 후 읽으면 동기 레이아웃 강제). */
+  var _flowSc = null, _flowPh = null, _flowClientW = 0, _flowScrollW = 0, _flowSL = 0;
+  function measureFlow() {
+    if (!_flowSc) {
+      _flowSc = document.getElementById('flow-scroll');
+      _flowPh = document.getElementById('flow-playhead');
+      _flowPh.style.left = '0px'; // 이후 이동은 transform 만
+      _flowSc.addEventListener('scroll', function () { _flowSL = _flowSc.scrollLeft; }, { passive: true });
+    }
+    _flowClientW = _flowSc.clientWidth;
+    _flowScrollW = _flowSc.scrollWidth;
+    _flowSL = _flowSc.scrollLeft;
+  }
+  window.addEventListener('resize', function () { if (_flowSc) measureFlow(); });
   function updateFlowCursor(t) {
     if (!tab || !tab.bpm) return;
+    if (!_flowSc) measureFlow();
     var x = FLOW_PAD + timeSlot(t) * subPx(); // 박 단위 등속 — 동적 그리드면 실연주 박을 추종
-    var ph = document.getElementById('flow-playhead');
-    ph.style.left = Math.max(0, x) + 'px';
-    var sc = document.getElementById('flow-scroll');
+    var sl = _flowSL;                          // 스크롤 이벤트로 추적한 캐시(프레임 경로 DOM 읽기 0)
+    _flowPh.style.transform = 'translateX(' + Math.max(0, x) + 'px)';
     if (flowFixed) {
       // 고정 모드: 진행바를 뷰포트 좌측 40% 지점에 두고 내용이 흘러감(끝 근처만 자연히 멈춤 — 곡 끝은 못 넘음)
-      sc.scrollLeft = Math.max(0, Math.min(sc.scrollWidth - sc.clientWidth, x - sc.clientWidth * 0.4));
-    } else if (x < sc.scrollLeft + 60 || x > sc.scrollLeft + sc.clientWidth - 120) {
-      sc.scrollLeft = Math.max(0, x - 160); // 기본: 끝 근처 닿으면 점프 스크롤
+      var target = Math.max(0, Math.min(_flowScrollW - _flowClientW, x - _flowClientW * 0.4));
+      if (Math.abs(target - sl) > 0.5) { _flowSc.scrollLeft = target; _flowSL = target; }
+    } else if (x < sl + 60 || x > sl + _flowClientW - 120) {
+      var jump = Math.max(0, x - 160);
+      _flowSc.scrollLeft = jump; _flowSL = jump; // 기본: 끝 근처 닿으면 점프 스크롤
     }
   }
   document.getElementById('flowfix-check').addEventListener('change', function (e) {
@@ -1016,6 +1036,9 @@
     var quarterSec = 60 / tab.bpm;
     beats = [];
     barBounds = {};
+    _lastBeatIdx = -1; _lastBarIdx = -1; _lastLineH = -1; // 재조판 = 좌표 무효(증분 커서 캐시 리셋)
+    line.style.left = '0px'; line.style.top = '0px';       // 이후 이동은 transform 기준점 0 에서
+    measurePaper();
     api.score.tracks[0].staves[0].bars.forEach(function (bar) {
       bar.voices.forEach(function (voice) {
         voice.beats.forEach(function (beat) {
@@ -1849,16 +1872,30 @@
   var line = document.getElementById('playhead-line');
 
   /* 소리-화면 싱크 보정은 공용 트랜스포트가 소유(전역 설정) — 여기선 값만 읽는다 */
+  /* ★프레임당 비용 다이어트(코드검사 2026-07-28, 프로파일 실측 초당 ~144ms): ①비트 전체 선형 스캔 →
+     직전 인덱스에서 증분 탐색(재생=전진, 시크=양방향 보정 — O(1) 상각) ②마디 하이라이트는 마디가
+     바뀔 때만 쓰기 ③커서 이동은 transform(레이아웃 무효화 0) ④paper 치수 캐시+읽기 선행. */
+  var _lastBeatIdx = -1, _lastBarIdx = -1, _lastLineH = -1;
+  var _paperEl = null, _paperClientW = 0, _paperSL = 0;
+  function measurePaper() {
+    if (!_paperEl) {
+      _paperEl = document.getElementById('at-paper');
+      _paperEl.addEventListener('scroll', function () { _paperSL = _paperEl.scrollLeft; }, { passive: true });
+    }
+    _paperClientW = _paperEl.clientWidth;
+    _paperSL = _paperEl.scrollLeft;
+  }
+  window.addEventListener('resize', function () { if (_paperEl) measurePaper(); });
   function updateCursor() {
     var t = Shell.visualTime(); // 표시 시계 단일 소스(진행바·믹서·코드와 동일 — 자체 공식 금지)
     updateFlowCursor(t); // 흐름 뷰 커서 — 항상 등속
     if (!beats.length) return;
-    var i = -1;
-    for (var k = 0; k < beats.length; k++) {
-      if (beats[k].startSec <= t) i = k; else break;
-    }
+    var i = Math.min(Math.max(_lastBeatIdx, -1), beats.length - 1);
+    while (i + 1 < beats.length && beats[i + 1].startSec <= t) i++;   // 전진(재생)
+    while (i >= 0 && beats[i].startSec > t) i--;                       // 후진(시크·루프)
+    _lastBeatIdx = i;
     window.__cursorIdx = i; // 검증 배터리용(줄바꿈과 무관한 전진 지표)
-    if (i < 0) { highlight.hidden = line.hidden = true; return; }
+    if (i < 0) { highlight.hidden = line.hidden = true; _lastBarIdx = -1; return; }
     // 비트 앵커 보간(Guitar Pro 방식): 각 음표·쉼표의 '시각'에 정확히 그 글리프 위에 서고,
     // 그 사이는 연속 이동. 조판 간격이 시간 비례가 아니라 마디 내 등속 커서는 어택과
     // 어긋나 보인다(사용자 실증: 커서가 지나간 뒤 소리 남). 줄당 4마디 균일 배치라
@@ -1867,7 +1904,7 @@
     var next = beats[i + 1];
     var bb = barBounds[cur.barIdx];
     window.__cursorBar = cur.barIdx;
-    if (!bb) { highlight.hidden = line.hidden = true; return; }
+    if (!bb) { highlight.hidden = line.hidden = true; _lastBarIdx = -1; return; }
     var x;
     if (next && next.startSec > cur.startSec) {
       var frac = Math.min(1, (t - cur.startSec) / (next.startSec - cur.startSec));
@@ -1876,19 +1913,23 @@
     } else {
       x = cur.onX;
     }
+    if (!_paperEl) measurePaper();
+    var psl = _paperSL; // 스크롤 이벤트로 추적한 캐시(프레임 경로 DOM 읽기 0)
     line.hidden = false;
-    line.style.left = x + 'px';
-    line.style.top = bb.y + 'px';
-    line.style.height = bb.h + 'px';
-    highlight.hidden = false;
-    highlight.style.left = bb.x + 'px';
-    highlight.style.width = bb.w + 'px';
-    highlight.style.top = bb.y + 'px';
-    highlight.style.height = bb.h + 'px';
+    line.style.transform = 'translate(' + x + 'px,' + bb.y + 'px)';
+    if (bb.h !== _lastLineH) { line.style.height = bb.h + 'px'; _lastLineH = bb.h; }
+    if (cur.barIdx !== _lastBarIdx) { // 마디 하이라이트는 마디 바뀔 때만
+      _lastBarIdx = cur.barIdx;
+      highlight.hidden = false;
+      highlight.style.left = bb.x + 'px';
+      highlight.style.width = bb.w + 'px';
+      highlight.style.top = bb.y + 'px';
+      highlight.style.height = bb.h + 'px';
+    }
     // 자동 스크롤: 커서가 화면 밖이면 따라가기
-    var paper = document.getElementById('at-paper');
-    if (x < paper.scrollLeft + 40 || x > paper.scrollLeft + paper.clientWidth - 60) {
-      paper.scrollLeft = Math.max(0, x - 120);
+    if (x < psl + 40 || x > psl + _paperClientW - 60) {
+      var pj = Math.max(0, x - 120);
+      _paperEl.scrollLeft = pj; _paperSL = pj;
     }
   }
 
