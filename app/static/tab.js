@@ -356,10 +356,63 @@
     return (t - (tab.offset || 0)) / uSlotDur();
   }
 
+  /* ---- 흐름 띠 가상화 — 보이는 구간만 DOM 에 둔다 ----
+     이유: 곡 하나가 5000개 넘는 요소를 만들고, 브라우저는 **매 프레임 문서 전체를 훑는다**(성능 코드검사
+     2026-07-29: 스타일 재계산 대상은 커서 2개뿐인데 1회 1.7ms·PrePaint 1.8ms — 바뀐 것이 아니라 총 개수에
+     비례하는 고정 비용). 화면 밖 요소를 떼면 타브 화면 재생 비용 437→286ms/s(실측).
+     안전 근거: 흐름 띠의 모든 상호작용은 #flow-inner 위임(closest)이고, 요소 전체를 훑는 코드가 없다.
+     쌓임 순서 보존을 위해 항목은 전용 컨테이너(#flow-items) 안에서만 넣고 뺀다(원래 DOM 순서 유지). */
+  var flowItems = [];          // [{el, a, b, on}] — a..b = 이 요소가 차지하는 x 범위(px)
+  var _itemsEl = null;         // #flow-items
+  var _winSL = -1e9;           // 마지막으로 창을 맞춘 스크롤 위치
+  var FLOW_WIN_PAD = 900;      // 화면 밖 여유(px) — 이만큼은 미리 붙여둔다
+  var FLOW_WIN_STEP = 250;     // 이만큼 스크롤해야 창 재계산(잦은 DOM 조작 방지)
+  var ITEM_SLOP = 60;          // 요소가 CSS 로 중앙정렬·그림자 등으로 넘칠 수 있는 여유
+
+  function itemsEl() {
+    if (!_itemsEl || !_itemsEl.isConnected) {
+      _itemsEl = document.getElementById('flow-items');
+      if (!_itemsEl) {
+        _itemsEl = document.createElement('div');
+        _itemsEl.id = 'flow-items';
+        // inset 0 + z-index 없음 → 새 쌓임 맥락을 안 만든다(자식들이 기존과 같은 순서로 그려짐)
+        _itemsEl.style.cssText = 'position:absolute;left:0;top:0;right:0;bottom:0;';
+        document.getElementById('flow-inner').appendChild(_itemsEl);
+      }
+    }
+    return _itemsEl;
+  }
+  function addFlowItem(el, x, w) { // x=왼쪽 px, w=폭(모르면 0 — SLOP 로 덮음)
+    flowItems.push({ el: el, a: x - ITEM_SLOP, b: x + (w || 0) + ITEM_SLOP, on: false });
+  }
+  function syncFlowWindow(force) {
+    if (!flowItems.length) return;
+    var sc = _flowSc || document.getElementById('flow-scroll');
+    if (!sc) return;
+    var sl = sc.scrollLeft;
+    if (!force && Math.abs(sl - _winSL) < FLOW_WIN_STEP) return;
+    _winSL = sl;
+    // 뷰가 숨어 있으면 clientWidth 가 0 — 그때는 넉넉한 기본 창(활성화 때 force 로 다시 맞춘다)
+    var vw = sc.clientWidth || 1400;
+    var lo = sl - FLOW_WIN_PAD, hi = sl + vw + FLOW_WIN_PAD;
+    var box = itemsEl(), next = null;
+    for (var i = flowItems.length - 1; i >= 0; i--) {   // 뒤에서부터 — 원래 순서를 유지하며 끼워넣기
+      var it = flowItems[i];
+      if (it.b >= lo && it.a <= hi) {
+        if (!it.on) { box.insertBefore(it.el, next); it.on = true; }
+        next = it.el;
+      } else if (it.on) { box.removeChild(it.el); it.on = false; }
+    }
+  }
+
   function renderFlow() {
+    window.__tab = tab; // 검증 배터리 관례(앵커·격자 상태 확인용 — __flowReady·__sheetUpdate 와 같은 훅)
     var inner = document.getElementById('flow-inner');
-    inner.querySelectorAll('.flow-bar-line, .flow-bar-num, .flow-count, .flow-string, .flow-fret, .flow-sustain, .flow-chord, .flow-lyric, .flow-bar-grip, .flow-art-accent, .flow-art-slur, .flow-art-slide, .flow-art-label, .flow-prog')
-      .forEach(function (el) { el.remove(); });  // ★.flow-bar-grip 누락 시 재렌더마다 그립 누적 → WebView2 노드 누수(코드검사 2026-07-17)
+    // 항목은 전부 #flow-items 안에만 있다 — 통째로 비우면 누락 없이 청소된다
+    // (★옛 방식은 클래스 열거라 하나만 빠뜨려도 재렌더마다 누적 → WebView2 노드 누수, 코드검사 2026-07-17)
+    itemsEl().textContent = '';
+    flowItems = [];
+    _winSL = -1e9;
     if (!tab || !tab.notes || !tab.notes.length) return;
 
     var attack = {}, byG = {};
@@ -376,7 +429,7 @@
       var line = document.createElement('div');
       line.className = 'flow-string';
       line.style.top = (70 + li * 24) + 'px';
-      frag.appendChild(line);
+      frag.appendChild(line);   // 전폭 가로줄 — 항상 유지(끊기면 안 됨)
     }
     // 코드(추정) — 제 위치(반마디 코드는 마디 중간). 직전과 같으면 흐리게(변화 지점이 잘 보이게)
     var chSorted = (tab.chords || []).slice().sort(function (a, b) {
@@ -416,8 +469,9 @@
           el.appendChild(hint);
         }
       }
-      el.style.left = (flowX(ch.bar * BAR + (ch.pos || 0)) + 4) + 'px';
-      frag.appendChild(el);
+      var chX = flowX(ch.bar * BAR + (ch.pos || 0)) + 4;
+      el.style.left = chX + 'px';
+      addFlowItem(el, chX, 260);   // 라벨+숫자+힌트 — 실제보다 넉넉히(잘려 사라지지 않게)
     });
     // 관용 진행 밴드(2-5-1·4코드 루프·왕도·위종지 등) — 코드 라벨 위 괄호 밴드+칩, 클릭=구간 반복(req 8-b)
     (Shell.findProgressions(tab.chords, tab.key_json) || []).forEach(function (sp) {
@@ -433,7 +487,7 @@
       chip.className = 'flow-prog-chip';
       chip.textContent = sp.name;
       band.appendChild(chip);
-      frag.appendChild(band);
+      addFlowItem(band, x0, Math.max(30, x1 - x0));
     });
     var anchorSet = {};
     (tab.anchors || []).forEach(function (g) { anchorSet[g] = 1; });
@@ -443,13 +497,13 @@
       var bl = document.createElement('div');
       bl.className = 'flow-bar-line' + (anchored ? ' fbl-anchored' : '');
       bl.style.left = flowX(giBar) + 'px';
-      frag.appendChild(bl);
+      addFlowItem(bl, flowX(giBar), 2);
       if (bi < totalBars) {
         var bn = document.createElement('div');
         bn.className = 'flow-bar-num';
         bn.textContent = bi + 1;
         bn.style.left = (flowX(giBar) + 4) + 'px';
-        frag.appendChild(bn);
+        addFlowItem(bn, flowX(giBar) + 4, 34);
         // 드래그 그립 — 이 마디 시작을 실제 박(파형 어택)으로 끌어 격자 워프. 첫 마디(gi0)는 시작 고정점이라 제외.
         if (bi > 0) {
           var grip = document.createElement('div');
@@ -458,7 +512,7 @@
           grip.dataset.gi = giBar;
           grip.title = anchored ? '박자 앵커 — 다시 끌어 옮기거나 아래 ‘박자 앵커 지우기’ 로 해제'
             : '끌어서 이 마디를 실제 박(파형 어택선)에 맞추기';
-          frag.appendChild(grip);
+          addFlowItem(grip, flowX(giBar), 16);
         }
       }
       if (bi === totalBars) break;
@@ -499,7 +553,7 @@
         c.textContent = sylFor(g % BAR);
         c.dataset.g = g;
         c.style.left = flowX(g) + 'px';
-        frag.appendChild(c);
+        addFlowItem(c, flowX(g), 24);
       });
     }
     tab.notes.forEach(function (nt) {
@@ -511,7 +565,7 @@
         su.dataset.gx = flowX(nt.gi);   // 격자 원위치(스냅 멱등용)
         su.style.width = (nt.glen * subPx() - 6) + 'px';
         su.style.top = y + 'px';
-        frag.appendChild(su);
+        addFlowItem(su, flowX(nt.gi), nt.glen * subPx());
       }
       var f = document.createElement('div');
       f.className = 'flow-fret' + (nt.conf < CONF_TH ? ' fc-low' : '');
@@ -519,7 +573,7 @@
       f.style.left = flowX(nt.gi) + 'px';
       f.dataset.gx = flowX(nt.gi);      // 격자 원위치(스냅 멱등용)
       f.style.top = y + 'px';
-      frag.appendChild(f);
+      addFlowItem(f, flowX(nt.gi), 22);
     });
     // ★아티큘레이션(악센트·슬라이드·해머/풀오프) — 흐름 타브에도 표기(사용자 요청 2026-07-18: 전엔 악보에만).
     //   슬라이드/해머는 '다음 음'(같은 현, pin_artic_strings 보장)으로 잇는다. 상행=H·하행=P.
@@ -529,7 +583,7 @@
       var x = flowX(nt.gi), y = 70 + (3 - nt.string) * 24;
       if (art.indexOf('ac') >= 0 || art.indexOf('hac') >= 0) {
         var acc = document.createElement('div'); acc.className = 'flow-art-accent'; acc.textContent = '>';
-        acc.style.left = x + 'px'; acc.style.top = (y - 16) + 'px'; frag.appendChild(acc);
+        acc.style.left = x + 'px'; acc.style.top = (y - 16) + 'px'; addFlowItem(acc, x, 14);
       }
       var isSlide = art.indexOf('sl') >= 0 || art.indexOf('ss') >= 0, isHam = art.indexOf('h') >= 0;
       var dst = sortedN[i + 1];
@@ -540,16 +594,16 @@
           var sl = document.createElement('div'); sl.className = 'flow-art-slide';
           sl.style.left = xa + 'px'; sl.style.top = (y + 8) + 'px'; sl.style.width = w + 'px';
           sl.style.transform = 'rotate(' + (Math.atan2(y2 - y, w) * 180 / Math.PI).toFixed(1) + 'deg)';
-          frag.appendChild(sl);
+          addFlowItem(sl, xa, w);
           var slb = document.createElement('div'); slb.className = 'flow-art-label'; slb.textContent = 'sl';
-          slb.style.left = ((x + x2) / 2) + 'px'; slb.style.top = (topY - 15) + 'px'; frag.appendChild(slb);
+          slb.style.left = ((x + x2) / 2) + 'px'; slb.style.top = (topY - 15) + 'px'; addFlowItem(slb, (x + x2) / 2, 24);
         } else {
           var slur = document.createElement('div'); slur.className = 'flow-art-slur';
           slur.style.left = (x + 5) + 'px'; slur.style.top = (topY - 10) + 'px';
-          slur.style.width = Math.max(6, x2 - x - 3) + 'px'; frag.appendChild(slur);
+          slur.style.width = Math.max(6, x2 - x - 3) + 'px'; addFlowItem(slur, x + 5, Math.max(6, x2 - x - 3));
           var hp = document.createElement('div'); hp.className = 'flow-art-label';
           hp.textContent = (dst.midi > nt.midi) ? 'H' : 'P';
-          hp.style.left = ((x + x2) / 2) + 'px'; hp.style.top = (topY - 23) + 'px'; frag.appendChild(hp);
+          hp.style.left = ((x + x2) / 2) + 'px'; hp.style.top = (topY - 23) + 'px'; addFlowItem(hp, (x + x2) / 2, 24);
         }
       }
     });
@@ -570,7 +624,7 @@
         d.className = 'flow-lyric' + (ph ? ' flow-lyric-ph' : '');  // ph=애드립 자리(♪) — 흐리게
         d.textContent = wtext;
         d.style.left = x + 'px';
-        frag.appendChild(d);
+        addFlowItem(d, x - estW / 2, estW);
         lastRight = x + estW / 2;
       };
       ly.segments.forEach(function (seg) {
@@ -603,7 +657,8 @@
         words.forEach(function (word, k) { placeLyric(word, seg.s + span * (k + 0.15) / words.length, faint); });
       });
     }
-    inner.appendChild(frag);
+    itemsEl().appendChild(frag);  // 남은 것 = 전폭 가로줄(항상 유지)
+    syncFlowWindow(true);         // 보이는 구간만 DOM 에 올린다
     window.__flowReady = true;
     drawFlowWave(); // 베이스 파형 띠 — 폭 확정 뒤(같은 grid 축)
     renderGutter(); // 좌측 고정 줄이름 라벨(스크롤 무관)
@@ -745,6 +800,7 @@
   }
 
   window.__drawFlowWave = drawFlowWave; // 믹서 페이지는 practice.js 가 __peaks 를 채운 뒤 이걸 호출
+  window.__flowCursor = updateFlowCursor; // 검증 배터리용(직접 seek 는 셸 이벤트를 안 쏴 커서가 안 움직임)
 
   // 타브 페이지는 믹서 뷰 init 이 안 돌아 __peaks 가 비어 있다(실측). 여기서 직접 받아 그린다(같은
   // 캐시 엔드포인트라 서버 부담 0, 중복은 __peaks 존재로 방지). duration 은 스템 로드 뒤라 Shell.ready 후.
@@ -765,19 +821,25 @@
      updateFlowCursor 초당 ~360ms): ①left 쓰기 대신 transform(수천 요소 흐름 DOM 의 레이아웃 무효화 0)
      ②scrollWidth/clientWidth 는 매 프레임 강제 리플로우 유발 — 렌더·리사이즈 때만 재서 캐시
      ③scrollLeft 읽기는 스타일 쓰기 '전'에(쓰기 후 읽으면 동기 레이아웃 강제). */
-  var _flowSc = null, _flowPh = null, _flowClientW = 0, _flowScrollW = 0, _flowSL = 0;
+  var _flowSc = null, _flowPh = null, _flowClientW = 0, _flowScrollW = 0, _flowSL = 0, _winPending = false;
   function measureFlow() {
     if (!_flowSc) {
       _flowSc = document.getElementById('flow-scroll');
       _flowPh = document.getElementById('flow-playhead');
       _flowPh.style.left = '0px'; // 이후 이동은 transform 만
-      _flowSc.addEventListener('scroll', function () { _flowSL = _flowSc.scrollLeft; }, { passive: true });
+      _flowSc.addEventListener('scroll', function () {
+        _flowSL = _flowSc.scrollLeft;
+        if (!_winPending) {  // 창 재계산은 프레임당 1회로 묶는다(스크롤 이벤트는 그보다 자주 온다)
+          _winPending = true;
+          requestAnimationFrame(function () { _winPending = false; syncFlowWindow(); });
+        }
+      }, { passive: true });
     }
     _flowClientW = _flowSc.clientWidth;
     _flowScrollW = _flowSc.scrollWidth;
     _flowSL = _flowSc.scrollLeft;
   }
-  window.addEventListener('resize', function () { if (_flowSc) measureFlow(); });
+  window.addEventListener('resize', function () { if (_flowSc) { measureFlow(); syncFlowWindow(true); } });
   function updateFlowCursor(t) {
     if (!tab || !tab.bpm) return;
     if (!_flowSc) measureFlow();
@@ -787,10 +849,11 @@
     if (flowFixed) {
       // 고정 모드: 진행바를 뷰포트 좌측 40% 지점에 두고 내용이 흘러감(끝 근처만 자연히 멈춤 — 곡 끝은 못 넘음)
       var target = Math.max(0, Math.min(_flowScrollW - _flowClientW, x - _flowClientW * 0.4));
-      if (Math.abs(target - sl) > 0.5) { _flowSc.scrollLeft = target; _flowSL = target; }
+      if (Math.abs(target - sl) > 0.5) { _flowSc.scrollLeft = target; _flowSL = target; syncFlowWindow(); }
     } else if (x < sl + 60 || x > sl + _flowClientW - 120) {
       var jump = Math.max(0, x - 160);
       _flowSc.scrollLeft = jump; _flowSL = jump; // 기본: 끝 근처 닿으면 점프 스크롤
+      syncFlowWindow();
     }
   }
   document.getElementById('flowfix-check').addEventListener('change', function (e) {
@@ -2011,6 +2074,8 @@
     activate: function () {
       if (needsScoreRender) { needsScoreRender = false; renderScore(); }
       updateCursor();
+      measureFlow();          // 숨은 동안엔 폭이 0 — 보일 때 다시 재고
+      syncFlowWindow(true);   // 그 폭 기준으로 보이는 구간을 다시 맞춘다
     },
   });
 
