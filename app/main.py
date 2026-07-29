@@ -820,16 +820,19 @@ async def get_tab(song_id: int):
             _notes = json.loads(row["notes"])
             _ly = json.loads(row["lyrics"])
             _segs = (_ly or {}).get("segments") or []
-            _ly_end = max((float(g.get("e") or g.get("s") or 0) for g in _segs), default=0.0)
-            _n_end = max((float(n["start"]) for n in _notes), default=0.0)
-            if _ly_end > _n_end + 2.0:   # 노트 뒤에 가사가 남아 있다 → 악보가 덮는지 확인
+            if _segs:
                 _bar_slots = 48 if ((row.get("meter") or "4/4") == "12/8" or (row.get("grid_v") or 1) >= 2) else 16
-                _have = row["tex"].splitlines()[-1].count(" | ") + 1
                 _slots = json.loads(row["slots"])
                 from app.tab_worker import _lyrics_by_gi, build_tab_tex
+                # 지금 규칙으로 '놓을 수 있는' 가사 단어 수 vs 악보에 실제로 들어 있는 단어 수.
+                # 이 비교 하나가 세 경우를 다 잡는다: ①가사 도착 전 만든 악보(0건) ②인트로·간주처럼
+                # 음표에서 먼 가사 ③마지막 음표 뒤 아웃트로. (실증 2026-07-29 곡14·곡20·곡25)
                 _gl = _lyrics_by_gi(_ly, _notes, slots=_slots, bar_slots=_bar_slots)
-                _need = (max(_gl) // _bar_slots) + 1 if _gl else 0
-                if _need > _have:
+                _want = sum(len(v) for v in _gl.values())
+                _have_words = sum(len(m.split()) for m in re.findall(r'lyrics "([^"]*)"', row["tex"]))
+                _bars_have = row["tex"].splitlines()[-1].count(" | ") + 1
+                _bars_need = (max(_gl) // _bar_slots) + 1 if _gl else 0
+                if _want > _have_words + 1 or _bars_need > _bars_have:
                     song = await db.get_song(song_id)
                     tex = build_tab_tex(_notes, row["bpm"], (song["title"] or "")[:80],
                                         json.loads(row["key_json"]) if row.get("key_json") else None,

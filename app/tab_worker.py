@@ -1975,22 +1975,41 @@ def _lyrics_by_gi(lyrics, notes, slots=None, bar_slots=None):
         best = min(cand, key=lambda x: abs(starts[x] - t))
         if abs(starts[best] - t) <= 0.7:  # 0.7초 이내 노트에만(먼 가사는 안 붙임 — 간주 등)
             out.setdefault(ns[best]["gi"], []).append(w)
-    # ---- 마지막 음표 이후의 가사 = 격자 박 슬롯에 직접 (노트가 없어 위 루프가 못 붙인 것) ----
+    # ---- 노트가 없어 위 루프가 못 붙인 가사 = 격자 박 슬롯에 직접 ----
+    #   인트로(밴드 들어오기 전)·간주(베이스 쉼)·아웃트로(세션 빠짐) 전부 같은 사정이다.
+    #   종전엔 '0.7초 이내 노트 없음 = 버림'이라 노래하고 있는데도 악보에서 사라졌다
+    #   (실증 2026-07-29: 곡20 인트로 5줄·곡14 5줄·곡25 아웃트로 4줄).
+    #   버리는 대신 **제 시각의 격자 자리**(박 스냅)에 얹어 쉼표 위에 표시한다.
     if slots is not None and len(slots) > 1 and bar_slots:
-        last_note = ns[-1]
-        tail_t = float(last_note["start"]) + 0.7
-        beat = max(1, bar_slots // 4)          # 박 단위로 스냅 — 쉼표 조판이 읽히게(칸이 잘게 쪼개지지 않게)
+        beat = max(1, bar_slots // 4)          # 박 단위 스냅 — 쉼표 조판이 읽히게(칸이 잘게 쪼개지지 않게)
+        arr = np.asarray(slots, dtype=float)
         step = (float(slots[-1]) - float(slots[0])) / max(1, len(slots) - 1)   # 슬롯 1칸 시간
+        note_gis = {n["gi"] for n in ns}
+        ns_by_gi = {n["gi"]: n for n in ns}
+        gi_starts = sorted(ns_by_gi)
         for t, w in sorted(pairs):
-            if t <= tail_t:
-                continue
+            j = bisect.bisect_left(starts, t)
+            cand = [x for x in (j - 1, j) if 0 <= x < len(ns)]
+            if cand and min(abs(starts[x] - t) for x in cand) <= 0.7:
+                continue                          # 이미 노트에 붙었다
+            if t < float(slots[0]) - 0.5:
+                continue                          # 격자보다 앞(카운트인·잡음) — 놓을 자리가 없다
             if t <= float(slots[-1]):
-                gi = int(np.searchsorted(np.asarray(slots, dtype=float), t))
-            else:                                # 격자 밖 — 마지막 간격으로 등속 연장(재분석 없이 기존 곡도 적용)
+                gi = int(np.searchsorted(arr, t))
+            else:                                 # 격자 밖 — 마지막 간격으로 등속 연장(재분석 없이 적용)
                 gi = int(len(slots) - 1 + round((t - float(slots[-1])) / max(step, 1e-6)))
-            gi = int(round(gi / beat) * beat)     # 박에 스냅
-            if gi <= last_note["gi"]:
+            gi = int(round(gi / beat) * beat)      # 박에 스냅
+            if gi < 0:
                 continue
+            # 긴 음(지속) 한가운데 떨어지는 단어는 **그 음표 아래로 모은다**.
+            # 음표를 쪼개 붙임줄로 만들면 가사는 제자리에 오지만 베이스 타브의 리듬 표기가
+            # 붙임줄투성이가 된다 — 여기선 리듬 표기를 지키고 가사를 같이 얹는 쪽을 택했다
+            # (실증 2026-07-29 곡20: 이 경우가 178단어 중 72개 — 안 모으면 그만큼 사라진다).
+            j2 = bisect.bisect_right(gi_starts, gi) - 1
+            if j2 >= 0:
+                host = ns_by_gi[gi_starts[j2]]
+                if gi < host["gi"] + max(1, host.get("glen", 1)):
+                    gi = host["gi"]
             out.setdefault(gi, []).append(w)
     return out
 
@@ -2334,6 +2353,9 @@ def to_alphatex(notes, bpm, title, key=None, chords=None, meter="4/4", families=
             # 붙임줄 연속 — 직전 음의 남은 지속
             s_nt, s_left = sustain
             token_len = min(s_left, remaining_in_bar)
+            _k = bisect.bisect_right(slot_keys, gi)   # 다음 가사/노트 자리에서 끊어 그 자리에 가사를 얹을 수 있게
+            if _k < len(slot_keys):
+                token_len = min(token_len, max(1, slot_keys[_k] - gi))
             name, dotted, tup, used = _dur_token(token_len, cur_table)
             # 이 음의 마지막 붙임줄 조각이면 미뤄둔 슬라이드(sl/ss)를 여기 붙임(다음 음으로 빗금 연결)
             tail_fx = ""
@@ -2350,6 +2372,8 @@ def to_alphatex(notes, bpm, title, key=None, chords=None, meter="4/4", families=
             if chord_pending:
                 effects.append(f'ch "{chord_pending}"')
                 chord_pending = None
+            if gi in gi_lyric:  # 지속(붙임줄) 중에도 노래는 이어진다 — 여기서 가사가 새던 것(실증 2026-07-29)
+                effects.append('lyrics "%s"' % " ".join(gi_lyric[gi]).replace('"', ""))
             if effects:
                 token += "{" + " ".join(effects) + "}"
             bar.append(token)
@@ -2381,7 +2405,10 @@ def to_alphatex(notes, bpm, title, key=None, chords=None, meter="4/4", families=
         if filled % bar_len == 0:
             bars.append(" ".join(bar))
             bar = []
-        if gi > 10000:  # 안전핀
+        # 안전핀 — 무한 루프만 막는다. 종전 상수 10000 은 **6분 36초쯤에서 악보를 통째로 잘랐다**
+        # (48칸 격자 기준, 실증 2026-07-29: 곡14 11분·곡20 7분51초·곡24 8분19초가 209마디에서 끊김).
+        # 곡 길이에 비례한 상한으로 바꿔 긴 곡도 끝까지 조판한다.
+        if gi > end_gi + bar_len * 4:
             break
     if bar:
         bars.append(" ".join(bar))

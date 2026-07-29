@@ -18,6 +18,13 @@
     var slots = meta.slots;
     if (slots && slots.length > 1) {
       if (t < slots[0]) return -1;
+      // 격자 끝을 넘으면 마지막 간격으로 등속 연장 — 안 그러면 아웃트로 가사가 전부 마지막 마디에
+      // 몰려버린다(세션 빠지는 곡, 실증 2026-07-29). 흐름 타브의 timeSlot 과 같은 규칙.
+      var last = slots[slots.length - 1];
+      if (t > last) {
+        var step = (last - slots[0]) / (slots.length - 1);
+        return Math.floor((slots.length - 1 + (t - last) / (step || 1)) / bs);
+      }
       var lo = 0, hi = slots.length - 1;
       while (lo < hi) { var mid = (lo + hi + 1) >> 1; if (slots[mid] <= t) lo = mid; else hi = mid - 1; }
       return Math.floor(lo / bs);
@@ -80,6 +87,14 @@
       var lastGi = 0;
       t.notes.forEach(function (n) { lastGi = Math.max(lastGi, n.gi + n.glen); });
       barsCount = Math.ceil(lastGi / bs);
+      // ★음표가 끝나도 노래는 계속된다 — 마지막 음표 기준으로 자르면 아웃트로(세션 빠짐) 가사가
+      //   격자 밖으로 밀려 사라진다(사용자 실증 2026-07-29 곡25). 가사 끝까지 마디를 이어간다.
+      var segsL = (t.lyrics && t.lyrics.status === 'ready' && t.lyrics.segments) || [];
+      if (segsL.length) {
+        var lyEndT = 0;
+        segsL.forEach(function (sg) { lyEndT = Math.max(lyEndT, sg.e || sg.s || 0); });
+        if (lyEndT > 0) barsCount = Math.max(barsCount, timeToBar(lyEndT) + 1);
+      }
       byBar = groupByBar(t.chords);
       var kd = '';
       if (t.key_json && t.key_json.label) {
